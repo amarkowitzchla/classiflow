@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles */
+body {
+  @apply bg-gray-50 text-gray-900;
+}
+
+/* Code blocks */
+pre {
+  @apply bg-gray-800 text-gray-100 p-4 rounded-lg overflow-x-auto;
+}
+
+code {
+  @apply font-mono text-sm;
+}
+
+/* Tables */
+table {
+  @apply w-full border-collapse;
+}
+
+th {
+  @apply bg-gray-100 text-left p-2 border-b-2 border-gray-200 font-semibold text-sm;
+}
+
+td {
+  @apply p-2 border-b border-gray-100 text-sm;
+}
+
+/* Metric values */
+.metric-value {
+  @apply font-mono tabular-nums;
+}
+
+/* Decision badges */
+.badge-pass {
+  @apply bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium;
+}
+
+.badge-fail {
+  @apply bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs font-medium;
+}
+
+.badge-pending {
+  @apply bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-xs font-medium;
+}

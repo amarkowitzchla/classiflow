@@ -1,0 +1,216 @@
+# Classiflow Documentation
+# https://alexmarkowitz.github.io/classiflow/
+
+site_name: Classiflow
+site_url: https://alexmarkowitz.github.io/classiflow/
+site_author: Alexander Markowitz
+site_description: >-
+  Production-grade ML toolkit for molecular subtype classification
+  with nested cross-validation and publication-ready reporting.
+
+repo_name: alexmarkowitz/classiflow
+repo_url: https://github.com/alexmarkowitz/classiflow
+edit_uri: edit/main/docs/
+
+copyright: Copyright &copy; 2024 Alexander Markowitz
+
+# Theme configuration
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.tabs.link
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+    - content.action.view
+  palette:
+    # Light mode
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Roboto
+    code: Roboto Mono
+  icon:
+    repo: fontawesome/brands/github
+    admonition:
+      note: octicons/tag-16
+      abstract: octicons/checklist-16
+      info: octicons/info-16
+      tip: octicons/squirrel-16
+      success: octicons/check-16
+      question: octicons/question-16
+      warning: octicons/alert-16
+      failure: octicons/x-circle-16
+      danger: octicons/zap-16
+      bug: octicons/bug-16
+      example: octicons/beaker-16
+      quote: octicons/quote-16
+
+# Plugins
+plugins:
+  - search:
+      separator: '[\s\-\._]+'
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            docstring_options:
+              ignore_init_summary: true
+            merge_init_into_class: true
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            signature_crossrefs: true
+            members_order: source
+            filters:
+              - "!^_"
+              - "^__init__$"
+
+# Markdown extensions
+markdown_extensions:
+  # Python Markdown
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+
+  # PyMdown Extensions
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+# Extra configuration
+extra:
+  version:
+    provider: mike
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/alexmarkowitz/classiflow
+  analytics:
+    provider: google
+    property: G-XXXXXXXXXX  # Replace with actual GA4 ID if desired
+  generator: false
+
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+# Navigation structure
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Quickstart: getting-started/quickstart.md
+  - Tutorials:
+    - tutorials/index.md
+    - Binary Classification: tutorials/binary-classification.md
+    - Multiclass Classification: tutorials/multiclass-classification.md
+    - Imbalanced Data & SMOTE: tutorials/imbalanced-data.md
+    - Cross-Validation & Reproducibility: tutorials/cross-validation.md
+    - Publication Figures: tutorials/publication-figures.md
+    - Methods Text & Tables: tutorials/methods-tables.md
+  - How-to Guides:
+    - how-to/index.md
+    - Configure a Run: how-to/configure-run.md
+    - Add Custom Models: how-to/custom-models.md
+    - Customize Metrics: how-to/customize-metrics.md
+    - Customize Plots: how-to/customize-plots.md
+    - Export Results: how-to/export-results.md
+    - Compare Multiple Runs: how-to/compare-runs.md
+    - Handle Class Imbalance: how-to/class-imbalance.md
+  - Concepts:
+    - concepts/index.md
+    - What is a Run: concepts/what-is-a-run.md
+    - Pipeline Boundaries: concepts/pipeline-boundaries.md
+    - Resampling vs Class Weighting: concepts/resampling-vs-weighting.md
+    - Metrics Interpretation: concepts/metrics-interpretation.md
+    - Reproducibility Guarantees: concepts/reproducibility.md
+  - CLI Reference:
+    - cli/index.md
+    - train-binary: cli/train-binary.md
+    - train-meta: cli/train-meta.md
+    - train-hierarchical: cli/train-hierarchical.md
+    - infer: cli/infer.md
+    - stats: cli/stats.md
+    - bundle: cli/bundle.md
+  - API Reference:
+    - api/index.md
+    - Training: api/training.md
+    - Inference: api/inference.md
+    - Configuration: api/config.md
+    - Task Builder: api/tasks.md
+    - Statistics: api/stats.md
+    - Bundles: api/bundles.md
+    - I/O & Data: api/io.md
+    - Lineage: api/lineage.md
+  - Publication & Reproducibility:
+    - publication/index.md
+    - Reporting Checklist: publication/checklist.md
+    - Data Leakage Prevention: publication/leakage-prevention.md
+    - Environment Capture: publication/environment.md
+    - Methods Paragraph Template: publication/methods-template.md
+    - Citing Classiflow: publication/citing.md
+  - FAQ: faq.md
+  - Changelog: changelog.md

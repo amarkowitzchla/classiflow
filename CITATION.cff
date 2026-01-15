@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use classiflow in your research, please cite it as below."
+authors:
+  - family-names: "Markowitz"
+    given-names: "Alexander"
+    email: "alexmarkowitz@ucla.edu"
+    affiliation: "University of California, Los Angeles"
+title: "classiflow: Production-grade ML toolkit for molecular subtype classification"
+version: 0.1.0
+date-released: 2024-01-13
+url: "https://github.com/alexmarkowitz/classiflow"
+repository-code: "https://github.com/alexmarkowitz/classiflow"
+keywords:
+  - machine-learning
+  - classification
+  - nested-cross-validation
+  - molecular-subtypes
+  - bioinformatics
+  - smote
+  - meta-classifier
+license: MIT

@@ -1,0 +1,101 @@
+/* Classiflow Documentation Custom Styles */
+
+/* Improved code block styling */
+.md-typeset code {
+  font-size: 0.85em;
+}
+
+/* Better table styling */
+.md-typeset table:not([class]) {
+  font-size: 0.85em;
+}
+
+.md-typeset table:not([class]) th {
+  white-space: nowrap;
+}
+
+/* Admonition improvements for scientific content */
+.md-typeset .admonition.warning,
+.md-typeset details.warning {
+  border-left-color: #ff9800;
+}
+
+.md-typeset .admonition.important,
+.md-typeset details.important {
+  border-left-color: #f44336;
+}
+
+/* API reference styling */
+.doc-heading {
+  font-weight: 600;
+}
+
+/* Parameter tables */
+.md-typeset .parameter-table td:first-child {
+  font-family: var(--md-code-font-family);
+  font-weight: 500;
+}
+
+/* Output examples */
+.md-typeset .output-example {
+  background-color: var(--md-code-bg-color);
+  padding: 1em;
+  border-radius: 4px;
+  font-family: var(--md-code-font-family);
+  font-size: 0.85em;
+  overflow-x: auto;
+}
+
+/* Publication checklist */
+.md-typeset .checklist-item {
+  margin-bottom: 0.5em;
+}
+
+/* Metric interpretation boxes */
+.md-typeset .metric-box {
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-radius: 4px;
+  padding: 1em;
+  margin: 1em 0;
+}
+
+.md-typeset .metric-box h4 {
+  margin-top: 0;
+  color: var(--md-primary-fg-color);
+}
+
+/* CLI command styling */
+.md-typeset .cli-command {
+  font-family: var(--md-code-font-family);
+  background-color: var(--md-code-bg-color);
+  padding: 0.5em 1em;
+  border-radius: 4px;
+  display: block;
+  margin: 1em 0;
+}
+
+/* File tree display */
+.md-typeset .file-tree {
+  font-family: var(--md-code-font-family);
+  font-size: 0.85em;
+  background-color: var(--md-code-bg-color);
+  padding: 1em;
+  border-radius: 4px;
+}
+
+/* Responsive images */
+.md-typeset img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Version badge */
+.version-badge {
+  display: inline-block;
+  padding: 0.25em 0.5em;
+  background-color: var(--md-primary-fg-color);
+  color: var(--md-primary-bg-color);
+  border-radius: 4px;
+  font-size: 0.75em;
+  font-weight: 600;
+}

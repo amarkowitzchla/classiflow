@@ -1,0 +1,9 @@
+include README.md
+include LICENSE
+include CHANGELOG.md
+include CITATION.cff
+include MIGRATION.md
+include pyproject.toml
+recursive-include src/classiflow *.py
+recursive-include src/classiflow/streamlit_app *.py
+include src/classiflow/py.typed

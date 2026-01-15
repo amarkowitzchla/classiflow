@@ -1,0 +1,133 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "classiflow"
+version = "0.1.0"
+description = "Production-grade ML toolkit for molecular subtype classification with nested cross-validation"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Alexander Markowitz", email = "amarkowitz@chla.usc.edu"}
+]
+keywords = ["machine-learning", "classification", "nested-cross-validation", "molecular-subtypes", "bioinformatics"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "pandas>=2.0.0,<2.3.0",
+    "numpy>=1.24.0,<2.0.0",
+    "scikit-learn>=1.4.0,<1.6.0",
+    "imbalanced-learn>=0.12.0,<0.13.0",
+    "matplotlib>=3.7.0,<4.0.0",
+    "scipy>=1.10.0,<2.0.0",
+    "joblib>=1.3.0,<2.0.0",
+    "tqdm>=4.65.0",
+    "typer>=0.9.0",
+    "pydantic>=2.0.0,<3.0.0",
+    "pyyaml>=6.0,<7.0",
+    "torch>=2.0.0,<2.6.0",
+    "seaborn>=0.12"
+]
+
+[project.optional-dependencies]
+app = [
+    "streamlit>=1.36.0",
+    "plotly>=5.17.0",
+    "openpyxl>=3.1.0",
+    "xlsxwriter>=3.1.0",
+    "Pillow>=10.0.0",
+]
+ui = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "httpx>=0.26.0",
+]
+viz = [
+    "umap-learn>=0.5.5",
+    "plotly>=5.17.0",
+]
+stats = [
+    "statsmodels>=0.14.0",
+    "scikit-posthocs>=0.7.0",
+    "seaborn>=0.12.0",
+]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-xdist>=3.3.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0",
+    "black>=23.0.0",
+    "build>=1.0.0",
+    "twine>=4.0.0",
+]
+docs = [
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.5.0",
+    "mkdocstrings[python]>=0.24.0",
+    "mike>=2.0.0",
+    "pymdown-extensions>=10.0",
+]
+all = [
+    "classiflow[app,ui,viz,stats,dev,docs]",
+]
+
+[project.scripts]
+classiflow = "classiflow.cli.main:app"
+
+[project.urls]
+Homepage = "https://github.com/alexmarkowitz/classiflow"
+Repository = "https://github.com/alexmarkowitz/classiflow"
+Issues = "https://github.com/alexmarkowitz/classiflow/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["classiflow*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+classiflow = ["py.typed"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+norecursedirs = ["src", ".git", ".tox", "dist", "build", "*.egg"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--showlocals",
+]
