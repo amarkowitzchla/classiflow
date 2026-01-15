@@ -79,7 +79,7 @@ dmypy.json
 
 # dev 
 data/
-dist/
+
 derived/
 legacy/
 projects/
