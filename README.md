@@ -54,16 +54,214 @@ pip install -e ".[dev]"
 | `classiflow bundle create/inspect/validate` | Package training artifacts into ZIP, inspect metadata, and validate completeness. |
 | `classiflow migrate run/batch` | Migrate legacy run directories to the new lineage (`run.json`) format. |
 
-## Quick Start: Binary Workflow
+## Quick Start: Project Workflow (Bootstrap → Ship)
 
-1. **Prepare your CSV** with feature columns plus a label column (`diagnosis`, `subtype`, etc.). Include non-numeric columns as long as you exclude them from the feature set.
-2. **Train the binary task**:
+The project workflow provides a structured pipeline for developing clinical ML tests. It handles dataset registration, validation, model training, evaluation, and deployment.
+
+### Data Format Examples
+
+**Binary classification** (two classes):
+
+```csv
+sample_id,feature_1,feature_2,feature_3,diagnosis
+S001,0.52,1.23,0.87,Tumor
+S002,0.31,0.95,1.12,Normal
+S003,0.67,1.45,0.93,Tumor
+```
+
+**Multiclass / meta classification** (3+ classes):
+
+```csv
+sample_id,feature_1,feature_2,feature_3,subtype
+S001,0.52,1.23,0.87,TypeA
+S002,0.31,0.95,1.12,TypeB
+S003,0.67,1.45,0.93,TypeC
+S004,0.44,1.10,0.88,TypeA
+```
+
+**Hierarchical classification** (two-level labels with optional patient grouping):
+
+```csv
+sample_id,patient_id,feature_1,feature_2,tumor_type,subtype
+S001,P001,0.52,1.23,Glioma,Astrocytoma
+S002,P001,0.31,0.95,Glioma,Oligodendroglioma
+S003,P002,0.67,1.45,Meningioma,Grade_I
+S004,P003,0.44,1.10,Glioma,GBM
+```
+
+---
+
+### Step 1: Bootstrap the Project
+
+Choose the appropriate mode based on your classification task.
+
+**Binary mode** (two-class classification):
+
+```bash
+classiflow project bootstrap \
+  --train-manifest data/train.csv \
+  --test-manifest data/test.csv \
+  --name "Tumor Detection" \
+  --mode binary \
+  --label-col diagnosis
+```
+
+**Meta mode** (multiclass via OvR + pairwise binary tasks):
+
+```bash
+classiflow project bootstrap \
+  --train-manifest data/train.csv \
+  --test-manifest data/test.csv \
+  --name "Glioma Subtype" \
+  --mode meta \
+  --label-col subtype
+```
+
+**Hierarchical mode** (two-level classification with patient stratification):
+
+```bash
+classiflow project bootstrap \
+  --train-manifest data/train.csv \
+  --test-manifest data/test.csv \
+  --name "Brain Tumor" \
+  --mode hierarchical \
+  --label-col tumor_type \
+  --hierarchy subtype \
+  --patient-id-col patient_id
+```
+
+**Hierarchical mode** (sample-level splits, no patient grouping):
+
+```bash
+classiflow project bootstrap \
+  --train-manifest data/train.csv \
+  --name "Brain Tumor" \
+  --mode hierarchical \
+  --label-col tumor_type \
+  --hierarchy subtype \
+  --no-patient-stratified
+```
+
+Bootstrap options:
+- `--mode`: `auto` | `binary` | `meta` | `hierarchical` (default: `auto`)
+- `--test-manifest`: Optional; register later with `classiflow project register-dataset`
+- `--copy-data`: `copy` | `symlink` | `pointer` (default: `pointer`)
+- `--threshold`: Override metric thresholds, e.g., `--threshold auc:0.85`
+
+---
+
+### Step 2: Run Technical Validation (Optional)
+
+Validate data quality and configuration:
+
+```bash
+classiflow project run-technical projects/TUMOR_DETECTION__tumor_detection
+```
+
+---
+
+### Step 3: Run Feasibility Analysis (Optional)
+
+Generate exploratory statistics and visualizations:
+
+```bash
+classiflow project run-feasibility projects/TUMOR_DETECTION__tumor_detection
+```
+
+---
+
+### Step 4: Build the Model Bundle
+
+Train the final model and package it:
+
+```bash
+classiflow project build-bundle projects/TUMOR_DETECTION__tumor_detection
+```
+
+This runs the appropriate training command (`train-binary`, `train-meta`, or `train-hierarchical`) based on the project mode and creates a deployable bundle.
+
+---
+
+### Step 5: Run Independent Test Evaluation
+
+Evaluate performance on the held-out test set:
+
+```bash
+classiflow project run-test projects/TUMOR_DETECTION__tumor_detection
+```
+
+---
+
+### Step 6: Generate Promotion Recommendation
+
+Evaluate promotion gates and emit a go/no-go recommendation:
+
+```bash
+classiflow project recommend projects/TUMOR_DETECTION__tumor_detection
+```
+
+Override failed gates (with justification):
+
+```bash
+classiflow project recommend projects/TUMOR_DETECTION__tumor_detection \
+  --override \
+  --comment "Approved with known limitation" \
+  --approver "user@example.com"
+```
+
+---
+
+### Step 7: Ship for Deployment
+
+Export the bundle and metadata for production deployment:
+
+```bash
+classiflow project ship projects/TUMOR_DETECTION__tumor_detection \
+  --out deploy/tumor_detection_v1
+```
+
+The ship directory includes:
+- `model_bundle.zip` — deployable model artifact
+- `run.json` — training run metadata
+- `lineage.json` — data and model lineage
+- `decision.yaml` — promotion decision record
+- `ship_manifest.yaml` — deployment index
+
+---
+
+### Step 8: Validate and Use the Shipped Bundle
+
+Inspect and validate the bundle:
+
+```bash
+classiflow bundle validate deploy/tumor_detection_v1/model_bundle.zip
+classiflow bundle inspect deploy/tumor_detection_v1/model_bundle.zip --verbose
+```
+
+Run inference on new samples:
+
+```bash
+classiflow infer \
+  --bundle deploy/tumor_detection_v1/model_bundle.zip \
+  --data-csv data/new_samples.csv \
+  --outdir results/
+```
+
+---
+
+## Standalone Training Commands
+
+For direct training without the project workflow, use these commands:
+
+### train-binary
+
+Nested CV binary classification with SMOTE support:
 
 ```bash
 classiflow train-binary \
   --data-csv data/features.csv \
   --label-col diagnosis \
-  --pos-label "PositiveClass" \
+  --pos-label "Tumor" \
   --smote both \
   --outer-folds 5 \
   --inner-splits 5 \
@@ -72,69 +270,52 @@ classiflow train-binary \
   --verbose
 ```
 
-   - `--smote` defaults to `off`; use `on`/`both` to synthesize minority-class samples.
-   - `--max-iter` controls the linear solver convergence for logistic/ridge classifiers.
-3. **Summarize or export** training metrics for quick reporting:
+Options:
+- `--smote`: `off` | `on` | `both` (default: `off`)
+- `--pos-label`: Specify positive class (default: minority class)
+- `--max-iter`: Linear solver iterations (default: 10000)
+
+### train-meta
+
+Multiclass via combined OvR + pairwise binary tasks:
 
 ```bash
-classiflow summarize derived/binary
-classiflow export-best derived/binary
+classiflow train-meta \
+  --data-csv data/features.csv \
+  --label-col subtype \
+  --smote both \
+  --outer-folds 5 \
+  --inner-splits 5 \
+  --outdir derived/meta \
+  --verbose
 ```
 
-4. **Create a portable bundle** for deployment or sharing:
+With custom composite tasks from JSON:
 
 ```bash
-classiflow bundle create \
-  --run-dir derived/binary \
-  --out artifacts/binary_bundle.zip \
-  --all-folds \
-  --description "Binary nested CV v0.2"
-classiflow bundle inspect artifacts/binary_bundle.zip
-classiflow bundle validate artifacts/binary_bundle.zip
+classiflow train-meta \
+  --data-csv data/features.csv \
+  --label-col subtype \
+  --tasks-json tasks.json \
+  --tasks-only \
+  --smote both \
+  --outdir derived/meta
 ```
 
-5. **Run inference** on new samples:
+Options:
+- `--classes`: Subset/order of classes to include
+- `--tasks-json`: Custom task definitions
+- `--tasks-only`: Skip auto OvR/pairwise, use only JSON tasks
 
-```bash
-classiflow infer \
-  --data-csv data/new_samples.csv \
-  --run-dir derived/binary \
-  --outdir derived/binary_infer \
-  --label-col diagnosis \
-  --lenient \
-  --fill-strategy median \
-  --device cpu
-```
+### train-hierarchical
 
-   - Use `--bundle` instead of `--run-dir` when deploying from a ZIP.
-   - `--no-plots` / `--no-excel` skip optional outputs when needed.
-
-6. **Surface statistical insights**:
-
-```bash
-classiflow stats run --data-csv data/features.csv --label-col diagnosis --outdir derived/stats
-classiflow stats viz --data-csv data/features.csv --label-col diagnosis --stats-dir derived/stats
-```
-
-7. **Migrate legacy runs** if you have `run_manifest.json` files:
-
-```bash
-classiflow migrate run derived/binary --data-csv data/features.csv
-classiflow migrate batch archived_runs --pattern "derived_*" --dry-run
-```
-
-## Quick Start: Hierarchical Workflow
-
-Hierarchical mode routes patients through Level-1 → branch-specific Level-2 classifiers while respecting patient-level stratification. Refer to [`HIERARCHICAL_TRAINING.md`](HIERARCHICAL_TRAINING.md) for the full guide.
-
-1. **Structure your CSV** with `patient_id`/`svs_id`, `label_l1`, optional `label_l2`, and numeric feature columns.
-2. **Train the hierarchical model**:
+Two-level classification with optional patient stratification:
 
 ```bash
 classiflow train-hierarchical \
   --data-csv data/features.csv \
   --patient-col patient_id \
-  --label-l1 diagnosis \
+  --label-l1 tumor_type \
   --label-l2 subtype \
   --device auto \
   --use-smote \
@@ -146,30 +327,52 @@ classiflow train-hierarchical \
   --verbose 2
 ```
 
-   - Omit `--label-l2` for flat multiclass training; include it to enable branch models.
-   - Control L2 routing via `--l2-classes` and `--min-l2-classes-per-branch`.
-   - `--device` accepts `auto`, `cpu`, `cuda`, or `mps`.
-
-3. **Inspect training outputs**: each fold directory contains scalers, encoders, configs, and `metrics_outer_eval.xlsx`.
-4. **Bundle hierarchical outputs** the same way as binary models (use `mlsubtype bundle`).
-5. **Run hierarchical inference**:
+Single-level (flat multiclass) without L2:
 
 ```bash
-classiflow infer-hierarchical \
-  --data-csv data/new_tiles.csv \
-  --model-dir derived/hierarchical \
-  --fold 1 \
-  --device cuda \
-  --outfile derived/hierarchical_predictions.csv \
-  --include-proba
+classiflow train-hierarchical \
+  --data-csv data/features.csv \
+  --label-l1 diagnosis \
+  --device auto \
+  --outdir derived/flat_multiclass
 ```
 
-   - Outputs include `l1_class`, `l2_class`, and optional probabilities/uncertainty.
-6. **Use `mlsubtype infer`** when you want the full inference stack (Excel reports, ROC plots, metrics) from a bundle or run directory.
+Options:
+- `--patient-col`: Enable patient-level stratification (prevents leakage)
+- `--label-l2`: Enable hierarchical L1→L2 routing
+- `--device`: `auto` | `cpu` | `cuda` | `mps`
+- `--l2-classes`: Subset of L2 classes to include
+- `--min-l2-classes-per-branch`: Minimum L2 classes per branch (default: 2)
+
+---
+
+## Additional Utilities
+
+**Statistical analysis:**
+
+```bash
+classiflow stats run --data-csv data/features.csv --label-col diagnosis --outdir derived/stats
+classiflow stats viz --data-csv data/features.csv --label-col diagnosis --stats-dir derived/stats
+```
+
+**Bundle management:**
+
+```bash
+classiflow bundle create --run-dir derived/binary --out bundle.zip --all-folds
+classiflow bundle inspect bundle.zip --verbose
+classiflow bundle validate bundle.zip
+```
+
+**Migrate legacy runs:**
+
+```bash
+classiflow migrate run derived/binary --data-csv data/features.csv
+classiflow migrate batch archived_runs --pattern "derived_*" --dry-run
+```
 
 ## Next Steps
 
-- Explore `ENVIRONMENT.md`, `MANIFEST.in`, and `src/classiflow/cli` if you want to extend or script these workflows.
-- Run `classiflow stats umap` via the standalone script in `scripts/umap_plot.py` for dimensionality reduction visuals.
-- Consult `HIERARCHICAL_TRAINING.md` for advanced sampling, GPU tuning, and troubleshooting.
-
+- See [PROJECT_QUICKSTART.md](docs/PROJECT_QUICKSTART.md) for detailed project workflow documentation
+- Consult [HIERARCHICAL_TRAINING.md](HIERARCHICAL_TRAINING.md) for advanced hierarchical mode options, GPU tuning, and troubleshooting
+- Run `classiflow stats umap` via `scripts/umap_plot.py` for dimensionality reduction visuals
+- Explore `src/classiflow/cli` to extend or script these workflows
