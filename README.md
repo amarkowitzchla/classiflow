@@ -13,10 +13,13 @@ Production-grade toolkit for molecular subtype classification, built around nest
 - **CLI-first workflows** for training, inference, statistical analysis, model bundling, and migration.
 - **Artifact lineage** with run manifests, hashes, and portable bundles for reproducibility.
 
-## Installation
 
+## Installation 
 ```bash
-pip install classiflow
+git clone https://github.com/amarkowitzchla/classiflow.git
+cd classiflow
+pip install dist/classiflow-0.1.0-py3-none-any.whl
+
 ```
 
 Optionally install extras:
