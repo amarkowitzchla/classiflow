@@ -76,6 +76,18 @@ You can combine multiple extras:
 pip install classiflow[app,stats]
 ```
 
+## Project run prerequisites
+
+`classiflow project run-feasibility` and `classiflow project run-technical` use Excel exports, stats tests, and UMAP visualizations, so install the optional extras before you execute those commands:
+
+```bash
+pip install classiflow[app,stats,viz]
+```
+
+- `app` provides `xlsxwriter`/`openpyxl` for the spreadsheets created during technical validation.
+- `stats` pulls in `statsmodels` and `scikit-posthocs` for statistical tests and reports.
+- `viz` brings in `umap-learn`, which now installs cleanly because the core dependency allows `scikit-learn` up through version 2.0.
+
 ## Development Installation
 
 For contributing or modifying classiflow:
@@ -177,7 +189,7 @@ Classiflow depends on these core packages (installed automatically):
 |---------|---------|---------|
 | pandas | >=2.0.0,<2.3.0 | Data handling |
 | numpy | >=1.24.0,<2.0.0 | Numerical computing |
-| scikit-learn | >=1.4.0,<1.6.0 | ML models |
+| scikit-learn | >=1.4.0,<2.0.0 | ML models |
 | imbalanced-learn | >=0.12.0 | SMOTE |
 | matplotlib | >=3.7.0 | Plotting |
 | scipy | >=1.10.0 | Scientific computing |

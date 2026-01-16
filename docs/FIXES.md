@@ -33,10 +33,10 @@ This script:
 - Avoids system Python conflicts
 
 **pyproject.toml Update:**
-Added version constraints to prevent future conflicts:
+Added version constraints to prevent future conflicts while still accommodating the optional visualization stack:
 ```toml
 dependencies = [
-    "scikit-learn>=1.4.0,<1.6.0",
+    "scikit-learn>=1.4.0,<2.0.0",
     "imbalanced-learn>=0.12.0,<0.13.0",
     ...
 ]

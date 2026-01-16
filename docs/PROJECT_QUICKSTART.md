@@ -58,6 +58,13 @@ key_columns:
   patient_id: PATIENT_ID
 ```
 
+Before you run the feasibility or technical validation steps, install the extras that provide the required Excel and stats tooling:
+
+```bash
+pip install classiflow[app,stats,viz]
+```
+`app` supplies `xlsxwriter`/`openpyxl` for the validation spreadsheets, `stats` gives you `statsmodels` and `scikit-posthocs`, and `viz` brings in `umap-learn` now that `scikit-learn` allows versions up to 2.0.0.
+
 ## 2) Run feasibility (optional)
 
 ```bash

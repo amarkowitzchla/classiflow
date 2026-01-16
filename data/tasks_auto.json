@@ -1,0 +1,50 @@
+{
+  "one_vs_rest": [
+    {
+      "positive": "setosa",
+      "negative": [
+        "versicolor",
+        "virginica"
+      ]
+    },
+    {
+      "positive": "versicolor",
+      "negative": [
+        "setosa",
+        "virginica"
+      ]
+    },
+    {
+      "positive": "virginica",
+      "negative": [
+        "setosa",
+        "versicolor"
+      ]
+    }
+  ],
+  "pairwise": [
+    {
+      "pair": [
+        "setosa",
+        "versicolor"
+      ]
+    },
+    {
+      "pair": [
+        "setosa",
+        "virginica"
+      ]
+    },
+    {
+      "pair": [
+        "versicolor",
+        "virginica"
+      ]
+    }
+  ],
+  "labels": [
+    "setosa",
+    "versicolor",
+    "virginica"
+  ]
+}

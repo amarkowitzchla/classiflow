@@ -77,7 +77,7 @@ dmypy.json
 .streamlit/
 
 # dev 
-data/
+
 
 derived/
 legacy/

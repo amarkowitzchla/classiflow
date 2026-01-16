@@ -35,6 +35,8 @@ pip install 'classiflow[docs]'    # MkDocs-based documentation toolchain
 pip install 'classiflow[all]'     # Everything (app, ui, viz, stats, parquet, dev, docs)
 ```
 
+Before you run `classiflow project run-feasibility` or `classiflow project run-technical`, install the `app`, `stats`, and `viz` extras so the Excel reports, pairwise statistics, and UMAP plots can find `xlsxwriter`, `statsmodels`, `scikit-posthocs`, and `umap-learn`.
+
 From a local checkout, install the package (optionally editable) instead of relying on the prebuilt wheel:
 
 ```bash

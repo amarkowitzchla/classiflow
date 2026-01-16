@@ -1,0 +1,20 @@
+{
+  "G3G4_vs_Rest": { "pos": ["G3", "G4"], "neg": "rest" },
+  "G3SHH_vs_Rest": { "pos": ["G3", "SHH"], "neg": "rest" },
+  "G4WNT_vs_Rest": { "pos": ["G4", "WNT"], "neg": "rest" },
+
+  "G3SHH_vs_G4WNT": { "pos": ["G3", "SHH"], "neg": ["G4", "WNT"] },
+
+  "G3_vs_Rest": { "pos": ["G3"], "neg": "rest" },
+  "G4_vs_Rest": { "pos": ["G4"], "neg": "rest" },
+  "SHH_vs_Rest": { "pos": ["SHH"], "neg": "rest" },
+  "WNT_vs_Rest": { "pos": ["WNT"], "neg": "rest" },
+
+  "G3_vs_G4": { "pos": ["G3"], "neg": ["G4"] },
+  "G3_vs_SHH": { "pos": ["G3"], "neg": ["SHH"] },
+  "G3_vs_WNT": { "pos": ["G3"], "neg": ["WNT"] },
+  "G4_vs_SHH": { "pos": ["G4"], "neg": ["SHH"] },
+  "G4_vs_WNT": { "pos": ["G4"], "neg": ["WNT"] },
+  "SHH_vs_WNT": { "pos": ["SHH"], "neg": ["WNT"] }
+}
+ 
