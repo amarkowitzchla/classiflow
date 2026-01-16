@@ -12,7 +12,7 @@ import pandas as pd
 import typer
 
 from classiflow import __version__
-from classiflow.config import TrainConfig, MetaConfig, MulticlassConfig, HierarchicalConfig
+from classiflow.config import TrainConfig, MetaConfig, MulticlassConfig, HierarchicalConfig, _resolve_data_path
 from classiflow.training import train_binary_task, train_meta_classifier, train_multiclass_classifier
 from classiflow.training.hierarchical_cv import train_hierarchical
 from classiflow.inference import HierarchicalInference
@@ -69,7 +69,17 @@ def main(
 
 @app.command()
 def train_binary(
-    data_csv: Path = typer.Option(..., "--data-csv", help="Path to CSV with features + labels"),
+    data: Optional[Path] = typer.Option(
+        None,
+        "--data",
+        help="Path to data file (.csv, .parquet) or directory (parquet dataset). "
+        "Recommended format: .parquet for performance and schema stability.",
+    ),
+    data_csv: Optional[Path] = typer.Option(
+        None,
+        "--data-csv",
+        help="[DEPRECATED] Path to CSV with features + labels. Use --data instead.",
+    ),
     label_col: str = typer.Option(..., "--label-col", help="Name of label column"),
     pos_label: Optional[str] = typer.Option(None, "--pos-label", help="Positive class label (default: minority)"),
     outdir: Path = typer.Option(Path("derived"), "--outdir", help="Output directory"),
@@ -84,14 +94,30 @@ def train_binary(
     """
     Train a binary classifier with nested cross-validation.
 
-    Example:
+    Supports CSV, Parquet, and Parquet dataset directories.
+
+    Examples:
+        # Single parquet file (recommended)
+        classiflow train-binary --data data.parquet --label-col diagnosis --smote on
+
+        # Dataset directory (chunked parquet)
+        classiflow train-binary --data data_parquet/ --label-col diagnosis --smote on
+
+        # Legacy CSV (deprecated)
         classiflow train-binary --data-csv data.csv --label-col diagnosis --smote on
     """
     if verbose:
         logging.getLogger("classiflow").setLevel(logging.DEBUG)
 
+    # Resolve data path (--data takes precedence over --data-csv)
+    try:
+        resolved_path = _resolve_data_path(data, data_csv)
+    except ValueError as e:
+        typer.secho(f"Error: {e}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+
     config = TrainConfig(
-        data_csv=data_csv,
+        data_path=resolved_path,
         label_col=label_col,
         pos_label=pos_label,
         outdir=outdir,
@@ -116,7 +142,17 @@ def train_binary(
 
 @app.command()
 def train_meta(
-    data_csv: Path = typer.Option(..., "--data-csv", help="Path to CSV with features + labels"),
+    data: Optional[Path] = typer.Option(
+        None,
+        "--data",
+        help="Path to data file (.csv, .parquet) or directory (parquet dataset). "
+        "Recommended format: .parquet for performance and schema stability.",
+    ),
+    data_csv: Optional[Path] = typer.Option(
+        None,
+        "--data-csv",
+        help="[DEPRECATED] Path to CSV with features + labels. Use --data instead.",
+    ),
     label_col: str = typer.Option(..., "--label-col", help="Name of label column"),
     classes: Optional[List[str]] = typer.Option(None, "--classes", help="Class labels to include (order matters)"),
     tasks_json: Optional[Path] = typer.Option(None, "--tasks-json", help="Optional JSON with composite tasks"),
@@ -136,18 +172,33 @@ def train_meta(
     Automatically builds OvR and pairwise tasks, with optional composite tasks from JSON.
     Use --tasks-only to train ONLY the tasks from JSON (skipping auto OvR/pairwise).
 
+    Supports CSV, Parquet, and Parquet dataset directories.
+
     Examples:
-        # Auto OvR + pairwise + custom tasks
+        # Single parquet file (recommended)
+        classiflow train-meta --data data.parquet --label-col subtype --smote both
+
+        # Dataset directory (chunked parquet)
+        classiflow train-meta --data data_parquet/ --label-col subtype --smote both
+
+        # Legacy CSV (deprecated)
         classiflow train-meta --data-csv data.csv --label-col subtype --tasks-json tasks.json --smote both
 
         # Only custom tasks from JSON
-        classiflow train-meta --data-csv data.csv --label-col subtype --tasks-json tasks.json --tasks-only --smote both
+        classiflow train-meta --data data.parquet --label-col subtype --tasks-json tasks.json --tasks-only --smote both
     """
     if verbose:
         logging.getLogger("classiflow").setLevel(logging.DEBUG)
 
+    # Resolve data path (--data takes precedence over --data-csv)
+    try:
+        resolved_path = _resolve_data_path(data, data_csv)
+    except ValueError as e:
+        typer.secho(f"Error: {e}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+
     config = MetaConfig(
-        data_csv=data_csv,
+        data_path=resolved_path,
         label_col=label_col,
         classes=classes,
         tasks_json=tasks_json,
@@ -192,7 +243,17 @@ def train_meta(
 
 @app.command(name="train-multiclass")
 def train_multiclass(
-    data_csv: Path = typer.Option(..., "--data-csv", help="Path to CSV with features + labels"),
+    data: Optional[Path] = typer.Option(
+        None,
+        "--data",
+        help="Path to data file (.csv, .parquet) or directory (parquet dataset). "
+        "Recommended format: .parquet for performance and schema stability.",
+    ),
+    data_csv: Optional[Path] = typer.Option(
+        None,
+        "--data-csv",
+        help="[DEPRECATED] Path to CSV with features + labels. Use --data instead.",
+    ),
     label_col: str = typer.Option(..., "--label-col", help="Name of label column"),
     classes: Optional[List[str]] = typer.Option(None, "--classes", help="Class labels to include (order matters)"),
     outdir: Path = typer.Option(Path("derived"), "--outdir", help="Output directory"),
@@ -208,14 +269,30 @@ def train_multiclass(
     """
     Train a multiclass classifier with nested cross-validation.
 
-    Example:
+    Supports CSV, Parquet, and Parquet dataset directories.
+
+    Examples:
+        # Single parquet file (recommended)
+        classiflow train-multiclass --data data.parquet --label-col subtype --smote both
+
+        # Dataset directory (chunked parquet)
+        classiflow train-multiclass --data data_parquet/ --label-col subtype --smote both
+
+        # Legacy CSV (deprecated)
         classiflow train-multiclass --data-csv data.csv --label-col subtype --smote both
     """
     if verbose:
         logging.getLogger("classiflow").setLevel(logging.DEBUG)
 
+    # Resolve data path (--data takes precedence over --data-csv)
+    try:
+        resolved_path = _resolve_data_path(data, data_csv)
+    except ValueError as e:
+        typer.secho(f"Error: {e}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+
     config = MulticlassConfig(
-        data_csv=data_csv,
+        data_path=resolved_path,
         label_col=label_col,
         classes=classes,
         outdir=outdir,
@@ -241,7 +318,16 @@ def train_multiclass(
 
 @app.command(name="check-compatibility")
 def check_compatibility(
-    data_csv: Path = typer.Option(..., "--data-csv", help="Path to CSV with features + labels"),
+    data: Optional[Path] = typer.Option(
+        None,
+        "--data",
+        help="Path to data file (.csv, .parquet) or directory (parquet dataset).",
+    ),
+    data_csv: Optional[Path] = typer.Option(
+        None,
+        "--data-csv",
+        help="[DEPRECATED] Path to CSV with features + labels. Use --data instead.",
+    ),
     mode: str = typer.Option(..., "--mode", help="Training mode: meta or hierarchical"),
     label_col: str = typer.Option(..., "--label-col", help="Name of label column (or L1 for hierarchical)"),
     label_l2: Optional[str] = typer.Option(None, "--label-l2", help="Level-2 label column (hierarchical only)"),
@@ -255,35 +341,44 @@ def check_compatibility(
     This command assesses input data without running training, providing detailed
     feedback about compatibility issues, warnings, and suggestions for fixes.
 
+    Supports CSV, Parquet, and Parquet dataset directories.
+
     Examples:
-        # Check meta-classifier compatibility
-        classiflow check-compatibility --data-csv data.csv --mode meta --label-col diagnosis
+        # Check meta-classifier compatibility (parquet)
+        classiflow check-compatibility --data data.parquet --mode meta --label-col diagnosis
 
         # Check hierarchical compatibility (without patient stratification)
-        classiflow check-compatibility --data-csv data.csv --mode hierarchical --label-col tumor_type --label-l2 subtype
+        classiflow check-compatibility --data data.parquet --mode hierarchical --label-col tumor_type --label-l2 subtype
 
         # Check hierarchical compatibility (with patient stratification)
-        classiflow check-compatibility --data-csv data.csv --mode hierarchical --label-col tumor_type --label-l2 subtype --patient-col patient_id
+        classiflow check-compatibility --data data.parquet --mode hierarchical --label-col tumor_type --label-l2 subtype --patient-col patient_id
 
-        # Check with custom parameters
+        # Legacy CSV (deprecated)
         classiflow check-compatibility --data-csv data.csv --mode meta --label-col diagnosis --outer-folds 5
     """
     if mode not in ["meta", "hierarchical"]:
         typer.secho(f"Error: Invalid mode '{mode}'. Must be 'meta' or 'hierarchical'", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
 
+    # Resolve data path (--data takes precedence over --data-csv)
+    try:
+        resolved_path = _resolve_data_path(data, data_csv)
+    except ValueError as e:
+        typer.secho(f"Error: {e}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+
     try:
         # Create config based on mode
         if mode == "meta":
             config = MetaConfig(
-                data_csv=data_csv,
+                data_path=resolved_path,
                 label_col=label_col,
                 classes=classes,
                 outer_folds=outer_folds,
             )
         else:  # hierarchical
             config = HierarchicalConfig(
-                data_csv=data_csv,
+                data_path=resolved_path,
                 patient_col=patient_col,
                 label_l1=label_col,
                 label_l2=label_l2,
@@ -346,7 +441,17 @@ def export_best(
 
 @app.command(name="train-hierarchical")
 def train_hierarchical_cmd(
-    data_csv: Path = typer.Option(..., "--data-csv", help="Path to CSV with features + labels"),
+    data: Optional[Path] = typer.Option(
+        None,
+        "--data",
+        help="Path to data file (.csv, .parquet) or directory (parquet dataset). "
+        "Recommended format: .parquet for performance and schema stability.",
+    ),
+    data_csv: Optional[Path] = typer.Option(
+        None,
+        "--data-csv",
+        help="[DEPRECATED] Path to CSV with features + labels. Use --data instead.",
+    ),
     patient_col: Optional[str] = typer.Option(None, "--patient-col", help="Column with patient/slide IDs for stratification (optional; if not provided, sample-level stratification is used)"),
     label_l1: str = typer.Option(..., "--label-l1", help="Level-1 label column"),
     label_l2: Optional[str] = typer.Option(None, "--label-l2", help="Level-2 label column (enables hierarchical mode)"),
@@ -377,22 +482,33 @@ def train_hierarchical_cmd(
     - Sample-level stratification when --patient-col is not provided
     - PyTorch MLP with CUDA/MPS acceleration
     - Early stopping and hyperparameter tuning
+    - CSV, Parquet, and Parquet dataset directories
 
     Examples:
-        # Single-label without patient stratification
-        classiflow train-hierarchical --data-csv data.csv --label-l1 diagnosis --device auto
+        # Single parquet file (recommended)
+        classiflow train-hierarchical --data data.parquet --label-l1 diagnosis --device auto
 
-        # Single-label with patient stratification
-        classiflow train-hierarchical --data-csv data.csv --patient-col patient_id --label-l1 diagnosis
+        # Dataset directory (chunked parquet)
+        classiflow train-hierarchical --data data_parquet/ --patient-col patient_id --label-l1 diagnosis
 
         # Hierarchical (two-level) with patient stratification
-        classiflow train-hierarchical --data-csv data.csv --patient-col patient_id --label-l1 tumor_type --label-l2 subtype --device cuda
+        classiflow train-hierarchical --data data.parquet --patient-col patient_id --label-l1 tumor_type --label-l2 subtype --device cuda
+
+        # Legacy CSV (deprecated)
+        classiflow train-hierarchical --data-csv data.csv --label-l1 diagnosis --device auto
     """
     if verbose >= 1:
         logging.getLogger("classiflow").setLevel(logging.DEBUG if verbose >= 2 else logging.INFO)
 
+    # Resolve data path (--data takes precedence over --data-csv)
+    try:
+        resolved_path = _resolve_data_path(data, data_csv)
+    except ValueError as e:
+        typer.secho(f"Error: {e}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+
     config = HierarchicalConfig(
-        data_csv=data_csv,
+        data_path=resolved_path,
         patient_col=patient_col,
         label_l1=label_l1,
         label_l2=label_l2,
@@ -447,7 +563,16 @@ def train_hierarchical_cmd(
 
 @app.command()
 def infer_hierarchical(
-    data_csv: Path = typer.Option(..., "--data-csv", help="Path to CSV with features"),
+    data: Optional[Path] = typer.Option(
+        None,
+        "--data",
+        help="Path to data file (.csv, .parquet) or directory (parquet dataset).",
+    ),
+    data_csv: Optional[Path] = typer.Option(
+        None,
+        "--data-csv",
+        help="[DEPRECATED] Path to CSV with features. Use --data instead.",
+    ),
     model_dir: Path = typer.Option(..., "--model-dir", help="Directory with trained hierarchical models"),
     fold: int = typer.Option(1, "--fold", help="Which fold's model to use (1-indexed)"),
     device: str = typer.Option("auto", "--device", help="Device: auto, cpu, cuda, mps"),
@@ -459,21 +584,32 @@ def infer_hierarchical(
     Run inference with trained hierarchical models.
 
     Supports both single-label and hierarchical (L1→L2) predictions.
+    Supports CSV, Parquet, and Parquet dataset directories.
 
     Examples:
-        # Basic inference
-        classiflow infer-hierarchical --data-csv test.csv --model-dir results/ --fold 1
+        # Parquet file (recommended)
+        classiflow infer-hierarchical --data test.parquet --model-dir results/ --fold 1
 
         # With GPU and custom output
         classiflow infer-hierarchical \\
-            --data-csv test.csv \\
+            --data test.parquet \\
             --model-dir results/ \\
             --fold 1 \\
             --device cuda \\
             --outfile predictions.csv
+
+        # Legacy CSV (deprecated)
+        classiflow infer-hierarchical --data-csv test.csv --model-dir results/ --fold 1
     """
     if verbose:
         logging.getLogger("classiflow").setLevel(logging.DEBUG)
+
+    # Resolve data path (--data takes precedence over --data-csv)
+    try:
+        resolved_path = _resolve_data_path(data, data_csv)
+    except ValueError as e:
+        typer.secho(f"Error: {e}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
 
     try:
         typer.echo(f"Loading models from {model_dir}, fold {fold}...")
@@ -486,9 +622,10 @@ def infer_hierarchical(
         if infer.hierarchical:
             typer.echo(f"L2 branches: {len(infer.branch_models)}")
 
-        # Load data
-        typer.echo(f"\nLoading data from {data_csv}...")
-        df = pd.read_csv(data_csv)
+        # Load data using the new unified loader
+        from classiflow.data import load_table
+        typer.echo(f"\nLoading data from {resolved_path}...")
+        df = load_table(resolved_path)
 
         # Get feature columns (exclude non-numeric)
         feature_cols = df.select_dtypes(include=[np.number]).columns.tolist()
@@ -521,7 +658,16 @@ def infer_hierarchical(
 
 @app.command()
 def infer(
-    data_csv: Path = typer.Option(..., "--data-csv", help="Path to CSV with features for inference"),
+    data: Optional[Path] = typer.Option(
+        None,
+        "--data",
+        help="Path to data file (.csv, .parquet) or directory (parquet dataset).",
+    ),
+    data_csv: Optional[Path] = typer.Option(
+        None,
+        "--data-csv",
+        help="[DEPRECATED] Path to CSV with features for inference. Use --data instead.",
+    ),
     run_dir: Optional[Path] = typer.Option(None, "--run-dir", help="Directory containing trained model artifacts"),
     bundle: Optional[Path] = typer.Option(None, "--bundle", help="Bundle ZIP file containing trained model"),
     fold: int = typer.Option(1, "--fold", help="Fold number to use from bundle (default: 1)"),
@@ -548,21 +694,22 @@ def infer(
     - Optional evaluation with ground-truth labels
     - Publication-ready outputs (Excel, CSV, plots)
     - Model bundles (portable ZIP archives)
+    - CSV, Parquet, and Parquet dataset directories
 
     Examples:
-        # Basic inference from run directory
-        classiflow infer --data-csv test.csv --run-dir derived/fold1 --outdir results
+        # Parquet file (recommended)
+        classiflow infer --data test.parquet --run-dir derived/fold1 --outdir results
 
         # Inference from bundle
-        classiflow infer --data-csv test.csv --bundle models/model.zip --outdir results
+        classiflow infer --data test.parquet --bundle models/model.zip --outdir results
 
         # With evaluation (requires labels)
-        classiflow infer --data-csv test.csv --run-dir derived/fold1 --outdir results --label-col diagnosis
+        classiflow infer --data test.parquet --run-dir derived/fold1 --outdir results --label-col diagnosis
 
         # Lenient mode (fill missing features)
-        classiflow infer --data-csv test.csv --run-dir derived/fold1 --outdir results --lenient --fill-strategy median
+        classiflow infer --data test.parquet --run-dir derived/fold1 --outdir results --lenient --fill-strategy median
 
-        # Hierarchical models
+        # Legacy CSV (deprecated)
         classiflow infer --data-csv test.csv --run-dir derived_hierarchical/fold1 --outdir results --device mps
     """
     from classiflow.inference import run_inference, InferenceConfig
@@ -570,6 +717,13 @@ def infer(
     # Set logging level
     log_level = logging.WARNING if verbose == 0 else (logging.INFO if verbose == 1 else logging.DEBUG)
     logging.getLogger("classiflow").setLevel(log_level)
+
+    # Resolve data path (--data takes precedence over --data-csv)
+    try:
+        resolved_path = _resolve_data_path(data, data_csv)
+    except ValueError as e:
+        typer.secho(f"Error: {e}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
 
     # Validate inputs: must provide either --run-dir or --bundle
     if not run_dir and not bundle:
@@ -600,7 +754,7 @@ def infer(
         # Create inference config
         config = InferenceConfig(
             run_dir=run_dir,
-            data_csv=data_csv,
+            data_path=resolved_path,
             output_dir=outdir,
             id_col=id_col,
             label_col=label_col,
@@ -616,7 +770,7 @@ def infer(
 
         # Run inference
         typer.echo(f"Running inference...")
-        typer.echo(f"  Data: {data_csv}")
+        typer.echo(f"  Data: {resolved_path}")
         typer.echo(f"  Run directory: {run_dir}")
         typer.echo(f"  Output directory: {outdir}")
 

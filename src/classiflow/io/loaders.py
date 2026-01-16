@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Union
 
 import numpy as np
 import pandas as pd
@@ -13,18 +13,18 @@ logger = logging.getLogger(__name__)
 
 
 def load_data(
-    csv_path: Path,
+    data_path: Union[Path, str],
     label_col: str,
     feature_cols: Optional[List[str]] = None,
     drop_na_labels: bool = True,
 ) -> Tuple[pd.DataFrame, pd.Series]:
     """
-    Load feature matrix and labels from CSV.
+    Load feature matrix and labels from CSV, Parquet, or Parquet dataset directory.
 
     Parameters
     ----------
-    csv_path : Path
-        Path to CSV file
+    data_path : Path or str
+        Path to data file (.csv, .parquet) or directory (parquet dataset)
     label_col : str
         Name of the label column
     feature_cols : Optional[List[str]]
@@ -39,11 +39,14 @@ def load_data(
     y : pd.Series
         Label series
     """
-    logger.info(f"Loading data from {csv_path}")
-    df = pd.read_csv(csv_path)
+    from classiflow.data import load_table
+
+    data_path = Path(data_path)
+    logger.info(f"Loading data from {data_path}")
+    df = load_table(data_path)
 
     if label_col not in df.columns:
-        raise ValueError(f"Label column '{label_col}' not found in CSV. Available: {list(df.columns)}")
+        raise ValueError(f"Label column '{label_col}' not found in data. Available: {list(df.columns)}")
 
     y = df[label_col].astype(str)
 

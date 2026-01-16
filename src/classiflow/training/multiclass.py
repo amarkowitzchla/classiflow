@@ -51,14 +51,15 @@ MC_SCORER_ORDER = [
 def train_multiclass_classifier(config: MulticlassConfig) -> Dict[str, Any]:
     """Train a direct multiclass classifier using nested CV."""
     logger.info("Starting multiclass training")
-    logger.info(f"  Data: {config.data_csv}")
+    data_path = config.resolved_data_path
+    logger.info(f"  Data: {data_path}")
     logger.info(f"  Label: {config.label_col}")
     logger.info(f"  SMOTE: {config.smote_mode}")
     logger.info(f"  Device: {config.device}")
 
     config.outdir.mkdir(parents=True, exist_ok=True)
 
-    X_full, y_full = load_data(config.data_csv, config.label_col, feature_cols=config.feature_cols)
+    X_full, y_full = load_data(data_path, config.label_col, feature_cols=config.feature_cols)
 
     if config.classes:
         missing = set(config.classes) - set(y_full.unique().tolist())
@@ -80,7 +81,6 @@ def train_multiclass_classifier(config: MulticlassConfig) -> Dict[str, Any]:
 
     resolved_device = resolve_device(config.device)
 
-    data_path = Path(config.data_csv)
     file_metadata = get_file_metadata(data_path)
     config_dict = config.to_dict()
     config_dict["resolved_device"] = resolved_device

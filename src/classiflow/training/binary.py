@@ -36,7 +36,8 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
         Training results including metrics and model paths
     """
     logger.info(f"Starting binary task training")
-    logger.info(f"  Data: {config.data_csv}")
+    data_path = config.resolved_data_path
+    logger.info(f"  Data: {data_path}")
     logger.info(f"  Label: {config.label_col}")
     logger.info(f"  Output: {config.outdir}")
 
@@ -45,7 +46,7 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
 
     # Load and validate data
     X, y_raw = load_data(
-        config.data_csv,
+        data_path,
         config.label_col,
         feature_cols=config.feature_cols,
     )
@@ -69,7 +70,6 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
     logger.info(f"Class balance: 0={sum(y==0)}, 1={sum(y==1)}")
 
     # Create and save training manifest with lineage
-    data_path = Path(config.data_csv)
     file_metadata = get_file_metadata(data_path)
 
     manifest = create_training_manifest(

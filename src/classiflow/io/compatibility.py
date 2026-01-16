@@ -12,6 +12,7 @@ import pandas as pd
 
 from classiflow.config import MetaConfig, HierarchicalConfig
 from classiflow.io.schema import DataSchema
+from classiflow.data import load_table
 
 logger = logging.getLogger(__name__)
 
@@ -141,22 +142,31 @@ def assess_data_compatibility(
     mode = "hierarchical" if isinstance(config, HierarchicalConfig) else "meta"
     result = CompatibilityResult(is_compatible=True, mode=mode)
 
-    # Step 1: File existence check
-    if not _check_file_exists(config.data_csv, result):
+    # Get the data path from config (supports both data_path and data_csv)
+    data_path = config.resolved_data_path
+
+    # Step 1: Path existence check
+    if not _check_path_exists(data_path, result):
         return result
 
-    # Step 2: Load and validate data
+    # Step 2: Load and validate data using unified loader
     try:
-        df = pd.read_csv(config.data_csv)
+        df = load_table(data_path)
+    except ImportError as e:
+        # PyArrow not installed for parquet
+        result.is_compatible = False
+        result.errors.append(str(e))
+        result.suggestions.append("Install with: pip install classiflow[parquet] or pip install pyarrow")
+        return result
     except Exception as e:
         result.is_compatible = False
-        result.errors.append(f"Failed to read CSV file: {e}")
-        result.suggestions.append("Ensure the file is a valid CSV format")
+        result.errors.append(f"Failed to read data file: {e}")
+        result.suggestions.append("Ensure the file is a valid CSV or Parquet format")
         return result
 
     if df.empty:
         result.is_compatible = False
-        result.errors.append("CSV file is empty")
+        result.errors.append("Data file is empty")
         return result
 
     # Step 3: Mode-specific validation
@@ -168,18 +178,23 @@ def assess_data_compatibility(
     return result
 
 
-def _check_file_exists(csv_path: Path, result: CompatibilityResult) -> bool:
-    """Check if data file exists and is readable."""
-    if not csv_path.exists():
+def _check_path_exists(data_path: Path, result: CompatibilityResult) -> bool:
+    """Check if data path (file or directory) exists and is accessible."""
+    if not data_path.exists():
         result.is_compatible = False
-        result.errors.append(f"Data file not found: {csv_path}")
-        result.suggestions.append(f"Verify the path is correct: {csv_path.absolute()}")
+        result.errors.append(f"Data path not found: {data_path}")
+        result.suggestions.append(f"Verify the path is correct: {data_path.absolute()}")
         return False
 
-    if not csv_path.is_file():
-        result.is_compatible = False
-        result.errors.append(f"Path is not a file: {csv_path}")
-        return False
+    # For directories (parquet datasets), check that it contains parquet files
+    if data_path.is_dir():
+        parquet_files = list(data_path.glob("**/*.parquet"))
+        parquet_files = [f for f in parquet_files if not f.name.startswith(".")]
+        if not parquet_files:
+            result.is_compatible = False
+            result.errors.append(f"Directory contains no .parquet files: {data_path}")
+            result.suggestions.append("Ensure the directory contains .parquet files for dataset loading")
+            return False
 
     return True
 

@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Optional, List
 import typer
+
+from classiflow.config import _resolve_data_path
+
+logger = logging.getLogger(__name__)
 
 stats_app = typer.Typer(
     name="stats",
@@ -15,7 +20,16 @@ stats_app = typer.Typer(
 
 @stats_app.command("run")
 def run_stats_cmd(
-    data_csv: Path = typer.Option(..., "--data-csv", help="Path to CSV with features + labels"),
+    data: Optional[Path] = typer.Option(
+        None,
+        "--data",
+        help="Path to data file (.csv, .parquet) or directory (parquet dataset).",
+    ),
+    data_csv: Optional[Path] = typer.Option(
+        None,
+        "--data-csv",
+        help="[DEPRECATED] Path to CSV with features + labels. Use --data instead.",
+    ),
     label_col: str = typer.Option(..., "--label-col", help="Name of label column"),
     outdir: Path = typer.Option(Path("derived"), "--outdir", help="Output directory"),
     classes: Optional[List[str]] = typer.Option(None, "--classes", help="Subset/order of classes"),
@@ -32,25 +46,37 @@ def run_stats_cmd(
     Performs normality testing, parametric/nonparametric tests, and generates
     publication-ready Excel workbooks with pairwise comparisons and effect sizes.
 
+    Supports CSV, Parquet, and Parquet dataset directories.
+
     Examples:
-        # Basic analysis
-        classiflow stats run --data-csv data.csv --label-col diagnosis
+        # Parquet file (recommended)
+        classiflow stats run --data data.parquet --label-col diagnosis
 
         # Custom parameters
         classiflow stats run \\
-            --data-csv data.csv \\
+            --data data.parquet \\
             --label-col diagnosis \\
             --alpha 0.01 \\
             --dunn-adjust fdr_bh \\
             --top-n 50
+
+        # Legacy CSV (deprecated)
+        classiflow stats run --data-csv data.csv --label-col diagnosis
     """
     from classiflow.stats import run_stats
 
+    # Resolve data path (--data takes precedence over --data-csv)
     try:
-        typer.echo(f"Running statistical analysis on {data_csv}...")
+        resolved_path = _resolve_data_path(data, data_csv)
+    except ValueError as e:
+        typer.secho(f"Error: {e}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+
+    try:
+        typer.echo(f"Running statistical analysis on {resolved_path}...")
 
         results = run_stats(
-            data_csv=data_csv,
+            data_csv=resolved_path,  # stats module will handle via load_table internally
             label_col=label_col,
             outdir=outdir,
             classes=classes,
@@ -78,7 +104,16 @@ def run_stats_cmd(
 
 @stats_app.command("viz")
 def run_viz_cmd(
-    data_csv: Path = typer.Option(..., "--data-csv", help="Path to CSV with features + labels"),
+    data: Optional[Path] = typer.Option(
+        None,
+        "--data",
+        help="Path to data file (.csv, .parquet) or directory (parquet dataset).",
+    ),
+    data_csv: Optional[Path] = typer.Option(
+        None,
+        "--data-csv",
+        help="[DEPRECATED] Path to CSV with features + labels. Use --data instead.",
+    ),
     label_col: str = typer.Option(..., "--label-col", help="Name of label column"),
     outdir: Path = typer.Option(Path("derived"), "--outdir", help="Output directory for visualizations"),
     stats_dir: Optional[Path] = typer.Option(None, "--stats-dir", help="Directory with stats results"),
@@ -97,23 +132,35 @@ def run_viz_cmd(
     and dimensionality reduction plots (UMAP, t-SNE, LDA) from statistical
     analysis results.
 
+    Supports CSV, Parquet, and Parquet dataset directories.
+
     Examples:
-        # Basic visualization
-        classiflow stats viz --data-csv data.csv --label-col diagnosis
+        # Parquet file (recommended)
+        classiflow stats viz --data data.parquet --label-col diagnosis
 
         # With stats results
         classiflow stats viz \\
-            --data-csv data.csv \\
+            --data data.parquet \\
             --label-col diagnosis \\
             --stats-dir derived/stats_results
+
+        # Legacy CSV (deprecated)
+        classiflow stats viz --data-csv data.csv --label-col diagnosis
     """
     from classiflow.stats import run_visualizations
 
+    # Resolve data path (--data takes precedence over --data-csv)
     try:
-        typer.echo(f"Creating visualizations from {data_csv}...")
+        resolved_path = _resolve_data_path(data, data_csv)
+    except ValueError as e:
+        typer.secho(f"Error: {e}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+
+    try:
+        typer.echo(f"Creating visualizations from {resolved_path}...")
 
         results = run_visualizations(
-            data_csv=data_csv,
+            data_csv=resolved_path,
             label_col=label_col,
             outdir=outdir,
             stats_dir=stats_dir,
@@ -151,7 +198,16 @@ def run_viz_cmd(
 
 @stats_app.command("umap")
 def run_umap_cmd(
-    data_csv: Path = typer.Option(..., "--data-csv", help="Path to CSV with features + labels"),
+    data: Optional[Path] = typer.Option(
+        None,
+        "--data",
+        help="Path to data file (.csv, .parquet) or directory (parquet dataset).",
+    ),
+    data_csv: Optional[Path] = typer.Option(
+        None,
+        "--data-csv",
+        help="[DEPRECATED] Path to CSV with features + labels. Use --data instead.",
+    ),
     label_col: str = typer.Option("MOLECULAR", "--label-col", help="Name of label column"),
     outdir: Path = typer.Option(Path("derived"), "--outdir", help="Output directory"),
     classes: Optional[List[str]] = typer.Option(None, "--classes", help="Subset/order of classes"),
@@ -168,18 +224,30 @@ def run_umap_cmd(
 
     Creates 2D UMAP embedding with optional supervision and saves plot + coordinates.
 
+    Supports CSV, Parquet, and Parquet dataset directories.
+
     Examples:
-        # Basic UMAP
-        classiflow stats umap --data-csv data.csv --label-col diagnosis
+        # Basic UMAP (parquet)
+        classiflow stats umap --data data.parquet --label-col diagnosis
 
         # Supervised UMAP with PCA
         classiflow stats umap \\
-            --data-csv data.csv \\
+            --data data.parquet \\
             --label-col diagnosis \\
             --supervised \\
             --pca-components 50
+
+        # Legacy CSV (deprecated)
+        classiflow stats umap --data-csv data.csv --label-col diagnosis
     """
+    # Resolve data path (--data takes precedence over --data-csv)
+    try:
+        resolved_path = _resolve_data_path(data, data_csv)
+    except ValueError as e:
+        typer.secho(f"Error: {e}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+
     typer.echo("UMAP visualization not yet implemented in stats API.")
     typer.echo("Please use the standalone script: scripts/umap_plot.py")
     typer.echo("\nExample:")
-    typer.echo(f"  python scripts/umap_plot.py --data-csv {data_csv} --label-col {label_col}")
+    typer.echo(f"  python scripts/umap_plot.py --data {resolved_path} --label-col {label_col}")

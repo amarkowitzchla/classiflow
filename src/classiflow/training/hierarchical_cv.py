@@ -199,8 +199,11 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
     logger.info(f"Device: {config.device}")
 
     # ========== Load and validate data ==========
-    logger.info(f"Loading data from {config.data_csv}...")
-    df_all = pd.read_csv(config.data_csv)
+    from classiflow.data import load_table
+
+    data_path = config.resolved_data_path
+    logger.info(f"Loading data from {data_path}...")
+    df_all = load_table(data_path)
 
     # Determine if using patient stratification
     use_patient_stratification = config.patient_col is not None

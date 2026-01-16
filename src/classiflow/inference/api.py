@@ -62,8 +62,9 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
     logger.info("="*60)
     logger.info("Starting inference pipeline")
     logger.info("="*60)
+    data_path = config.resolved_data_path
     logger.info(f"  Run directory: {config.run_dir}")
-    logger.info(f"  Data file: {config.data_csv}")
+    logger.info(f"  Data file: {data_path}")
     logger.info(f"  Output directory: {config.output_dir}")
 
     # Create output directory
@@ -84,115 +85,17 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
 
     logger.info(f"  Detected run type: {run_type}")
 
-    # Load input data
-    logger.info("\n[2/7] Loading input data...")
-    df = pd.read_csv(config.data_csv)
-    logger.info(f"  Loaded {len(df)} samples, {len(df.columns)} columns")
-
-    # Validate input data
-    data_warnings = validate_input_data(df, id_col=config.id_col)
-    if data_warnings:
-        logger.warning(f"  Data validation warnings: {len(data_warnings)}")
-        for w in data_warnings[:5]:
-            logger.warning(f"    - {w}")
-        warnings.extend(data_warnings)
-
-    # Feature alignment
-    logger.info("\n[2/7] Aligning features...")
-    feature_schema = loader.get_feature_schema()
-    required_features = feature_schema["feature_list"]
-
-    if required_features is None or len(required_features) == 0:
-        # Fallback: use all numeric columns
-        logger.warning("Feature list not found in artifacts; using all numeric columns")
-        df_raw = pd.read_csv(config.data_csv)
-        required_features = df_raw.select_dtypes(include=[np.number]).columns.tolist()
-
-        # Remove ID and label columns
-        if config.id_col and config.id_col in required_features:
-            required_features.remove(config.id_col)
-        if config.label_col and config.label_col in required_features:
-            required_features.remove(config.label_col)
-    else:
-        required_features = loader.get_feature_schema()["feature_list"]
-
-    if not required_features:
-        raise ValueError("Could not determine required features from run artifacts")
-
-    logger.info(f"  Required features: {len(required_features)}")
-
-    # Load input data
-    logger.info("\n[2/7] Loading input data...")
-    df_input = pd.read_csv(config.data_csv)
-    logger.info(f"  Loaded {len(df_input)} samples with {len(df_input.columns)} columns")
-
-    # Validate input data
-    input_warnings = validate_input_data(df_input, config.id_col)
-    warnings.extend(input_warnings)
-
-    for w in input_warnings[:5]:  # Show first 5 warnings
-        logger.warning(f"  {w}")
-
-    # Feature alignment
-    logger.info("\n[2/7] Aligning features...")
-
-    feature_schema = loader.get_feature_schema()
-    required_features = feature_schema.get("feature_list")
-
-    if required_features is None:
-        # Fallback: use all numeric columns
-        logger.warning("Feature list not found in artifacts; using all numeric columns from input data")
-        df = pd.read_csv(config.data_csv)
-        required_features = df.select_dtypes(include=[np.number]).columns.tolist()
-
-        # Remove metadata columns
-        if config.id_col and config.id_col in required_features:
-            required_features.remove(config.id_col)
-        if config.label_col and config.label_col in required_features:
-            required_features.remove(config.label_col)
-    else:
-        required_features = loader.get_feature_schema()["feature_list"]
-
-    # Load input data
-    logger.info("\n[2/7] Loading input data...")
-    df_raw = pd.read_csv(config.data_csv)
+    # Load input data (supports CSV, Parquet, and Parquet dataset directories)
+    logger.info("\n[2/7] Loading and preprocessing data...")
+    from classiflow.data import load_table
+    df_raw = load_table(data_path)
     logger.info(f"  Loaded {len(df_raw)} samples, {len(df_raw.columns)} columns")
 
     # Validate input data
     input_warnings = validate_input_data(df_raw, id_col=config.id_col)
-    warnings.extend(input_warnings)
-
-    for w in warnings[-len(warnings):]:  # Only new warnings
-        logger.warning(f"  {w}")
-
-    # Align features
-    logger.info("\n[2/7] Aligning features...")
-
-    # Get required features from loader
-    feature_schema = loader.get_feature_schema()
-    required_features = feature_schema["feature_list"]
-
-    if required_features is None:
-        # Fallback: use all numeric columns
-        logger.warning("Feature list not found in artifacts; using all numeric columns from input")
-        required_features = df_raw.select_dtypes(include=[np.number]).columns.tolist()
-
-    aligner = FeatureAligner(
-        required_features=required_features if required_features else [],
-        strict=config.strict_features,
-        fill_strategy=config.lenient_fill_strategy,
-    )
-
-    # Load data
-    logger.info("\n[2/7] Loading and validating input data...")
-    df_raw = pd.read_csv(config.data_csv)
-    logger.info(f"  Loaded {len(df_raw)} samples")
-
-    # Validate input data
-    input_warnings = validate_input_data(df_raw, config.id_col)
     if input_warnings:
         warnings.extend(input_warnings)
-        for w in input_warnings:
+        for w in input_warnings[:5]:
             logger.warning(f"  {w}")
 
     # Get feature schema
@@ -209,10 +112,7 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
         if config.label_col and config.label_col in required_features:
             required_features.remove(config.label_col)
 
-    # Load data
-    logger.info("\n[2/7] Loading and preprocessing data...")
-    df_raw = pd.read_csv(config.data_csv)
-    logger.info(f"  Loaded {len(df_raw)} samples")
+    logger.info(f"  Required features: {len(required_features)}")
 
     # Align features
     aligner = FeatureAligner(
@@ -292,7 +192,7 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
     if config.include_excel and metrics is not None:
         run_info = {
             "run_dir": str(config.run_dir),
-            "data_file": str(config.data_csv),
+            "data_file": str(data_path),
             "timestamp": results["timestamp"],
             "model_type": run_type,
             "fold": 1,

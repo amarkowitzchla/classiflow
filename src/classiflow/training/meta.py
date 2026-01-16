@@ -67,7 +67,8 @@ def train_meta_classifier(config: MetaConfig) -> Dict[str, Any]:
         Training results
     """
     logger.info("Starting meta-classifier training")
-    logger.info(f"  Data: {config.data_csv}")
+    data_path = config.resolved_data_path
+    logger.info(f"  Data: {data_path}")
     logger.info(f"  Label: {config.label_col}")
     logger.info(f"  SMOTE: {config.smote_mode}")
 
@@ -75,7 +76,7 @@ def train_meta_classifier(config: MetaConfig) -> Dict[str, Any]:
     config.outdir.mkdir(parents=True, exist_ok=True)
 
     # Load data
-    X_full, y_full = load_data(config.data_csv, config.label_col, feature_cols=config.feature_cols)
+    X_full, y_full = load_data(data_path, config.label_col, feature_cols=config.feature_cols)
 
     # Filter to specified classes if provided
     if config.classes:
@@ -110,7 +111,6 @@ def train_meta_classifier(config: MetaConfig) -> Dict[str, Any]:
     logger.info(f"Built {len(tasks)} tasks")
 
     # Create and save training manifest with lineage
-    data_path = Path(config.data_csv)
     file_metadata = get_file_metadata(data_path)
 
     # Build task definitions for manifest

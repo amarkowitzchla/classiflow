@@ -17,8 +17,10 @@ class InferenceConfig:
     ----------
     run_dir : Path
         Directory containing trained model artifacts
-    data_csv : Path
-        Input CSV file with features for inference
+    data_path : Optional[Path]
+        Input data file (.csv, .parquet) or directory (parquet dataset)
+    data_csv : Optional[Path]
+        [DEPRECATED] Input CSV file with features for inference. Use data_path instead.
     output_dir : Path
         Directory for inference outputs
     id_col : Optional[str]
@@ -47,8 +49,11 @@ class InferenceConfig:
 
     # Required
     run_dir: Path
-    data_csv: Path
     output_dir: Path
+
+    # Data - support both new --data and legacy --data-csv
+    data_path: Optional[Path] = None  # New, preferred
+    data_csv: Optional[Path] = None  # Legacy, deprecated
 
     # Optional data handling
     id_col: Optional[str] = None
@@ -74,20 +79,47 @@ class InferenceConfig:
     def __post_init__(self):
         """Convert string paths to Path objects."""
         self.run_dir = Path(self.run_dir)
-        self.data_csv = Path(self.data_csv)
         self.output_dir = Path(self.output_dir)
+
+        # Convert data paths
+        if self.data_path is not None:
+            self.data_path = Path(self.data_path)
+        if self.data_csv is not None:
+            self.data_csv = Path(self.data_csv)
+
+        # Cross-set for backward compatibility: if only data_csv provided, also set data_path
+        if self.data_path is None and self.data_csv is not None:
+            self.data_path = self.data_csv
+        elif self.data_csv is None and self.data_path is not None:
+            self.data_csv = self.data_path
 
         # Validate paths
         if not self.run_dir.exists():
             raise FileNotFoundError(f"Run directory not found: {self.run_dir}")
-        if not self.data_csv.exists():
-            raise FileNotFoundError(f"Data file not found: {self.data_csv}")
+
+        data_path = self.resolved_data_path
+        if data_path.is_file() and not data_path.exists():
+            raise FileNotFoundError(f"Data file not found: {data_path}")
+        elif data_path.is_dir() and not data_path.exists():
+            raise FileNotFoundError(f"Data directory not found: {data_path}")
+        elif not data_path.exists():
+            raise FileNotFoundError(f"Data path not found: {data_path}")
+
+    @property
+    def resolved_data_path(self) -> Path:
+        """Get the resolved data path (prefers data_path over data_csv)."""
+        if self.data_path is not None:
+            return self.data_path
+        if self.data_csv is not None:
+            return self.data_csv
+        raise ValueError("No data path configured. Set data_path or data_csv.")
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dict with Path objects as strings."""
         return {
             "run_dir": str(self.run_dir),
-            "data_csv": str(self.data_csv),
+            "data_path": str(self.data_path) if self.data_path else None,
+            "data_csv": str(self.data_csv) if self.data_csv else None,
             "output_dir": str(self.output_dir),
             "id_col": self.id_col,
             "label_col": self.label_col,

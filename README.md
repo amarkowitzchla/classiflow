@@ -25,11 +25,12 @@ pip install dist/classiflow-0.1.0-py3-none-any.whl
 Optionally install extras:
 
 ```bash
-pip install classiflow[app]    # Streamlit UI
-pip install classiflow[viz]    # Visualization helpers
-pip install classiflow[stats]  # Statistical modules
-pip install classiflow[dev]    # Developer tools
-pip install classiflow[all]    # Everything
+pip install classiflow[app]     # Streamlit UI
+pip install classiflow[viz]     # Visualization helpers
+pip install classiflow[stats]   # Statistical modules
+pip install classiflow[parquet] # Parquet file support (recommended)
+pip install classiflow[dev]     # Developer tools
+pip install classiflow[all]     # Everything
 ```
 
 For development:
@@ -56,6 +57,68 @@ pip install -e ".[dev]"
 | `classiflow stats umap` | Run UMAP visualization (script stub referencing `scripts/umap_plot.py`). |
 | `classiflow bundle create/inspect/validate` | Package training artifacts into ZIP, inspect metadata, and validate completeness. |
 | `classiflow migrate run/batch` | Migrate legacy run directories to the new lineage (`run.json`) format. |
+
+## Data Input
+
+Classiflow supports multiple data formats for flexibility and performance:
+
+| Format | Extension | Description | Best For |
+| --- | --- | --- | --- |
+| **Parquet** (recommended) | `.parquet` | Columnar binary format with schema | Large datasets, faster I/O |
+| CSV | `.csv` | Plain-text comma-separated values | Compatibility, small datasets |
+| Parquet Dataset | `directory/` | Directory with chunked `.parquet` files | Very large datasets, partitioned data |
+
+### Using Different Formats
+
+All training and inference commands accept the `--data` option (preferred) or `--data-csv` (deprecated):
+
+```bash
+# Single Parquet file (recommended)
+classiflow train-meta --data data.parquet --label-col subtype
+
+# Parquet dataset directory (chunked files)
+classiflow train-meta --data data_parquet_dir/ --label-col subtype
+
+# Legacy CSV (deprecated but supported)
+classiflow train-meta --data-csv data.csv --label-col subtype
+```
+
+For Parquet support, install the optional dependency:
+
+```bash
+pip install classiflow[parquet]
+# or
+pip install pyarrow
+```
+
+### Creating Parquet Files
+
+Convert existing CSV files to Parquet for better performance:
+
+```python
+import pandas as pd
+
+df = pd.read_csv("data.csv")
+df.to_parquet("data.parquet", index=False)
+```
+
+For large datasets, create chunked parquet directories:
+
+```python
+import pandas as pd
+import pyarrow.parquet as pq
+import pyarrow as pa
+
+df = pd.read_csv("large_data.csv")
+
+# Split into chunks of 1000 rows each
+chunk_size = 1000
+for i, start in enumerate(range(0, len(df), chunk_size)):
+    chunk = df.iloc[start:start + chunk_size]
+    chunk.to_parquet(f"data_dir/part-{i:03d}.parquet", index=False)
+```
+
+---
 
 ## Quick Start: Project Workflow (Bootstrap → Ship)
 
@@ -262,7 +325,7 @@ Nested CV binary classification with SMOTE support:
 
 ```bash
 classiflow train-binary \
-  --data-csv data/features.csv \
+  --data data/features.parquet \
   --label-col diagnosis \
   --pos-label "Tumor" \
   --smote both \
@@ -274,6 +337,7 @@ classiflow train-binary \
 ```
 
 Options:
+- `--data`: Path to data file (.csv, .parquet) or directory (parquet dataset)
 - `--smote`: `off` | `on` | `both` (default: `off`)
 - `--pos-label`: Specify positive class (default: minority class)
 - `--max-iter`: Linear solver iterations (default: 10000)
@@ -284,7 +348,7 @@ Multiclass via combined OvR + pairwise binary tasks:
 
 ```bash
 classiflow train-meta \
-  --data-csv data/features.csv \
+  --data data/features.parquet \
   --label-col subtype \
   --smote both \
   --outer-folds 5 \
@@ -297,7 +361,7 @@ With custom composite tasks from JSON:
 
 ```bash
 classiflow train-meta \
-  --data-csv data/features.csv \
+  --data data/features.parquet \
   --label-col subtype \
   --tasks-json tasks.json \
   --tasks-only \
@@ -306,6 +370,7 @@ classiflow train-meta \
 ```
 
 Options:
+- `--data`: Path to data file (.csv, .parquet) or directory (parquet dataset)
 - `--classes`: Subset/order of classes to include
 - `--tasks-json`: Custom task definitions
 - `--tasks-only`: Skip auto OvR/pairwise, use only JSON tasks
@@ -316,7 +381,7 @@ Two-level classification with optional patient stratification:
 
 ```bash
 classiflow train-hierarchical \
-  --data-csv data/features.csv \
+  --data data/features.parquet \
   --patient-col patient_id \
   --label-l1 tumor_type \
   --label-l2 subtype \
@@ -334,13 +399,14 @@ Single-level (flat multiclass) without L2:
 
 ```bash
 classiflow train-hierarchical \
-  --data-csv data/features.csv \
+  --data data/features.parquet \
   --label-l1 diagnosis \
   --device auto \
   --outdir derived/flat_multiclass
 ```
 
 Options:
+- `--data`: Path to data file (.csv, .parquet) or directory (parquet dataset)
 - `--patient-col`: Enable patient-level stratification (prevents leakage)
 - `--label-l2`: Enable hierarchical L1→L2 routing
 - `--device`: `auto` | `cpu` | `cuda` | `mps`
@@ -354,8 +420,24 @@ Options:
 **Statistical analysis:**
 
 ```bash
-classiflow stats run --data-csv data/features.csv --label-col diagnosis --outdir derived/stats
-classiflow stats viz --data-csv data/features.csv --label-col diagnosis --stats-dir derived/stats
+classiflow stats run --data data/features.parquet --label-col diagnosis --outdir derived/stats
+classiflow stats viz --data data/features.parquet --label-col diagnosis --stats-dir derived/stats
+```
+
+**Inference:**
+
+```bash
+# Run inference on new data
+classiflow infer \
+  --data data/test.parquet \
+  --run-dir derived/meta/fold1 \
+  --outdir results/
+
+# Or use a model bundle
+classiflow infer \
+  --data data/test.parquet \
+  --bundle models/model.zip \
+  --outdir results/
 ```
 
 **Bundle management:**
