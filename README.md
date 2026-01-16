@@ -14,26 +14,28 @@ Production-grade toolkit for molecular subtype classification, built around nest
 - **Artifact lineage** with run manifests, hashes, and portable bundles for reproducibility.
 
 
-## Installation 
-```bash
-git clone https://github.com/amarkowitzchla/classiflow.git
-cd classiflow
-pip install dist/classiflow-0.1.0-py3-none-any.whl
+## Installation
 
-```
-
-Optionally install extras:
+Install the latest release from PyPI:
 
 ```bash
-pip install classiflow[app]     # Streamlit UI
-pip install classiflow[viz]     # Visualization helpers
-pip install classiflow[stats]   # Statistical modules
-pip install classiflow[parquet] # Parquet file support (recommended)
-pip install classiflow[dev]     # Developer tools
-pip install classiflow[all]     # Everything
+pip install classiflow
 ```
 
-For development:
+Optional dependency bundles follow the names declared in `pyproject.toml`. Because zsh treats `[...]` as globbing, wrap each requirement in quotes (or escape the brackets) when using the default shell:
+
+```bash
+pip install 'classiflow[app]'     # Streamlit UI helpers (app, Plotly, Excel exports)
+pip install 'classiflow[ui]'      # FastAPI + Uvicorn services used by the admin dashboard
+pip install 'classiflow[viz]'     # UMAP + Plotly visualization tools
+pip install 'classiflow[stats]'   # Statistical analysis helpers
+pip install 'classiflow[parquet]' # Parquet I/O support (pyarrow)
+pip install 'classiflow[dev]'     # Testing, linting, and packaging tools
+pip install 'classiflow[docs]'    # MkDocs-based documentation toolchain
+pip install 'classiflow[all]'     # Everything (app, ui, viz, stats, parquet, dev, docs)
+```
+
+From a local checkout, install the package (optionally editable) instead of relying on the prebuilt wheel:
 
 ```bash
 git clone https://github.com/alexmarkowitz/classiflow.git
