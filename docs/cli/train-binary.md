@@ -2,6 +2,8 @@
 
 Train a binary classification model with nested cross-validation.
 
+Patient-level stratification (optional): Provide `--patient-col patient_id` to ensure no data leakage by patient across folds. If omitted, sample-level stratification is used.
+
 ## Usage
 
 ```bash
@@ -23,6 +25,7 @@ classiflow train-binary [OPTIONS]
 |--------|---------|-------------|
 | `--pos-label TEXT` | Auto | Positive class label (default: minority class) |
 | `--feature-cols TEXT` | All numeric | Comma-separated feature column names |
+| `--patient-col TEXT` | None | Patient/slide ID column for stratification |
 
 ### Output Options
 
@@ -81,6 +84,17 @@ classiflow train-binary \
   --smote both \
   --smote-k 5 \
   --outdir derived/binary_smote
+```
+
+### Patient-Level Stratification
+
+```bash
+classiflow train-binary \
+  --data-csv data/features.csv \
+  --patient-col patient_id \
+  --label-col diagnosis \
+  --pos-label Malignant \
+  --outdir derived/binary_patient
 ```
 
 ### Full Configuration

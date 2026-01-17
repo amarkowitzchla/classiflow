@@ -2,6 +2,8 @@
 
 Train a multiclass classifier using binary task ensemble with meta-classifier.
 
+Patient-level stratification (optional): Provide `--patient-col patient_id` to ensure no data leakage by patient across folds. If omitted, sample-level stratification is used.
+
 ## Usage
 
 ```bash
@@ -17,6 +19,12 @@ classiflow train-meta [OPTIONS]
 | `--classes TEXT...` | List of class labels |
 
 ## Optional Options
+
+### Data Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--patient-col TEXT` | None | Patient/slide ID column for stratification |
 
 ### Task Options
 
@@ -71,6 +79,7 @@ classiflow train-meta \
 ```bash
 classiflow train-meta \
   --data-csv data/features.csv \
+  --patient-col patient_id \
   --label-col subtype \
   --classes TypeA TypeB TypeC TypeD \
   --tasks-json custom_tasks.json \

@@ -59,7 +59,8 @@ class TrainConfig:
     label_col: str = ""
     pos_label: Optional[str] = None
     feature_cols: Optional[List[str]] = None
-    group_col: Optional[str] = None  # For patient/group stratification
+    patient_col: Optional[str] = None  # Column with patient/slide IDs for stratification (optional)
+    group_col: Optional[str] = None  # Deprecated alias for patient/group stratification
 
     # Output
     outdir: Path = Path("derived")

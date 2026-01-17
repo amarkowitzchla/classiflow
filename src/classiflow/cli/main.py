@@ -80,6 +80,11 @@ def train_binary(
         "--data-csv",
         help="[DEPRECATED] Path to CSV with features + labels. Use --data instead.",
     ),
+    patient_col: Optional[str] = typer.Option(
+        None,
+        "--patient-col",
+        help="Column with patient/slide IDs for stratification (optional; if not provided, sample-level stratification is used)",
+    ),
     label_col: str = typer.Option(..., "--label-col", help="Name of label column"),
     pos_label: Optional[str] = typer.Option(None, "--pos-label", help="Positive class label (default: minority)"),
     outdir: Path = typer.Option(Path("derived"), "--outdir", help="Output directory"),
@@ -95,6 +100,8 @@ def train_binary(
     Train a binary classifier with nested cross-validation.
 
     Supports CSV, Parquet, and Parquet dataset directories.
+    Patient-level stratification (optional): Provide --patient-col patient_id to ensure no data leakage by patient across folds.
+    If omitted, sample-level stratification is used.
 
     Examples:
         # Single parquet file (recommended)
@@ -102,6 +109,9 @@ def train_binary(
 
         # Dataset directory (chunked parquet)
         classiflow train-binary --data data_parquet/ --label-col diagnosis --smote on
+
+        # Patient-level stratification
+        classiflow train-binary --data data.parquet --patient-col patient_id --label-col diagnosis --smote on
 
         # Legacy CSV (deprecated)
         classiflow train-binary --data-csv data.csv --label-col diagnosis --smote on
@@ -118,6 +128,7 @@ def train_binary(
 
     config = TrainConfig(
         data_path=resolved_path,
+        patient_col=patient_col,
         label_col=label_col,
         pos_label=pos_label,
         outdir=outdir,
@@ -153,6 +164,11 @@ def train_meta(
         "--data-csv",
         help="[DEPRECATED] Path to CSV with features + labels. Use --data instead.",
     ),
+    patient_col: Optional[str] = typer.Option(
+        None,
+        "--patient-col",
+        help="Column with patient/slide IDs for stratification (optional; if not provided, sample-level stratification is used)",
+    ),
     label_col: str = typer.Option(..., "--label-col", help="Name of label column"),
     classes: Optional[List[str]] = typer.Option(None, "--classes", help="Class labels to include (order matters)"),
     tasks_json: Optional[Path] = typer.Option(None, "--tasks-json", help="Optional JSON with composite tasks"),
@@ -173,6 +189,8 @@ def train_meta(
     Use --tasks-only to train ONLY the tasks from JSON (skipping auto OvR/pairwise).
 
     Supports CSV, Parquet, and Parquet dataset directories.
+    Patient-level stratification (optional): Provide --patient-col patient_id to ensure no data leakage by patient across folds.
+    If omitted, sample-level stratification is used.
 
     Examples:
         # Single parquet file (recommended)
@@ -180,6 +198,9 @@ def train_meta(
 
         # Dataset directory (chunked parquet)
         classiflow train-meta --data data_parquet/ --label-col subtype --smote both
+
+        # Patient-level stratification
+        classiflow train-meta --data data.parquet --patient-col patient_id --label-col subtype --smote both
 
         # Legacy CSV (deprecated)
         classiflow train-meta --data-csv data.csv --label-col subtype --tasks-json tasks.json --smote both
@@ -199,6 +220,7 @@ def train_meta(
 
     config = MetaConfig(
         data_path=resolved_path,
+        patient_col=patient_col,
         label_col=label_col,
         classes=classes,
         tasks_json=tasks_json,
@@ -254,6 +276,11 @@ def train_multiclass(
         "--data-csv",
         help="[DEPRECATED] Path to CSV with features + labels. Use --data instead.",
     ),
+    patient_col: Optional[str] = typer.Option(
+        None,
+        "--patient-col",
+        help="Column with patient/slide IDs for stratification (optional; if not provided, sample-level stratification is used)",
+    ),
     label_col: str = typer.Option(..., "--label-col", help="Name of label column"),
     classes: Optional[List[str]] = typer.Option(None, "--classes", help="Class labels to include (order matters)"),
     outdir: Path = typer.Option(Path("derived"), "--outdir", help="Output directory"),
@@ -270,6 +297,8 @@ def train_multiclass(
     Train a multiclass classifier with nested cross-validation.
 
     Supports CSV, Parquet, and Parquet dataset directories.
+    Patient-level stratification (optional): Provide --patient-col patient_id to ensure no data leakage by patient across folds.
+    If omitted, sample-level stratification is used.
 
     Examples:
         # Single parquet file (recommended)
@@ -277,6 +306,9 @@ def train_multiclass(
 
         # Dataset directory (chunked parquet)
         classiflow train-multiclass --data data_parquet/ --label-col subtype --smote both
+
+        # Patient-level stratification
+        classiflow train-multiclass --data data.parquet --patient-col patient_id --label-col subtype --smote both
 
         # Legacy CSV (deprecated)
         classiflow train-multiclass --data-csv data.csv --label-col subtype --smote both
@@ -293,6 +325,7 @@ def train_multiclass(
 
     config = MulticlassConfig(
         data_path=resolved_path,
+        patient_col=patient_col,
         label_col=label_col,
         classes=classes,
         outdir=outdir,

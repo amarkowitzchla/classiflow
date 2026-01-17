@@ -25,7 +25,7 @@ from sklearn.model_selection import StratifiedKFold, RepeatedStratifiedKFold, Gr
 from sklearn.preprocessing import StandardScaler, label_binarize
 
 from classiflow.config import MulticlassConfig
-from classiflow.io import load_data, validate_data
+from classiflow.io import load_data, load_data_with_groups, validate_data
 from classiflow.lineage.hashing import get_file_metadata
 from classiflow.lineage.manifest import create_training_manifest
 from classiflow.models import AdaptiveSMOTE, get_estimators, get_param_grids, resolve_device
@@ -35,6 +35,12 @@ from classiflow.plots import (
     plot_confusion_matrix,
     plot_averaged_roc_curves,
     plot_averaged_pr_curves,
+)
+from classiflow.splitting import (
+    iter_outer_splits,
+    iter_inner_splits,
+    assert_no_patient_leakage,
+    make_group_labels,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,7 +65,16 @@ def train_multiclass_classifier(config: MulticlassConfig) -> Dict[str, Any]:
 
     config.outdir.mkdir(parents=True, exist_ok=True)
 
-    X_full, y_full = load_data(data_path, config.label_col, feature_cols=config.feature_cols)
+    groups = None
+    if config.patient_col:
+        X_full, y_full, groups = load_data_with_groups(
+            data_path,
+            config.label_col,
+            config.patient_col,
+            feature_cols=config.feature_cols,
+        )
+    else:
+        X_full, y_full = load_data(data_path, config.label_col, feature_cols=config.feature_cols)
 
     if config.classes:
         missing = set(config.classes) - set(y_full.unique().tolist())
@@ -68,11 +83,20 @@ def train_multiclass_classifier(config: MulticlassConfig) -> Dict[str, Any]:
         mask = y_full.isin(config.classes)
         X_full = X_full[mask]
         y_full = y_full[mask]
+        if groups is not None:
+            groups = groups[mask]
         classes = list(config.classes)
     else:
         classes = sorted(y_full.unique().tolist())
 
     validate_data(X_full, y_full)
+
+    if config.patient_col and groups is not None:
+        patient_df = pd.DataFrame(
+            {config.patient_col: groups, "label": y_full.values},
+            index=X_full.index,
+        )
+        make_group_labels(patient_df, config.patient_col, "label")
 
     y_cat = pd.Categorical(y_full, categories=classes, ordered=True)
     if (y_cat.codes < 0).any():
@@ -84,6 +108,7 @@ def train_multiclass_classifier(config: MulticlassConfig) -> Dict[str, Any]:
     file_metadata = get_file_metadata(data_path)
     config_dict = config.to_dict()
     config_dict["resolved_device"] = resolved_device
+    config_dict["stratification_level"] = "patient" if config.patient_col else "sample"
 
     manifest = create_training_manifest(
         data_path=data_path,
@@ -105,6 +130,7 @@ def train_multiclass_classifier(config: MulticlassConfig) -> Dict[str, Any]:
         classes=classes,
         config=config,
         resolved_device=resolved_device,
+        groups=groups,
     )
 
     logger.info("Multiclass training complete")
@@ -117,6 +143,7 @@ def _run_multiclass_nested_cv(
     classes: List[str],
     config: MulticlassConfig,
     resolved_device: str,
+    groups: Optional[pd.Series] = None,
 ) -> Dict[str, Any]:
     """Run nested CV for direct multiclass training."""
     estimators = _apply_device_to_estimators(get_estimators(config.random_state, config.max_iter), resolved_device)
@@ -125,11 +152,25 @@ def _run_multiclass_nested_cv(
 
     variants = ["smote", "none"] if config.smote_mode in ("on", "both") else ["none"]
 
-    outer_cv = StratifiedKFold(
-        n_splits=config.outer_folds,
-        shuffle=True,
-        random_state=config.random_state,
-    )
+    df_groups = None
+    groups_series = None
+    if config.patient_col and groups is not None:
+        groups_series = groups if isinstance(groups, pd.Series) else pd.Series(groups, index=X_full.index)
+        df_groups = pd.DataFrame({config.patient_col: groups_series}, index=X_full.index)
+        outer_splits = iter_outer_splits(
+            df=df_groups,
+            y=y_full,
+            patient_col=config.patient_col,
+            n_splits=config.outer_folds,
+            random_state=config.random_state,
+        )
+    else:
+        outer_cv = StratifiedKFold(
+            n_splits=config.outer_folds,
+            shuffle=True,
+            random_state=config.random_state,
+        )
+        outer_splits = outer_cv.split(X_full, y_full)
 
     inner_cv_rows: List[Dict[str, Any]] = []
     inner_cv_split_rows: List[Dict[str, Any]] = []
@@ -138,13 +179,29 @@ def _run_multiclass_nested_cv(
     all_roc_data = {"fpr": [], "tpr": [], "auc": []}
     all_pr_data = {"recall": [], "precision": [], "ap": []}
 
-    for fold, (tr_idx, va_idx) in enumerate(outer_cv.split(X_full, y_full), 1):
+    for fold, (tr_idx, va_idx) in enumerate(outer_splits, 1):
         logger.info(f"Fold {fold}/{config.outer_folds}")
         fold_root = config.outdir / f"fold{fold}"
         fold_root.mkdir(exist_ok=True)
 
         X_tr, X_va = X_full.iloc[tr_idx], X_full.iloc[va_idx]
         y_tr, y_va = y_full.iloc[tr_idx], y_full.iloc[va_idx]
+        groups_tr = None
+        if df_groups is not None and groups_series is not None:
+            assert_no_patient_leakage(
+                df_groups,
+                config.patient_col,
+                np.asarray(tr_idx),
+                np.asarray(va_idx),
+                f"multiclass outer fold {fold}",
+            )
+            groups_tr = groups_series.iloc[tr_idx]
+            n_patients_tr = groups_tr.nunique()
+            n_patients_va = groups_series.iloc[va_idx].nunique()
+            logger.info(
+                f"  Patient split: train_patients={n_patients_tr}, val_patients={n_patients_va}, "
+                f"train_rows={len(tr_idx)}, val_rows={len(va_idx)}"
+            )
 
         for variant in variants:
             logger.info(f"  Variant: {variant}")
@@ -167,6 +224,7 @@ def _run_multiclass_nested_cv(
                 inner_cv_split_rows=inner_cv_split_rows,
                 outer_rows=outer_rows,
                 var_dir=var_dir,
+                groups_tr=groups_tr,
             )
 
             _save_multiclass_artifacts(
@@ -236,19 +294,49 @@ def _run_multiclass_variant(
     inner_cv_split_rows: List[Dict[str, Any]],
     outer_rows: List[Dict[str, Any]],
     var_dir: Path,
+    groups_tr: Optional[pd.Series] = None,
 ) -> Tuple[Optional[str], Optional[Any], Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
     """Run inner CV and evaluation for one SMOTE variant."""
-    min_class = int(y_tr.value_counts().min())
+    if config.patient_col and groups_tr is not None:
+        patient_df = pd.DataFrame(
+            {config.patient_col: np.asarray(groups_tr), "label": y_tr.values},
+            index=X_tr.index,
+        )
+        patient_labels = make_group_labels(patient_df, config.patient_col, "label")
+        min_class = int(pd.Series(patient_labels).value_counts().min())
+    else:
+        min_class = int(y_tr.value_counts().min())
     n_splits_eff = max(2, min(config.inner_splits, min_class))
     if n_splits_eff < config.inner_splits:
         logger.debug(f"Reducing inner_splits {config.inner_splits} -> {n_splits_eff} (minority={min_class})")
 
-    cv_inner = RepeatedStratifiedKFold(
-        n_splits=n_splits_eff,
-        n_repeats=config.inner_repeats,
-        random_state=config.random_state,
-    )
-    n_inner_total = n_splits_eff * config.inner_repeats
+    if config.patient_col and groups_tr is not None:
+        df_groups_tr = pd.DataFrame({config.patient_col: np.asarray(groups_tr)}, index=X_tr.index)
+        inner_splits = list(iter_inner_splits(
+            df_tr=df_groups_tr,
+            y_tr=y_tr,
+            patient_col=config.patient_col,
+            n_splits=n_splits_eff,
+            n_repeats=config.inner_repeats,
+            random_state=config.random_state,
+        ))
+        for split_idx, (inner_tr_idx, inner_va_idx) in enumerate(inner_splits, 1):
+            assert_no_patient_leakage(
+                df_groups_tr,
+                config.patient_col,
+                np.asarray(inner_tr_idx),
+                np.asarray(inner_va_idx),
+                f"multiclass outer fold {fold} inner split {split_idx}",
+            )
+        cv_inner = inner_splits
+        n_inner_total = len(inner_splits)
+    else:
+        cv_inner = RepeatedStratifiedKFold(
+            n_splits=n_splits_eff,
+            n_repeats=config.inner_repeats,
+            random_state=config.random_state,
+        )
+        n_inner_total = n_splits_eff * config.inner_repeats
 
     sampler = AdaptiveSMOTE(k_max=5, random_state=config.random_state) if variant == "smote" else "passthrough"
 
@@ -299,7 +387,11 @@ def _run_multiclass_variant(
         best_idx = grid.best_index_
         tm_label = f"multiclass__{model_name} [{'SMOTE' if variant == 'smote' else 'No-SMOTE'}]"
         for s in range(n_inner_total):
-            rec = {"task_model": tm_label, "fold": int(s + 1)}
+            rec = {
+                "task_model": tm_label,
+                "outer_fold": fold,
+                "inner_split": int(s + 1),
+            }
             ok = True
             for name in MC_SCORER_ORDER:
                 key = f"split{s}_test_{name}"
@@ -546,7 +638,7 @@ def _save_multiclass_results(
         inner_df.to_csv(outdir / "metrics_inner_cv.csv", index=False)
 
     if inner_cv_split_rows:
-        split_df = pd.DataFrame(inner_cv_split_rows, columns=["task_model", "fold"] + MC_SCORER_ORDER)
+        split_df = pd.DataFrame(inner_cv_split_rows, columns=["task_model", "outer_fold", "inner_split"] + MC_SCORER_ORDER)
         split_df.to_csv(outdir / "inner_cv_splits.csv", index=False)
         split_df.to_csv(outdir / "metrics_inner_cv_splits.csv", index=False)
 

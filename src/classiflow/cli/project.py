@@ -127,7 +127,12 @@ def bootstrap_project(
     hierarchy: Optional[str] = typer.Option(None, "--hierarchy", help="Hierarchy column/path"),
     label_col: Optional[str] = typer.Option(None, "--label-col", help="Label column name"),
     sample_id_col: Optional[str] = typer.Option(None, "--sample-id-col", help="Sample ID column name"),
-    patient_id_col: Optional[str] = typer.Option(None, "--patient-id-col", help="Patient ID column name"),
+    patient_id_col: Optional[str] = typer.Option(
+        None,
+        "--patient-id-col",
+        "--patient-col",
+        help="Patient ID column name",
+    ),
     no_patient_stratified: bool = typer.Option(False, "--no-patient-stratified", help="Disable patient stratification"),
     thresholds: List[str] = typer.Option([], "--threshold", help="Metric threshold overrides (metric:value)"),
     copy_data: str = typer.Option("pointer", "--copy-data", help="copy|symlink|pointer"),

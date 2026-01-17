@@ -13,6 +13,9 @@
 - `classiflow project ship`
 
 Use `--mode multiclass` in `bootstrap` for direct multiclass training.
+Provide `--patient-col` (or `--patient-id-col`) with `--no-patient-stratified` unset to enable patient-level stratification for binary, meta, multiclass, or hierarchical modes.
+
+For end-to-end examples with all options per training mode, see `docs/PROJECT_FULL_CYCLE.md`.
 
 ## Hierarchical Mode
 
@@ -32,7 +35,7 @@ classiflow project bootstrap \
   --mode hierarchical \
   --label-col TUMOR_TYPE \
   --hierarchy SUBTYPE \
-  --patient-id-col PATIENT_ID
+  --patient-col PATIENT_ID
 ```
 
 Disable patient stratification:

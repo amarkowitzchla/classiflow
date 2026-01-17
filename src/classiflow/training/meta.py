@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, Any, Callable
+from typing import Dict, Any, Callable, Optional
 from collections import defaultdict
 
 import numpy as np
@@ -26,7 +26,7 @@ from imblearn.pipeline import Pipeline as ImbPipeline
 import joblib
 
 from classiflow.config import MetaConfig
-from classiflow.io import load_data, validate_data
+from classiflow.io import load_data, load_data_with_groups, validate_data
 from classiflow.tasks import TaskBuilder, load_composite_tasks
 from classiflow.models import get_estimators, get_param_grids, AdaptiveSMOTE
 from classiflow.metrics.scorers import get_scorers, SCORER_ORDER
@@ -40,6 +40,12 @@ from classiflow.plots import (
 )
 from classiflow.lineage.manifest import create_training_manifest
 from classiflow.lineage.hashing import get_file_metadata
+from classiflow.splitting import (
+    iter_outer_splits,
+    iter_inner_splits,
+    assert_no_patient_leakage,
+    make_group_labels,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,19 +82,37 @@ def train_meta_classifier(config: MetaConfig) -> Dict[str, Any]:
     config.outdir.mkdir(parents=True, exist_ok=True)
 
     # Load data
-    X_full, y_full = load_data(data_path, config.label_col, feature_cols=config.feature_cols)
+    groups = None
+    if config.patient_col:
+        X_full, y_full, groups = load_data_with_groups(
+            data_path,
+            config.label_col,
+            config.patient_col,
+            feature_cols=config.feature_cols,
+        )
+    else:
+        X_full, y_full = load_data(data_path, config.label_col, feature_cols=config.feature_cols)
 
     # Filter to specified classes if provided
     if config.classes:
         mask = y_full.isin(config.classes)
         X_full = X_full[mask]
         y_full = y_full[mask]
+        if groups is not None:
+            groups = groups[mask]
         classes = config.classes
     else:
         classes = sorted(y_full.unique().tolist())
 
     logger.info(f"Classes: {classes}")
     validate_data(X_full, y_full)
+
+    if config.patient_col and groups is not None:
+        patient_df = pd.DataFrame(
+            {config.patient_col: groups, "label": y_full.values},
+            index=X_full.index,
+        )
+        make_group_labels(patient_df, config.patient_col, "label")
 
     # Build tasks
     task_builder = TaskBuilder(classes)
@@ -116,12 +140,15 @@ def train_meta_classifier(config: MetaConfig) -> Dict[str, Any]:
     # Build task definitions for manifest
     task_definitions = {name: str(func) for name, func in tasks.items()}
 
+    config_dict = config.to_dict()
+    config_dict["stratification_level"] = "patient" if config.patient_col else "sample"
+
     manifest = create_training_manifest(
         data_path=data_path,
         data_hash=file_metadata["sha256_hash"],
         data_size_bytes=file_metadata["size_bytes"],
         data_row_count=file_metadata.get("row_count"),
-        config=config.to_dict(),
+        config=config_dict,
         task_type="meta",
         feature_list=X_full.columns.tolist(),
         task_definitions=task_definitions,
@@ -136,6 +163,7 @@ def train_meta_classifier(config: MetaConfig) -> Dict[str, Any]:
         y_full=y_full,
         tasks=tasks,
         config=config,
+        groups=groups,
     )
 
     logger.info("Meta-classifier training complete")
@@ -147,6 +175,7 @@ def _run_meta_nested_cv(
     y_full: pd.Series,
     tasks: Dict[str, Callable],
     config: MetaConfig,
+    groups: Optional[pd.Series] = None,
 ) -> Dict[str, Any]:
     """Run nested CV for meta-classifier."""
     estimators = get_estimators(config.random_state, config.max_iter)
@@ -156,20 +185,26 @@ def _run_meta_nested_cv(
     # SMOTE variants
     variants = ["smote", "none"] if config.smote_mode in ("on", "both") else ["none"]
 
-    # Inner CV
-    cv_inner = RepeatedStratifiedKFold(
-        n_splits=config.inner_splits,
-        n_repeats=config.inner_repeats,
-        random_state=config.random_state,
-    )
-    n_inner_total = config.inner_splits * config.inner_repeats
-
     # Outer CV
-    outer_cv = StratifiedKFold(
-        n_splits=config.outer_folds,
-        shuffle=True,
-        random_state=config.random_state,
-    )
+    df_groups = None
+    groups_series = None
+    if config.patient_col and groups is not None:
+        groups_series = groups if isinstance(groups, pd.Series) else pd.Series(groups, index=X_full.index)
+        df_groups = pd.DataFrame({config.patient_col: groups_series}, index=X_full.index)
+        outer_splits = iter_outer_splits(
+            df=df_groups,
+            y=y_full,
+            patient_col=config.patient_col,
+            n_splits=config.outer_folds,
+            random_state=config.random_state,
+        )
+    else:
+        outer_cv = StratifiedKFold(
+            n_splits=config.outer_folds,
+            shuffle=True,
+            random_state=config.random_state,
+        )
+        outer_splits = outer_cv.split(X_full, y_full)
 
     # Collectors
     inner_cv_rows = []
@@ -181,13 +216,52 @@ def _run_meta_nested_cv(
     all_roc_data = {"fpr": [], "tpr": [], "auc": []}
     all_pr_data = {"recall": [], "precision": [], "ap": []}
 
-    for fold, (tr_idx, va_idx) in enumerate(outer_cv.split(X_full, y_full), 1):
+    for fold, (tr_idx, va_idx) in enumerate(outer_splits, 1):
         logger.info(f"Fold {fold}/{config.outer_folds}")
         fold_root = config.outdir / f"fold{fold}"
         fold_root.mkdir(exist_ok=True)
 
         X_tr, X_va = X_full.iloc[tr_idx], X_full.iloc[va_idx]
         y_tr, y_va = y_full.iloc[tr_idx], y_full.iloc[va_idx]
+        groups_tr = None
+        if df_groups is not None and groups_series is not None:
+            assert_no_patient_leakage(
+                df_groups,
+                config.patient_col,
+                np.asarray(tr_idx),
+                np.asarray(va_idx),
+                f"meta outer fold {fold}",
+            )
+            groups_tr = groups_series.iloc[tr_idx]
+
+        # Inner CV (per fold for meta classifier)
+        if config.patient_col and groups_tr is not None:
+            df_groups_tr = pd.DataFrame({config.patient_col: groups_tr}, index=X_tr.index)
+            inner_splits = list(iter_inner_splits(
+                df_tr=df_groups_tr,
+                y_tr=y_tr,
+                patient_col=config.patient_col,
+                n_splits=config.inner_splits,
+                n_repeats=config.inner_repeats,
+                random_state=config.random_state,
+            ))
+            for split_idx, (inner_tr_idx, inner_va_idx) in enumerate(inner_splits, 1):
+                assert_no_patient_leakage(
+                    df_groups_tr,
+                    config.patient_col,
+                    np.asarray(inner_tr_idx),
+                    np.asarray(inner_va_idx),
+                    f"meta outer fold {fold} inner split {split_idx}",
+                )
+            cv_inner = inner_splits
+            n_inner_total = len(inner_splits)
+        else:
+            cv_inner = RepeatedStratifiedKFold(
+                n_splits=config.inner_splits,
+                n_repeats=config.inner_repeats,
+                random_state=config.random_state,
+            )
+            n_inner_total = config.inner_splits * config.inner_repeats
 
         for variant in variants:
             logger.info(f"  Variant: {variant}")
@@ -210,6 +284,10 @@ def _run_meta_nested_cv(
                 inner_cv_rows=inner_cv_rows,
                 inner_cv_split_rows=inner_cv_split_rows,
                 outer_bin_rows=outer_bin_rows,
+                groups_tr=groups_tr,
+                patient_col=config.patient_col,
+                inner_splits=config.inner_splits,
+                inner_repeats=config.inner_repeats,
             )
 
             # Save binary artifacts
@@ -250,7 +328,7 @@ def _run_meta_nested_cv(
     pd.DataFrame(outer_meta_rows).to_csv(config.outdir / "metrics_outer_meta_eval.csv", index=False)
 
     # Inner CV splits
-    inner_split_df = pd.DataFrame(inner_cv_split_rows, columns=["task_model", "fold"] + SCORER_ORDER)
+    inner_split_df = pd.DataFrame(inner_cv_split_rows, columns=["task_model", "outer_fold", "inner_split"] + SCORER_ORDER)
     inner_split_df.to_csv(config.outdir / "metrics_inner_cv_splits.csv", index=False)
 
     try:
@@ -292,9 +370,26 @@ def _run_meta_nested_cv(
 
 
 def _train_binary_tasks(
-    X_tr, y_tr, X_va, y_va, tasks, estimators, param_grids, scorers,
-    cv_inner, n_inner_total, variant, fold, random_state,
-    inner_cv_rows, inner_cv_split_rows, outer_bin_rows,
+    X_tr,
+    y_tr,
+    X_va,
+    y_va,
+    tasks,
+    estimators,
+    param_grids,
+    scorers,
+    cv_inner,
+    n_inner_total,
+    variant,
+    fold,
+    random_state,
+    inner_cv_rows,
+    inner_cv_split_rows,
+    outer_bin_rows,
+    groups_tr: Optional[pd.Series] = None,
+    patient_col: Optional[str] = None,
+    inner_splits: int = 5,
+    inner_repeats: int = 2,
 ):
     """Train binary models for all tasks."""
     best_pipes = {}
@@ -309,6 +404,30 @@ def _train_binary_tasks(
 
         X_bin = X_tr.loc[y_bin.index]
 
+        cv_for_task = cv_inner
+        n_inner_total_task = n_inner_total
+        if patient_col and groups_tr is not None:
+            groups_task = groups_tr.loc[y_bin.index]
+            df_groups_task = pd.DataFrame({patient_col: groups_task}, index=X_bin.index)
+            inner_splits_task = list(iter_inner_splits(
+                df_tr=df_groups_task,
+                y_tr=y_bin,
+                patient_col=patient_col,
+                n_splits=inner_splits,
+                n_repeats=inner_repeats,
+                random_state=random_state,
+            ))
+            for split_idx, (inner_tr_idx, inner_va_idx) in enumerate(inner_splits_task, 1):
+                assert_no_patient_leakage(
+                    df_groups_task,
+                    patient_col,
+                    np.asarray(inner_tr_idx),
+                    np.asarray(inner_va_idx),
+                    f"{task_name} outer fold {fold} inner split {split_idx}",
+                )
+            cv_for_task = inner_splits_task
+            n_inner_total_task = len(inner_splits_task)
+
         best_f1, best_name, best_grid = -np.inf, None, None
 
         for model_name, est in estimators.items():
@@ -321,9 +440,15 @@ def _train_binary_tasks(
             ])
 
             grid = GridSearchCV(
-                pipe, param_grids[model_name],
-                cv=cv_inner, scoring=scorers, refit="F1 Score",
-                n_jobs=-1, verbose=0, return_train_score=False, error_score=np.nan,
+                pipe,
+                param_grids[model_name],
+                cv=cv_for_task,
+                scoring=scorers,
+                refit="F1 Score",
+                n_jobs=-1,
+                verbose=0,
+                return_train_score=False,
+                error_score=np.nan,
             )
 
             try:
@@ -351,8 +476,12 @@ def _train_binary_tasks(
             # Per-split metrics
             best_idx = grid.best_index_
             tm_label = f"{task_name}__{model_name} [{'SMOTE' if variant=='smote' else 'No-SMOTE'}]"
-            for s in range(n_inner_total):
-                rec = {"task_model": tm_label, "fold": int(s + 1)}
+            for s in range(n_inner_total_task):
+                rec = {
+                    "task_model": tm_label,
+                    "outer_fold": fold,
+                    "inner_split": int(s + 1),
+                }
                 ok = True
                 for name in SCORER_ORDER:
                     key = f"split{s}_test_{name}"

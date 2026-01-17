@@ -17,6 +17,7 @@ from sklearn.exceptions import FitFailedWarning
 from classiflow.models import get_estimators, get_param_grids, AdaptiveSMOTE
 from classiflow.metrics.scorers import get_scorers, SCORER_ORDER
 from classiflow.metrics.binary import compute_binary_metrics
+from classiflow.splitting import iter_outer_splits, iter_inner_splits, assert_no_patient_leakage, make_group_labels
 from classiflow.plots import (
     plot_roc_curve,
     plot_pr_curve,
@@ -78,6 +79,8 @@ class NestedCVOrchestrator:
         y: pd.Series,
         task_name: str = "binary_task",
         outdir: Optional[Path] = None,
+        groups: Optional[np.ndarray] = None,
+        patient_col: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Run nested CV for a single binary task.
@@ -104,11 +107,24 @@ class NestedCVOrchestrator:
         variants = self._get_smote_variants()
 
         # Outer CV
-        outer_cv = StratifiedKFold(
-            n_splits=self.outer_folds,
-            shuffle=True,
-            random_state=self.random_state,
-        )
+        patient_col = patient_col or "patient_id"
+        df_groups = None
+        if groups is not None:
+            df_groups = pd.DataFrame({patient_col: np.asarray(groups)}, index=X.index)
+            outer_splits = iter_outer_splits(
+                df=df_groups,
+                y=y,
+                patient_col=patient_col,
+                n_splits=self.outer_folds,
+                random_state=self.random_state,
+            )
+        else:
+            outer_cv = StratifiedKFold(
+                n_splits=self.outer_folds,
+                shuffle=True,
+                random_state=self.random_state,
+            )
+            outer_splits = outer_cv.split(X, y)
 
         results = {
             "task_name": task_name,
@@ -122,13 +138,32 @@ class NestedCVOrchestrator:
         all_roc_data = {"fpr": [], "tpr": [], "auc": []}
         all_pr_data = {"recall": [], "precision": [], "ap": []}
 
-        for fold_idx, (tr_idx, va_idx) in enumerate(outer_cv.split(X, y), 1):
+        for fold_idx, (tr_idx, va_idx) in enumerate(outer_splits, 1):
             logger.info(f"  Fold {fold_idx}/{self.outer_folds}")
             X_tr, X_va = X.iloc[tr_idx], X.iloc[va_idx]
             y_tr, y_va = y.iloc[tr_idx], y.iloc[va_idx]
+            groups_tr = None
+            if groups is not None and df_groups is not None:
+                assert_no_patient_leakage(
+                    df_groups,
+                    patient_col,
+                    np.asarray(tr_idx),
+                    np.asarray(va_idx),
+                    f"{task_name} outer fold {fold_idx}",
+                )
+                groups_tr = np.asarray(groups)[tr_idx]
 
             fold_results = self._run_fold(
-                X_tr, y_tr, X_va, y_va, fold_idx, task_name, variants, outdir
+                X_tr,
+                y_tr,
+                X_va,
+                y_va,
+                fold_idx,
+                task_name,
+                variants,
+                outdir,
+                groups_tr=groups_tr,
+                patient_col=patient_col if groups is not None else None,
             )
 
             results["folds"].append(fold_results)
@@ -188,6 +223,8 @@ class NestedCVOrchestrator:
         task_name: str,
         variants: list,
         outdir: Optional[Path],
+        groups_tr: Optional[np.ndarray] = None,
+        patient_col: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Run a single outer fold."""
         fold_results = {
@@ -205,7 +242,16 @@ class NestedCVOrchestrator:
         for variant in variants:
             logger.info(f"    Variant: {variant}")
             var_results = self._run_variant(
-                X_tr, y_tr, X_va, y_va, fold_idx, task_name, variant, outdir
+                X_tr,
+                y_tr,
+                X_va,
+                y_va,
+                fold_idx,
+                task_name,
+                variant,
+                outdir,
+                groups_tr=groups_tr,
+                patient_col=patient_col,
             )
             fold_results["variants"][variant] = var_results
             fold_results["inner_cv_rows"].extend(var_results["inner_cv_rows"])
@@ -293,20 +339,51 @@ class NestedCVOrchestrator:
         task_name: str,
         variant: str,
         outdir: Optional[Path],
+        groups_tr: Optional[np.ndarray] = None,
+        patient_col: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Run inner CV and evaluation for a single SMOTE variant."""
         # Adaptive inner CV splits based on minority class size
-        min_class = int(y_tr.value_counts().min())
+        if groups_tr is not None and patient_col is not None:
+            patient_df = pd.DataFrame(
+                {patient_col: np.asarray(groups_tr), "label": y_tr.values},
+                index=X_tr.index,
+            )
+            patient_labels = make_group_labels(patient_df, patient_col, "label")
+            min_class = int(pd.Series(patient_labels).value_counts().min())
+        else:
+            min_class = int(y_tr.value_counts().min())
         n_splits_eff = max(2, min(self.inner_splits, min_class))
         if n_splits_eff < self.inner_splits:
             logger.debug(f"Reducing inner_splits {self.inner_splits} → {n_splits_eff} (minority={min_class})")
 
-        cv_inner = RepeatedStratifiedKFold(
-            n_splits=n_splits_eff,
-            n_repeats=self.inner_repeats,
-            random_state=self.random_state,
-        )
-        n_inner_total = n_splits_eff * self.inner_repeats
+        if groups_tr is not None and patient_col is not None:
+            df_groups_tr = pd.DataFrame({patient_col: np.asarray(groups_tr)}, index=X_tr.index)
+            inner_splits = list(iter_inner_splits(
+                df_tr=df_groups_tr,
+                y_tr=y_tr,
+                patient_col=patient_col,
+                n_splits=n_splits_eff,
+                n_repeats=self.inner_repeats,
+                random_state=self.random_state,
+            ))
+            for split_idx, (inner_tr_idx, inner_va_idx) in enumerate(inner_splits, 1):
+                assert_no_patient_leakage(
+                    df_groups_tr,
+                    patient_col,
+                    np.asarray(inner_tr_idx),
+                    np.asarray(inner_va_idx),
+                    f"{task_name} outer fold {fold_idx} inner split {split_idx}",
+                )
+            cv_inner = inner_splits
+            n_inner_total = len(inner_splits)
+        else:
+            cv_inner = RepeatedStratifiedKFold(
+                n_splits=n_splits_eff,
+                n_repeats=self.inner_repeats,
+                random_state=self.random_state,
+            )
+            n_inner_total = n_splits_eff * self.inner_repeats
 
         # Create sampler
         sampler = self._make_sampler(variant)
@@ -373,7 +450,11 @@ class NestedCVOrchestrator:
             best_idx = grid.best_index_
             tm_label = f"{task_name}__{model_name} [{'SMOTE' if variant=='smote' else 'No-SMOTE'}]"
             for s in range(n_inner_total):
-                rec = {"task_model": tm_label, "fold": int(s + 1)}
+                rec = {
+                    "task_model": tm_label,
+                    "outer_fold": fold_idx,
+                    "inner_split": int(s + 1),
+                }
                 ok = True
                 for name in SCORER_ORDER:
                     key = f"split{s}_test_{name}"

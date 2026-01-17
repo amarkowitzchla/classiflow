@@ -16,6 +16,7 @@ classiflow --help
 | Command | Description |
 |---------|-------------|
 | [`train-binary`](train-binary.md) | Binary classification with nested CV |
+| [`train-multiclass`](train-multiclass.md) | Direct multiclass classification |
 | [`train-meta`](train-meta.md) | Multiclass via binary task ensemble |
 | [`train-hierarchical`](train-hierarchical.md) | Hierarchical classification |
 | [`infer`](infer.md) | Run inference on new data |
@@ -47,6 +48,13 @@ classiflow train-meta \
   --label-col subtype \
   --classes TypeA TypeB TypeC \
   --outdir derived/meta
+
+# Train multiclass (direct)
+classiflow train-multiclass \
+  --data-csv data/features.csv \
+  --label-col subtype \
+  --classes TypeA TypeB TypeC \
+  --outdir derived/multiclass
 ```
 
 ### Inference Workflow

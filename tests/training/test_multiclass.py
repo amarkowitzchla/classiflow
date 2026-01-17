@@ -62,7 +62,7 @@ def test_train_multiclass_outputs(tmp_path):
         assert col in inner_df.columns
 
     split_df = pd.read_csv(outdir / "inner_cv_splits.csv")
-    for col in ["task_model", "fold", "Accuracy", "Balanced Accuracy", "F1 Macro", "F1 Weighted"]:
+    for col in ["task_model", "outer_fold", "inner_split", "Accuracy", "Balanced Accuracy", "F1 Macro", "F1 Weighted"]:
         assert col in split_df.columns
 
     outer_df = pd.read_csv(outdir / "outer_results.csv")

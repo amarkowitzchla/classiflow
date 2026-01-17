@@ -71,6 +71,80 @@ def load_data(
     return X, y
 
 
+def load_data_with_groups(
+    data_path: Union[Path, str],
+    label_col: str,
+    patient_col: str,
+    feature_cols: Optional[List[str]] = None,
+    drop_na_labels: bool = True,
+    drop_na_groups: bool = True,
+) -> Tuple[pd.DataFrame, pd.Series, pd.Series]:
+    """
+    Load feature matrix, labels, and patient/group IDs.
+
+    Parameters
+    ----------
+    data_path : Path or str
+        Path to data file (.csv, .parquet) or directory (parquet dataset)
+    label_col : str
+        Name of the label column
+    patient_col : str
+        Name of patient/group column
+    feature_cols : Optional[List[str]]
+        Explicit list of feature columns; if None, auto-select numeric columns
+    drop_na_labels : bool
+        Whether to drop rows with missing labels
+    drop_na_groups : bool
+        Whether to drop rows with missing patient/group IDs
+
+    Returns
+    -------
+    X : pd.DataFrame
+        Feature matrix (numeric columns only)
+    y : pd.Series
+        Label series
+    groups : pd.Series
+        Patient/group ID series
+    """
+    from classiflow.data import load_table
+
+    data_path = Path(data_path)
+    logger.info(f"Loading data from {data_path}")
+    df = load_table(data_path)
+
+    for col_name, role in [(label_col, "Label"), (patient_col, "Patient")]:
+        if col_name not in df.columns:
+            raise ValueError(f"{role} column '{col_name}' not found in data. Available: {list(df.columns)}")
+
+    y = df[label_col].astype(str)
+    groups = df[patient_col].astype(str)
+
+    if drop_na_labels or drop_na_groups:
+        valid = pd.Series(True, index=df.index)
+        if drop_na_labels:
+            valid &= y.notna()
+        if drop_na_groups:
+            valid &= groups.notna()
+        df = df[valid].copy()
+        y = y[valid].copy()
+        groups = groups[valid].copy()
+
+    if feature_cols is not None:
+        missing = set(feature_cols) - set(df.columns)
+        if missing:
+            raise ValueError(f"Feature columns not found: {missing}")
+        X = df[feature_cols].copy()
+    else:
+        # Auto-select numeric columns excluding label + patient
+        X = df.drop(columns=[label_col, patient_col]).select_dtypes(include=[np.number])
+
+    if X.shape[1] == 0:
+        raise ValueError("No numeric feature columns found.")
+
+    logger.info(f"Loaded data: X shape={X.shape}, y nunique={y.nunique()}, groups={groups.nunique()}")
+    return X, y, groups
+
+
 def validate_data(X: pd.DataFrame, y: pd.Series) -> None:
     """
     Validate feature matrix and labels.

@@ -163,6 +163,7 @@ nav:
   - Getting Started:
     - Installation: getting-started/installation.md
     - Quickstart: getting-started/quickstart.md
+    - Project Full Cycle: PROJECT_FULL_CYCLE.md
   - Tutorials:
     - tutorials/index.md
     - Binary Classification: tutorials/binary-classification.md
@@ -189,7 +190,9 @@ nav:
     - Reproducibility Guarantees: concepts/reproducibility.md
   - CLI Reference:
     - cli/index.md
+    - project: cli/PROJECT.md
     - train-binary: cli/train-binary.md
+    - train-multiclass: cli/train-multiclass.md
     - train-meta: cli/train-meta.md
     - train-hierarchical: cli/train-hierarchical.md
     - infer: cli/infer.md

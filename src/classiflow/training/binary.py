@@ -9,7 +9,8 @@ from typing import Dict, Any
 import pandas as pd
 
 from classiflow.config import TrainConfig
-from classiflow.io import load_data, validate_data
+from classiflow.io import load_data, load_data_with_groups, validate_data
+from classiflow.splitting import make_group_labels
 from classiflow.training.nested_cv import NestedCVOrchestrator
 from classiflow.artifacts import save_nested_cv_results
 from classiflow.lineage.manifest import create_training_manifest
@@ -45,11 +46,20 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
     config.outdir.mkdir(parents=True, exist_ok=True)
 
     # Load and validate data
-    X, y_raw = load_data(
-        data_path,
-        config.label_col,
-        feature_cols=config.feature_cols,
-    )
+    groups = None
+    if config.patient_col:
+        X, y_raw, groups = load_data_with_groups(
+            data_path,
+            config.label_col,
+            config.patient_col,
+            feature_cols=config.feature_cols,
+        )
+    else:
+        X, y_raw = load_data(
+            data_path,
+            config.label_col,
+            feature_cols=config.feature_cols,
+        )
 
     # Convert to binary
     if config.pos_label is None:
@@ -65,6 +75,13 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
 
     y = (y_raw == pos_val).astype(int)
 
+    if config.patient_col and groups is not None:
+        patient_df = pd.DataFrame(
+            {config.patient_col: groups, "label": y.values},
+            index=X.index,
+        )
+        make_group_labels(patient_df, config.patient_col, "label")
+
     validate_data(X, y)
 
     logger.info(f"Class balance: 0={sum(y==0)}, 1={sum(y==1)}")
@@ -72,12 +89,15 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
     # Create and save training manifest with lineage
     file_metadata = get_file_metadata(data_path)
 
+    config_dict = config.to_dict()
+    config_dict["stratification_level"] = "patient" if config.patient_col else "sample"
+
     manifest = create_training_manifest(
         data_path=data_path,
         data_hash=file_metadata["sha256_hash"],
         data_size_bytes=file_metadata["size_bytes"],
         data_row_count=file_metadata.get("row_count"),
-        config=config.to_dict(),
+        config=config_dict,
         task_type="binary",
         feature_list=X.columns.tolist(),
         task_definitions={"binary_task": f"positive_class={pos_val}"},
@@ -101,6 +121,8 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
         y=y,
         task_name="binary_task",
         outdir=config.outdir,
+        groups=groups,
+        patient_col=config.patient_col,
     )
 
     # Save results
