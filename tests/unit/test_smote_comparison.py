@@ -310,6 +310,24 @@ class TestSMOTEComparison:
         assert len(comparison.smote_data) > 0
         assert len(comparison.no_smote_data) > 0
 
+    def test_from_directory_combined_multiclass(self, tmp_path, sample_smote_data, sample_no_smote_data):
+        """Test loading combined multiclass metrics file."""
+        combined = pd.concat(
+            [
+                sample_smote_data,
+                sample_no_smote_data,
+            ],
+            ignore_index=True,
+        )
+        combined.to_csv(tmp_path / "metrics_outer_multiclass_eval.csv", index=False)
+
+        comparison = SMOTEComparison.from_directory(tmp_path)
+
+        assert comparison.n_folds == 3
+        assert "accuracy" in comparison.metric_columns
+        assert comparison.smote_data["sampler"].nunique() == 1
+        assert comparison.no_smote_data["sampler"].nunique() == 1
+
 
 class TestSMOTEComparisonResult:
     """Test SMOTEComparisonResult dataclass."""

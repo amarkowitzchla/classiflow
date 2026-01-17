@@ -34,6 +34,18 @@ from scipy import stats
 
 from classiflow.evaluation.smote_plots import create_all_plots
 
+DEFAULT_METRIC_FILE_CANDIDATES = [
+    "metrics_outer_meta_eval.csv",
+    "metrics_outer_multiclass_eval.csv",
+    "metrics_outer_binary_eval.csv",
+    "metrics_outer_eval.csv",
+]
+
+LEGACY_FOLD_METRIC_FILES = [
+    "metrics_inner_cv.csv",
+    "metrics.csv",
+]
+
 
 @dataclass
 class SMOTEComparisonResult:
@@ -234,28 +246,44 @@ class SMOTEComparison:
         Args:
             result_dir: Directory containing fold subdirectories OR combined metrics file
             model_type: Model type (auto-detected if None)
-            metric_file: Name of metrics CSV file to load
+            metric_file: Name of metrics CSV file to load (falls back to
+                metrics_outer_meta_eval.csv, metrics_outer_multiclass_eval.csv,
+                metrics_outer_binary_eval.csv, or metrics_outer_eval.csv when the
+                provided file is missing).
 
         Returns:
             SMOTEComparison instance
         """
         result_dir = Path(result_dir)
 
-        # Check for combined metrics file at top level first
-        combined_file = result_dir / metric_file
-        if combined_file.exists():
-            # Load combined file
-            combined = pd.read_csv(combined_file)
+        candidates: List[str] = []
+        if metric_file:
+            candidates.append(metric_file)
+        for candidate in DEFAULT_METRIC_FILE_CANDIDATES:
+            if candidate not in candidates:
+                candidates.append(candidate)
 
-            # Verify it has fold column
+        fold_candidates = candidates + [
+            candidate for candidate in LEGACY_FOLD_METRIC_FILES if candidate not in candidates
+        ]
+
+        combined = None
+        combined_source = None
+        for candidate in candidates:
+            candidate_path = result_dir / candidate
+            if candidate_path.exists():
+                combined = pd.read_csv(candidate_path)
+                combined_source = candidate_path
+                break
+
+        if combined is not None:
             if "fold" not in combined.columns:
                 raise ValueError(
-                    f"Metrics file {combined_file} exists but lacks 'fold' column. "
+                    f"Metrics file {combined_source} exists but lacks 'fold' column. "
                     "Expected either fold subdirectories (fold1/, fold2/, ...) or a combined "
                     "CSV with 'fold' column."
                 )
 
-            # Auto-detect model type if needed
             if model_type is None:
                 if (result_dir / "fold1" / "binary_smote").exists() or \
                    "binary_smote" in str(combined.get("model_dir", "").iloc[0] if "model_dir" in combined.columns else ""):
@@ -263,10 +291,8 @@ class SMOTEComparison:
                 elif (result_dir / "fold1" / "hierarchical_l1").exists():
                     model_type = "hierarchical"
                 else:
-                    model_type = "meta"  # Default for combined files
+                    model_type = "meta"
         else:
-            # Original behavior: load from fold subdirectories
-            # Auto-detect model type
             if model_type is None:
                 if (result_dir / "fold1" / "binary_smote").exists():
                     model_type = "meta"
@@ -275,26 +301,19 @@ class SMOTEComparison:
                 else:
                     model_type = "binary"
 
-            # Load metrics from each fold
             dfs = []
             for fold_dir in sorted(result_dir.glob("fold*")):
                 if not fold_dir.is_dir():
                     continue
 
-                metric_path = fold_dir / metric_file
-                if not metric_path.exists():
-                    # Try alternative names
-                    for alt_name in [
-                        "metrics_outer_binary_eval.csv",
-                        "metrics_inner_cv.csv",
-                        "metrics.csv"
-                    ]:
-                        alt_path = fold_dir / alt_name
-                        if alt_path.exists():
-                            metric_path = alt_path
-                            break
+                metric_path = None
+                for candidate in fold_candidates:
+                    candidate_path = fold_dir / candidate
+                    if candidate_path.exists():
+                        metric_path = candidate_path
+                        break
 
-                if not metric_path.exists():
+                if metric_path is None:
                     warnings.warn(f"No metrics file found in {fold_dir}")
                     continue
 
@@ -305,9 +324,8 @@ class SMOTEComparison:
             if not dfs:
                 raise FileNotFoundError(
                     f"No metrics files found in {result_dir}. "
-                    f"Expected either:\n"
-                    f"  1. Fold subdirectories: {result_dir}/fold1/{metric_file}, fold2/..., etc.\n"
-                    f"  2. Combined file: {result_dir}/{metric_file} (with 'fold' column)"
+                    f"Expected fold subdirectories with one of {', '.join(fold_candidates)}, "
+                    f"or a combined file named one of {', '.join(candidates)} with a 'fold' column."
                 )
 
             combined = pd.concat(dfs, ignore_index=True)

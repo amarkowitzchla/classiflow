@@ -269,6 +269,7 @@ def _parse_outer_cv_metrics_csv(run_dir: Path) -> dict[str, Any]:
     # Look for outer CV metrics CSV
     csv_candidates = [
         run_dir / "metrics_outer_meta_eval.csv",
+        run_dir / "metrics_outer_multiclass_eval.csv",
         run_dir / "metrics_outer_cv.csv",
         run_dir / "outer_cv_metrics.csv",
     ]
