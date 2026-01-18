@@ -182,6 +182,21 @@ classiflow project bootstrap \
   --patient-col PATIENT_ID
 ```
 
+To enable the torch-backed multiclass estimators on Apple Silicon, update the
+project config after bootstrap:
+
+```yaml
+backend: sklearn
+device: mps
+```
+
+To run only torch multiclass models (skip sklearn CPU models):
+
+```yaml
+multiclass:
+  estimator_mode: torch_only
+```
+
 ### Full cycle
 
 ```bash
@@ -231,6 +246,19 @@ task:
 key_columns:
   label: SUBTYPE
   patient_id: PATIENT_ID
+backend: sklearn
+device: auto
+model_set: default
+torch_dtype: float32
+torch_num_workers: 0
+```
+
+For binary/meta GPU runs, set:
+
+```yaml
+backend: torch
+device: mps
+model_set: torch_basic
 ```
 
 For hierarchical:

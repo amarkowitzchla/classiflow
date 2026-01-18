@@ -14,7 +14,7 @@ classiflow train-meta [OPTIONS]
 
 | Option | Description |
 |--------|-------------|
-| `--data-csv PATH` | Path to CSV file with features and labels |
+| `--data PATH` | Path to data file (.csv, .parquet) or parquet dataset directory |
 | `--label-col TEXT` | Name of the label column |
 | `--classes TEXT...` | List of class labels |
 
@@ -24,6 +24,7 @@ classiflow train-meta [OPTIONS]
 
 | Option | Default | Description |
 |--------|---------|-------------|
+| `--data-csv PATH` | None | [DEPRECATED] CSV path (use `--data`) |
 | `--patient-col TEXT` | None | Patient/slide ID column for stratification |
 
 ### Task Options
@@ -55,6 +56,16 @@ classiflow train-meta [OPTIONS]
 |--------|---------|-------------|
 | `--meta-c TEXT` | `0.01,0.1,1,10` | Comma-separated C values for meta LR |
 
+### Model Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--backend [sklearn\|torch]` | `sklearn` | Estimator backend |
+| `--device [auto\|cpu\|cuda\|mps]` | `auto` | Device (torch backend only) |
+| `--model-set TEXT` | `default` | Model set registry key |
+| `--torch-num-workers INT` | 0 | Torch DataLoader workers |
+| `--torch-dtype [float32\|float16]` | `float32` | Torch dtype |
+
 ### Output Options
 
 | Option | Default | Description |
@@ -68,7 +79,7 @@ classiflow train-meta [OPTIONS]
 
 ```bash
 classiflow train-meta \
-  --data-csv data/features.csv \
+  --data data/features.csv \
   --label-col subtype \
   --classes TypeA TypeB TypeC \
   --outdir derived/meta
@@ -78,7 +89,7 @@ classiflow train-meta \
 
 ```bash
 classiflow train-meta \
-  --data-csv data/features.csv \
+  --data data/features.csv \
   --patient-col patient_id \
   --label-col subtype \
   --classes TypeA TypeB TypeC TypeD \
@@ -90,7 +101,7 @@ classiflow train-meta \
 
 ```bash
 classiflow train-meta \
-  --data-csv data/features.csv \
+  --data data/features.csv \
   --label-col subtype \
   --classes TypeA TypeB TypeC \
   --outer-folds 5 \
@@ -149,3 +160,17 @@ outdir/
 - [train-binary](train-binary.md) - Single binary task
 - [train-hierarchical](train-hierarchical.md) - Two-level classification
 - [Multiclass Tutorial](../tutorials/multiclass-classification.md)
+### Torch Backend
+
+```bash
+classiflow train-meta \
+  --data data/features.csv \
+  --label-col subtype \
+  --classes TypeA TypeB TypeC \
+  --backend torch \
+  --device mps \
+  --model-set torch_basic \
+  --outdir derived/meta_torch
+```
+
+`backend: torch` is required for GPU/MPS acceleration; `backend: sklearn` always runs on CPU.

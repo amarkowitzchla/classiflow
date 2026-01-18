@@ -17,6 +17,65 @@ Provide `--patient-col` (or `--patient-id-col`) with `--no-patient-stratified` u
 
 For end-to-end examples with all options per training mode, see `docs/PROJECT_FULL_CYCLE.md`.
 
+## Backend Options
+
+Project YAML supports backend settings for `train-binary` and `train-meta`:
+
+```yaml
+backend: sklearn
+device: auto
+model_set: default
+torch_dtype: float32
+torch_num_workers: 0
+```
+
+Example torch configuration:
+
+```yaml
+backend: torch
+device: mps
+model_set: torch_basic
+```
+
+For binary/meta GPU acceleration, set `backend: torch` and a GPU device
+(`mps` on Apple Silicon). `backend: sklearn` always runs CPU estimators.
+
+For multiclass training, keep `backend: sklearn` and set `device: mps` (or `cuda`) to
+enable the torch-backed multiclass estimators added to the nested CV search:
+
+```yaml
+backend: sklearn
+device: mps
+```
+
+To force multiclass runs to use only torch models:
+
+```yaml
+multiclass:
+  estimator_mode: torch_only
+```
+
+## Multiclass Technical Validation
+
+Multiclass technical validation defaults to stratified group splits (patient-safe) when `patient_id` is set.
+You can tune the default logistic regression baseline in `project.yaml`:
+
+```yaml
+multiclass:
+  group_stratify: true  # set false to use group-only (non-stratified) splits
+  logreg:
+    solver: saga
+    multi_class: auto
+    penalty: l2
+    max_iter: 5000
+    tol: 1.0e-3
+    C: 1.0
+    class_weight: balanced
+    n_jobs: -1
+```
+
+`multi_class: auto` selects multinomial for multiclass problems with saga. If you still hit convergence issues, increase `logreg.max_iter` or relax `logreg.tol`.
+
 ## Hierarchical Mode
 
 Required columns:

@@ -12,8 +12,8 @@ import pandas as pd
 from imblearn.pipeline import Pipeline as ImbPipeline
 from sklearn.metrics import (
     accuracy_score,
-    balanced_accuracy_score,
     f1_score,
+    confusion_matrix,
     roc_auc_score,
     roc_curve,
     auc,
@@ -104,6 +104,7 @@ def train_multiclass_classifier(config: MulticlassConfig) -> Dict[str, Any]:
     y_enc = pd.Series(y_cat.codes, index=y_full.index, name=y_full.name)
 
     resolved_device = resolve_device(config.device)
+    _log_torch_status(config.device, resolved_device)
 
     file_metadata = get_file_metadata(data_path)
     config_dict = config.to_dict()
@@ -146,9 +147,35 @@ def _run_multiclass_nested_cv(
     groups: Optional[pd.Series] = None,
 ) -> Dict[str, Any]:
     """Run nested CV for direct multiclass training."""
-    estimators = _apply_device_to_estimators(get_estimators(config.random_state, config.max_iter), resolved_device)
-    param_grids = get_param_grids()
-    scorers = _get_multiclass_scorers()
+    label_ids = list(range(len(classes)))
+    logreg_params = {
+        "solver": config.logreg_solver,
+        "penalty": config.logreg_penalty,
+        "max_iter": config.logreg_max_iter,
+        "tol": config.logreg_tol,
+        "C": config.logreg_C,
+        "class_weight": config.logreg_class_weight,
+        "n_jobs": config.logreg_n_jobs,
+    }
+    if config.logreg_multi_class and config.logreg_multi_class != "auto":
+        logreg_params["multi_class"] = config.logreg_multi_class
+    estimators = _apply_device_to_estimators(
+        get_estimators(
+            config.random_state,
+            config.max_iter,
+            logreg_params=logreg_params,
+            resolved_device=resolved_device,
+        ),
+        resolved_device,
+    )
+    param_grids = get_param_grids(resolved_device=resolved_device)
+    estimators, param_grids = _filter_estimators(
+        estimators,
+        param_grids,
+        config.estimator_mode,
+    )
+    scorers = _get_multiclass_scorers(label_ids)
+    logger.info("Enabled estimators: %s", ", ".join(estimators.keys()))
 
     variants = ["smote", "none"] if config.smote_mode in ("on", "both") else ["none"]
 
@@ -163,6 +190,7 @@ def _run_multiclass_nested_cv(
             patient_col=config.patient_col,
             n_splits=config.outer_folds,
             random_state=config.random_state,
+            stratify=config.group_stratify,
         )
     else:
         outer_cv = StratifiedKFold(
@@ -179,6 +207,7 @@ def _run_multiclass_nested_cv(
     all_roc_data = {"fpr": [], "tpr": [], "auc": []}
     all_pr_data = {"recall": [], "precision": [], "ap": []}
 
+    logger.info(f"Global multiclass labels: n_classes={len(classes)}")
     for fold, (tr_idx, va_idx) in enumerate(outer_splits, 1):
         logger.info(f"Fold {fold}/{config.outer_folds}")
         fold_root = config.outdir / f"fold{fold}"
@@ -203,6 +232,8 @@ def _run_multiclass_nested_cv(
                 f"train_rows={len(tr_idx)}, val_rows={len(va_idx)}"
             )
 
+        _log_fold_class_coverage(y_tr, y_va, label_ids, classes, fold)
+
         for variant in variants:
             logger.info(f"  Variant: {variant}")
             var_dir = fold_root / f"multiclass_{variant}"
@@ -214,6 +245,7 @@ def _run_multiclass_nested_cv(
                 X_va=X_va,
                 y_va=y_va,
                 classes=classes,
+                label_ids=label_ids,
                 estimators=estimators,
                 param_grids=param_grids,
                 scorers=scorers,
@@ -284,6 +316,7 @@ def _run_multiclass_variant(
     X_va: pd.DataFrame,
     y_va: pd.Series,
     classes: List[str],
+    label_ids: List[int],
     estimators: Dict[str, Any],
     param_grids: Dict[str, Dict[str, list]],
     scorers: Dict[str, Any],
@@ -319,6 +352,7 @@ def _run_multiclass_variant(
             n_splits=n_splits_eff,
             n_repeats=config.inner_repeats,
             random_state=config.random_state,
+            stratify=config.group_stratify,
         ))
         for split_idx, (inner_tr_idx, inner_va_idx) in enumerate(inner_splits, 1):
             assert_no_patient_leakage(
@@ -345,9 +379,12 @@ def _run_multiclass_variant(
     best_estimator = None
 
     for model_name, est in estimators.items():
+        model_backend = "Torch" if model_name.startswith("torch_") else "Sklearn"
+        logger.info("Training %s Model %s", model_backend, model_name)
+        scaler = _make_scaler(X_tr)
         pipe = ImbPipeline([
             ("sampler", sampler),
-            ("scaler", StandardScaler()),
+            ("scaler", scaler),
             ("clf", est),
         ])
 
@@ -408,8 +445,8 @@ def _run_multiclass_variant(
             best_model_name = model_name
             best_estimator = grid.best_estimator_
 
-        model_train_metrics = _compute_multiclass_metrics(grid.best_estimator_, X_tr, y_tr)
-        model_val_metrics = _compute_multiclass_metrics(grid.best_estimator_, X_va, y_va)
+        model_train_metrics = _compute_multiclass_metrics(grid.best_estimator_, X_tr, y_tr, label_ids)
+        model_val_metrics = _compute_multiclass_metrics(grid.best_estimator_, X_va, y_va, label_ids)
         outer_rows.append({
             "fold": fold,
             "sampler": variant,
@@ -437,6 +474,7 @@ def _run_multiclass_variant(
         best_estimator,
         X_va,
         y_va,
+        label_ids,
         return_preds=True,
     )
 
@@ -457,17 +495,18 @@ def _compute_multiclass_metrics(
     estimator: Any,
     X: pd.DataFrame,
     y_true: pd.Series,
+    label_ids: List[int],
     return_preds: bool = False,
 ) -> Any:
     """Compute multiclass metrics with optional predictions."""
     y_pred = estimator.predict(X)
-    y_proba = _get_probabilities(estimator, X)
+    y_proba = _get_probabilities(estimator, X, label_ids)
 
     metrics = {
         "accuracy": accuracy_score(y_true, y_pred),
-        "balanced_accuracy": balanced_accuracy_score(y_true, y_pred),
-        "f1_macro": f1_score(y_true, y_pred, average="macro", zero_division=0),
-        "f1_weighted": f1_score(y_true, y_pred, average="weighted", zero_division=0),
+        "balanced_accuracy": _balanced_accuracy_with_labels(y_true, y_pred, label_ids),
+        "f1_macro": f1_score(y_true, y_pred, average="macro", labels=label_ids, zero_division=0),
+        "f1_weighted": f1_score(y_true, y_pred, average="weighted", labels=label_ids, zero_division=0),
     }
 
     if y_proba is not None:
@@ -556,26 +595,96 @@ def _plot_multiclass_outputs(
     return roc_data, pr_data
 
 
-def _get_multiclass_scorers() -> Dict[str, Any]:
+def _balanced_accuracy_with_labels(
+    y_true: pd.Series,
+    y_pred: np.ndarray,
+    label_ids: List[int],
+) -> float:
+    cm = confusion_matrix(y_true, y_pred, labels=label_ids)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        per_class = np.diag(cm) / cm.sum(axis=1)
+    per_class = np.nan_to_num(per_class)
+    return float(per_class.mean()) if per_class.size else float("nan")
+
+
+def _get_multiclass_scorers(label_ids: List[int]) -> Dict[str, Any]:
     """Scorers for multiclass GridSearchCV."""
     return {
         "Accuracy": make_scorer(accuracy_score),
-        "Balanced Accuracy": make_scorer(balanced_accuracy_score),
-        "F1 Macro": make_scorer(f1_score, average="macro", zero_division=0),
-        "F1 Weighted": make_scorer(f1_score, average="weighted", zero_division=0),
+        "Balanced Accuracy": make_scorer(_balanced_accuracy_with_labels, label_ids=label_ids),
+        "F1 Macro": make_scorer(f1_score, average="macro", labels=label_ids, zero_division=0),
+        "F1 Weighted": make_scorer(f1_score, average="weighted", labels=label_ids, zero_division=0),
     }
 
 
-def _get_probabilities(estimator: Any, X: pd.DataFrame) -> Optional[np.ndarray]:
-    """Return class probabilities or decision scores if available."""
+def _make_scaler(X: pd.DataFrame) -> StandardScaler:
+    """Create a scaler compatible with dense or sparse inputs."""
+    with_mean = True
+    try:
+        from scipy import sparse  # type: ignore
+
+        if sparse.issparse(X):
+            with_mean = False
+    except Exception:
+        pass
+    return StandardScaler(with_mean=with_mean)
+
+
+def _log_fold_class_coverage(
+    y_tr: pd.Series,
+    y_va: pd.Series,
+    label_ids: List[int],
+    classes: List[str],
+    fold: int,
+) -> None:
+    train_counts = pd.Series(y_tr).value_counts().reindex(label_ids, fill_value=0)
+    val_counts = pd.Series(y_va).value_counts().reindex(label_ids, fill_value=0)
+    train_summary = ", ".join(f"{classes[i]}={int(train_counts[i])}" for i in label_ids)
+    val_summary = ", ".join(f"{classes[i]}={int(val_counts[i])}" for i in label_ids)
+    logger.info(f"  Fold {fold} class coverage: train[{train_summary}] val[{val_summary}]")
+
+    missing = [classes[i] for i in label_ids if val_counts[i] == 0]
+    if missing:
+        logger.warning(f"  Fold {fold} missing classes in val: {missing}")
+
+
+def _get_probabilities(
+    estimator: Any,
+    X: pd.DataFrame,
+    label_ids: Optional[List[int]] = None,
+) -> Optional[np.ndarray]:
+    """Return class probabilities or decision scores aligned to global labels."""
     if hasattr(estimator, "predict_proba"):
-        return estimator.predict_proba(X)
+        proba = estimator.predict_proba(X)
+        return _align_probabilities(estimator, proba, label_ids)
     if hasattr(estimator, "decision_function"):
         scores = estimator.decision_function(X)
         if scores.ndim == 1:
             scores = np.column_stack([1 - scores, scores])
-        return scores
+        return _align_probabilities(estimator, scores, label_ids)
     return None
+
+
+def _align_probabilities(
+    estimator: Any,
+    proba: np.ndarray,
+    label_ids: Optional[List[int]],
+) -> np.ndarray:
+    """Align probability columns to global label ordering."""
+    if not label_ids or not hasattr(estimator, "classes_"):
+        return proba
+
+    classes = list(getattr(estimator, "classes_", []))
+    if len(classes) == len(label_ids) and classes == label_ids:
+        return proba
+
+    n_samples = proba.shape[0]
+    aligned = np.zeros((n_samples, len(label_ids)), dtype=proba.dtype)
+    label_index = {label: idx for idx, label in enumerate(label_ids)}
+    for src_idx, label in enumerate(classes):
+        if label in label_index:
+            aligned[:, label_index[label]] = proba[:, src_idx]
+    return aligned
 
 
 def _apply_device_to_estimators(estimators: Dict[str, Any], device: str) -> Dict[str, Any]:
@@ -584,6 +693,47 @@ def _apply_device_to_estimators(estimators: Dict[str, Any], device: str) -> Dict
     for name, est in estimators.items():
         updated[name] = _apply_device_to_estimator(est, device)
     return updated
+
+
+def _filter_estimators(
+    estimators: Dict[str, Any],
+    param_grids: Dict[str, Dict[str, list]],
+    mode: str,
+) -> tuple[Dict[str, Any], Dict[str, Dict[str, list]]]:
+    """Filter estimators and param grids by selection mode."""
+    if mode == "all":
+        return estimators, param_grids
+
+    if mode == "torch_only":
+        names = [name for name in estimators if name.startswith("torch_")]
+    elif mode == "cpu_only":
+        names = [name for name in estimators if not name.startswith("torch_")]
+    else:
+        raise ValueError(f"Unsupported estimator_mode: {mode}")
+
+    filtered_estimators = {name: estimators[name] for name in names}
+    filtered_grids = {name: param_grids[name] for name in names if name in param_grids}
+
+    if not filtered_estimators:
+        raise ValueError(f"No estimators available after applying estimator_mode={mode}")
+
+    logger.info("Estimator mode: %s", mode)
+    return filtered_estimators, filtered_grids
+
+
+def _log_torch_status(requested_device: str, resolved_device: str) -> None:
+    """Log torch availability and MPS status for multiclass training."""
+    try:
+        import torch
+    except Exception as exc:
+        logger.info("Torch available: no (%s)", exc)
+        return
+
+    cuda_available = torch.cuda.is_available()
+    mps_available = torch.backends.mps.is_available()
+    logger.info("Torch available: yes (cuda=%s, mps=%s)", cuda_available, mps_available)
+    if requested_device in {"mps", "cuda"} and resolved_device != requested_device:
+        logger.warning("Requested device %s resolved to %s.", requested_device, resolved_device)
 
 
 def _apply_device_to_estimator(estimator: Any, device: str) -> Any:

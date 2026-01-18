@@ -94,6 +94,31 @@ def train_binary(
     random_state: int = typer.Option(42, "--random-state", help="Random seed"),
     smote: str = typer.Option("off", "--smote", help="SMOTE mode: off, on, both"),
     max_iter: int = typer.Option(10000, "--max-iter", help="Max iterations for linear models"),
+    backend: str = typer.Option(
+        "sklearn",
+        "--backend",
+        help="Estimator backend. sklearn (CPU) or torch (GPU-ready via CUDA/MPS).",
+    ),
+    device: str = typer.Option(
+        "auto",
+        "--device",
+        help="Device: auto, cpu, cuda, mps",
+    ),
+    model_set: Optional[str] = typer.Option(
+        None,
+        "--model-set",
+        help="Model set registry key (e.g., torch_basic, torch_fast).",
+    ),
+    torch_num_workers: int = typer.Option(
+        0,
+        "--torch-num-workers",
+        help="PyTorch DataLoader worker count (torch backend only).",
+    ),
+    torch_dtype: str = typer.Option(
+        "float32",
+        "--torch-dtype",
+        help="Torch dtype: float32 or float16 (torch backend only).",
+    ),
     verbose: bool = typer.Option(False, "--verbose", help="Verbose logging"),
 ):
     """
@@ -126,6 +151,11 @@ def train_binary(
         typer.secho(f"Error: {e}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
 
+    backend = backend.lower()
+    device = device.lower()
+    if model_set is None:
+        model_set = "torch_basic" if backend == "torch" else "default"
+
     config = TrainConfig(
         data_path=resolved_path,
         patient_col=patient_col,
@@ -138,6 +168,11 @@ def train_binary(
         random_state=random_state,
         smote_mode=smote,
         max_iter=max_iter,
+        backend=backend,
+        device=device,
+        model_set=model_set,
+        torch_num_workers=torch_num_workers,
+        torch_dtype=torch_dtype,
     )
 
     try:
@@ -180,6 +215,31 @@ def train_meta(
     random_state: int = typer.Option(42, "--random-state", help="Random seed"),
     smote: str = typer.Option("both", "--smote", help="SMOTE mode: off, on, both"),
     max_iter: int = typer.Option(10000, "--max-iter", help="Max iterations for linear models"),
+    backend: str = typer.Option(
+        "sklearn",
+        "--backend",
+        help="Estimator backend. sklearn (CPU) or torch (GPU-ready via CUDA/MPS).",
+    ),
+    device: str = typer.Option(
+        "auto",
+        "--device",
+        help="Device: auto, cpu, cuda, mps",
+    ),
+    model_set: Optional[str] = typer.Option(
+        None,
+        "--model-set",
+        help="Model set registry key (e.g., torch_basic, torch_fast).",
+    ),
+    torch_num_workers: int = typer.Option(
+        0,
+        "--torch-num-workers",
+        help="PyTorch DataLoader worker count (torch backend only).",
+    ),
+    torch_dtype: str = typer.Option(
+        "float32",
+        "--torch-dtype",
+        help="Torch dtype: float32 or float16 (torch backend only).",
+    ),
     verbose: bool = typer.Option(False, "--verbose", help="Verbose logging"),
 ):
     """
@@ -218,6 +278,11 @@ def train_meta(
         typer.secho(f"Error: {e}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
 
+    backend = backend.lower()
+    device = device.lower()
+    if model_set is None:
+        model_set = "torch_basic" if backend == "torch" else "default"
+
     config = MetaConfig(
         data_path=resolved_path,
         patient_col=patient_col,
@@ -232,6 +297,11 @@ def train_meta(
         random_state=random_state,
         smote_mode=smote,
         max_iter=max_iter,
+        backend=backend,
+        device=device,
+        model_set=model_set,
+        torch_num_workers=torch_num_workers,
+        torch_dtype=torch_dtype,
     )
 
     # Check data compatibility before training
@@ -289,8 +359,30 @@ def train_multiclass(
     inner_repeats: int = typer.Option(2, "--inner-repeats", help="Number of inner CV repeats"),
     random_state: int = typer.Option(42, "--random-state", help="Random seed"),
     smote: str = typer.Option("both", "--smote", help="SMOTE mode: off, on, both"),
-    max_iter: int = typer.Option(10000, "--max-iter", help="Max iterations for linear models"),
+    max_iter: int = typer.Option(10000, "--max-iter", help="Max iterations for non-logreg linear models"),
+    group_stratify: bool = typer.Option(
+        True,
+        "--group-stratify/--no-group-stratify",
+        help="Use stratified group splits when patient_col is provided",
+    ),
+    logreg_solver: str = typer.Option("saga", "--logreg-solver", help="LogisticRegression solver"),
+    logreg_multi_class: str = typer.Option("auto", "--logreg-multi-class", help="LogisticRegression multi_class"),
+    logreg_penalty: str = typer.Option("l2", "--logreg-penalty", help="LogisticRegression penalty"),
+    logreg_max_iter: int = typer.Option(5000, "--logreg-max-iter", help="LogisticRegression max_iter"),
+    logreg_tol: float = typer.Option(1e-3, "--logreg-tol", help="LogisticRegression tolerance"),
+    logreg_C: float = typer.Option(1.0, "--logreg-C", help="LogisticRegression C"),
+    logreg_class_weight: Optional[str] = typer.Option(
+        "balanced",
+        "--logreg-class-weight",
+        help="LogisticRegression class_weight (use 'none' for None)",
+    ),
+    logreg_n_jobs: int = typer.Option(-1, "--logreg-n-jobs", help="LogisticRegression n_jobs"),
     device: str = typer.Option("auto", "--device", help="Device: auto, cpu, cuda, mps"),
+    estimator_mode: str = typer.Option(
+        "all",
+        "--estimator-mode",
+        help="Estimator selection: all, torch_only, cpu_only",
+    ),
     verbose: bool = typer.Option(False, "--verbose", help="Verbose logging"),
 ):
     """
@@ -323,6 +415,10 @@ def train_multiclass(
         typer.secho(f"Error: {e}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
 
+    normalized_class_weight = logreg_class_weight
+    if isinstance(normalized_class_weight, str) and normalized_class_weight.lower() in {"none", "null"}:
+        normalized_class_weight = None
+
     config = MulticlassConfig(
         data_path=resolved_path,
         patient_col=patient_col,
@@ -335,7 +431,17 @@ def train_multiclass(
         random_state=random_state,
         smote_mode=smote,
         max_iter=max_iter,
+        group_stratify=group_stratify,
+        logreg_solver=logreg_solver,
+        logreg_multi_class=logreg_multi_class,
+        logreg_penalty=logreg_penalty,
+        logreg_max_iter=logreg_max_iter,
+        logreg_tol=logreg_tol,
+        logreg_C=logreg_C,
+        logreg_class_weight=normalized_class_weight,
+        logreg_n_jobs=logreg_n_jobs,
         device=device,
+        estimator_mode=estimator_mode,
     )
 
     try:

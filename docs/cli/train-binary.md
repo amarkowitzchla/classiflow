@@ -14,7 +14,7 @@ classiflow train-binary [OPTIONS]
 
 | Option | Description |
 |--------|-------------|
-| `--data-csv PATH` | Path to CSV file with features and labels |
+| `--data PATH` | Path to data file (.csv, .parquet) or parquet dataset directory |
 | `--label-col TEXT` | Name of the label column |
 
 ## Optional Options
@@ -23,6 +23,7 @@ classiflow train-binary [OPTIONS]
 
 | Option | Default | Description |
 |--------|---------|-------------|
+| `--data-csv PATH` | None | [DEPRECATED] CSV path (use `--data`) |
 | `--pos-label TEXT` | Auto | Positive class label (default: minority class) |
 | `--feature-cols TEXT` | All numeric | Comma-separated feature column names |
 | `--patient-col TEXT` | None | Patient/slide ID column for stratification |
@@ -54,6 +55,11 @@ classiflow train-binary [OPTIONS]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--max-iter INT` | 10000 | Max iterations for linear models |
+| `--backend [sklearn\|torch]` | `sklearn` | Estimator backend |
+| `--device [auto\|cpu\|cuda\|mps]` | `auto` | Device (torch backend only) |
+| `--model-set TEXT` | `default` | Model set registry key |
+| `--torch-num-workers INT` | 0 | Torch DataLoader workers |
+| `--torch-dtype [float32\|float16]` | `float32` | Torch dtype |
 
 ### Logging Options
 
@@ -68,7 +74,7 @@ classiflow train-binary [OPTIONS]
 
 ```bash
 classiflow train-binary \
-  --data-csv data/features.csv \
+  --data data/features.csv \
   --label-col diagnosis \
   --pos-label Malignant \
   --outdir derived/binary
@@ -78,7 +84,7 @@ classiflow train-binary \
 
 ```bash
 classiflow train-binary \
-  --data-csv data/features.csv \
+  --data data/features.csv \
   --label-col diagnosis \
   --pos-label Rare_Class \
   --smote both \
@@ -90,7 +96,7 @@ classiflow train-binary \
 
 ```bash
 classiflow train-binary \
-  --data-csv data/features.csv \
+  --data data/features.csv \
   --patient-col patient_id \
   --label-col diagnosis \
   --pos-label Malignant \
@@ -101,7 +107,7 @@ classiflow train-binary \
 
 ```bash
 classiflow train-binary \
-  --data-csv data/features.csv \
+  --data data/features.csv \
   --label-col diagnosis \
   --pos-label Malignant \
   --outer-folds 5 \
@@ -138,3 +144,16 @@ outdir/
 - [train-meta](train-meta.md) - Multiclass classification
 - [infer](infer.md) - Run inference on trained models
 - [Binary Classification Tutorial](../tutorials/binary-classification.md)
+### Torch Backend
+
+```bash
+classiflow train-binary \
+  --data data/features.csv \
+  --label-col diagnosis \
+  --backend torch \
+  --device mps \
+  --model-set torch_basic \
+  --outdir derived/binary_torch
+```
+
+`backend: torch` is required for GPU/MPS acceleration; `backend: sklearn` always runs on CPU.

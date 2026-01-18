@@ -63,6 +63,28 @@ def _write_readme(paths: ProjectPaths, project_id: str, name: str) -> None:
         paths.readme.write_text(f"# {name}\n\nTest ID: `{project_id}`\n", encoding="utf-8")
 
 
+def _append_torch_backend_hint(project_yaml: Path) -> None:
+    """Append commented torch backend example to project.yaml."""
+    hint = (
+        "\n# Torch backend example (binary/meta)\n"
+        "# backend: torch\n"
+        "# device: mps\n"
+        "# model_set: torch_basic\n"
+        "# torch_dtype: float32\n"
+        "# torch_num_workers: 0\n"
+        "#\n"
+        "# Multiclass torch estimators (keep backend: sklearn)\n"
+        "# device: mps\n"
+        "# multiclass:\n"
+        "#   estimator_mode: torch_only\n"
+    )
+    try:
+        with open(project_yaml, "a", encoding="utf-8") as handle:
+            handle.write(hint)
+    except OSError:
+        return
+
+
 def _pick_column(columns: List[str], candidates: List[str]) -> Optional[str]:
     for cand in candidates:
         if cand in columns:
@@ -105,6 +127,8 @@ def init_project(
         },
     )
     config.save(paths.project_yaml)
+    _append_torch_backend_hint(paths.project_yaml)
+    _append_torch_backend_hint(paths.project_yaml)
 
     thresholds = ThresholdsConfig()
     thresholds.save(paths.thresholds_yaml)
@@ -123,7 +147,7 @@ def bootstrap_project(
     test_manifest: Optional[Path] = typer.Option(None, "--test-manifest", help="Test manifest path"),
     name: str = typer.Option(..., "--name", help="Project short name"),
     out_dir: Path = typer.Option(Path("projects"), "--out", help="Base projects directory"),
-    mode: str = typer.Option("auto", "--mode", help="Task mode: auto|binary|meta|hierarchical"),
+    mode: str = typer.Option("auto", "--mode", help="Task mode: auto|binary|meta|multiclass|hierarchical"),
     hierarchy: Optional[str] = typer.Option(None, "--hierarchy", help="Hierarchy column/path"),
     label_col: Optional[str] = typer.Option(None, "--label-col", help="Label column name"),
     sample_id_col: Optional[str] = typer.Option(None, "--sample-id-col", help="Sample ID column name"),
@@ -203,6 +227,7 @@ def bootstrap_project(
     )
 
     config.save(paths.project_yaml)
+    _append_torch_backend_hint(paths.project_yaml)
 
     thresholds_cfg = ThresholdsConfig()
     thresholds_cfg.technical_validation.required = {

@@ -77,6 +77,11 @@ class TrainConfig:
 
     # Models
     max_iter: int = 10000
+    backend: Literal["sklearn", "torch"] = "sklearn"
+    device: Literal["auto", "cpu", "cuda", "mps"] = "auto"
+    model_set: Optional[str] = None
+    torch_num_workers: int = 0
+    torch_dtype: Literal["float32", "float16"] = "float32"
 
     def __post_init__(self):
         """Convert string paths to Path objects and resolve data path."""
@@ -149,6 +154,16 @@ class MulticlassConfig(TrainConfig):
 
     classes: Optional[List[str]] = None
     device: Literal["auto", "cpu", "cuda", "mps"] = "auto"
+    estimator_mode: Literal["all", "torch_only", "cpu_only"] = "all"
+    group_stratify: bool = True
+    logreg_solver: str = "saga"
+    logreg_multi_class: str = "auto"
+    logreg_penalty: str = "l2"
+    logreg_max_iter: int = 5000
+    logreg_tol: float = 1e-3
+    logreg_C: float = 1.0
+    logreg_class_weight: Optional[str] = "balanced"
+    logreg_n_jobs: int = -1
 
     def __post_init__(self):
         """Convert string paths to Path objects."""

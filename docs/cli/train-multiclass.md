@@ -53,6 +53,11 @@ classiflow train-multiclass [OPTIONS]
 |--------|---------|-------------|
 | `--max-iter INT` | 10000 | Max iterations for linear models |
 | `--device TEXT` | `auto` | Device: auto, cpu, cuda, mps |
+| `--estimator-mode TEXT` | `all` | Estimator selection: all, torch_only, cpu_only |
+
+When `--device` resolves to `mps` or `cuda`, the multiclass registry adds torch-backed
+estimators (`torch_linear`, `torch_mlp`) to the nested CV search.
+Use `--estimator-mode torch_only` to run only the torch-backed models.
 
 ## Examples
 

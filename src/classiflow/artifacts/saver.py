@@ -32,7 +32,7 @@ def save_nested_cv_results(results: Dict[str, Any], outdir: Path) -> None:
     # Inner CV per-split
     if results.get("inner_cv_split_rows"):
         from classiflow.metrics.scorers import SCORER_ORDER
-        df = pd.DataFrame(results["inner_cv_split_rows"], columns=["task_model", "fold"] + SCORER_ORDER)
+        df = pd.DataFrame(results["inner_cv_split_rows"], columns=["task_model", "outer_fold", "inner_split"] + SCORER_ORDER)
         df.to_csv(outdir / "metrics_inner_cv_splits.csv", index=False)
 
         try:

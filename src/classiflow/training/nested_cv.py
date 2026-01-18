@@ -61,6 +61,8 @@ class NestedCVOrchestrator:
         random_state: int = 42,
         smote_mode: Literal["off", "on", "both"] = "off",
         max_iter: int = 10000,
+        estimators: Optional[Dict[str, Any]] = None,
+        param_grids: Optional[Dict[str, Dict[str, list]]] = None,
     ):
         self.outer_folds = outer_folds
         self.inner_splits = inner_splits
@@ -69,8 +71,8 @@ class NestedCVOrchestrator:
         self.smote_mode = smote_mode
         self.max_iter = max_iter
 
-        self.estimators = get_estimators(random_state, max_iter)
-        self.param_grids = get_param_grids()
+        self.estimators = estimators or get_estimators(random_state, max_iter)
+        self.param_grids = param_grids or get_param_grids()
         self.scorers = get_scorers()
 
     def run_single_task(

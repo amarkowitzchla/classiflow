@@ -10,7 +10,6 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedKFold, RepeatedStratifiedKFold, GridSearchCV
-from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import label_binarize, StandardScaler, LabelEncoder
 from sklearn.metrics import (
     accuracy_score,
@@ -28,7 +27,8 @@ import joblib
 from classiflow.config import MetaConfig
 from classiflow.io import load_data, load_data_with_groups, validate_data
 from classiflow.tasks import TaskBuilder, load_composite_tasks
-from classiflow.models import get_estimators, get_param_grids, AdaptiveSMOTE
+from classiflow.models import AdaptiveSMOTE
+from classiflow.backends.registry import get_backend, get_model_set
 from classiflow.metrics.scorers import get_scorers, SCORER_ORDER
 from classiflow.metrics.binary import compute_binary_metrics
 from classiflow.plots import (
@@ -48,6 +48,20 @@ from classiflow.splitting import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _log_torch_status(requested_device: str) -> None:
+    """Log torch availability for GPU-backed meta training."""
+    try:
+        import torch
+    except Exception as exc:
+        logger.info("Torch available: no (%s)", exc)
+        return
+
+    cuda_available = torch.cuda.is_available()
+    mps_available = torch.backends.mps.is_available()
+    logger.info("Torch available: yes (cuda=%s, mps=%s)", cuda_available, mps_available)
+    logger.info("Requested device: %s", requested_device)
 
 
 def train_meta_classifier(config: MetaConfig) -> Dict[str, Any]:
@@ -77,6 +91,7 @@ def train_meta_classifier(config: MetaConfig) -> Dict[str, Any]:
     logger.info(f"  Data: {data_path}")
     logger.info(f"  Label: {config.label_col}")
     logger.info(f"  SMOTE: {config.smote_mode}")
+    logger.info(f"  Backend: {config.backend}")
 
     # Create output directory
     config.outdir.mkdir(parents=True, exist_ok=True)
@@ -157,6 +172,12 @@ def train_meta_classifier(config: MetaConfig) -> Dict[str, Any]:
     manifest.save(config.outdir / "run.json")
     logger.info(f"Saved training manifest: run_id={manifest.run_id}")
 
+    backend = get_backend(config.backend)
+    if backend == "sklearn" and config.device != "auto":
+        logger.info("  Device setting is ignored for sklearn backend.")
+    if backend == "torch":
+        _log_torch_status(config.device)
+
     # Run nested CV with meta-classifier
     results = _run_meta_nested_cv(
         X_full=X_full,
@@ -178,8 +199,21 @@ def _run_meta_nested_cv(
     groups: Optional[pd.Series] = None,
 ) -> Dict[str, Any]:
     """Run nested CV for meta-classifier."""
-    estimators = get_estimators(config.random_state, config.max_iter)
-    param_grids = get_param_grids()
+    model_spec = get_model_set(
+        command="train-meta",
+        backend=get_backend(config.backend),
+        model_set=config.model_set,
+        random_state=config.random_state,
+        max_iter=config.max_iter,
+        device=config.device,
+        torch_dtype=config.torch_dtype,
+        torch_num_workers=config.torch_num_workers,
+        meta_C_grid=config.meta_C_grid,
+    )
+    estimators = model_spec["base_estimators"]
+    param_grids = model_spec["base_param_grids"]
+    meta_estimators = model_spec["meta_estimators"]
+    meta_param_grids = model_spec["meta_param_grids"]
     scorers = get_scorers()
 
     # SMOTE variants
@@ -310,6 +344,8 @@ def _run_meta_nested_cv(
                 var_dir=var_dir,
                 config=config,
                 outer_meta_rows=outer_meta_rows,
+                meta_estimators=meta_estimators,
+                meta_param_grids=meta_param_grids,
             )
 
             # Collect ROC/PR data for averaged plots (use first variant only)
@@ -528,32 +564,50 @@ def _train_binary_tasks(
 
 
 def _train_meta_model(
-    X_tr, y_tr, X_va, y_va, best_pipes, best_models, tasks, cv_inner,
-    variant, fold, var_dir, config, outer_meta_rows,
+    X_tr,
+    y_tr,
+    X_va,
+    y_va,
+    best_pipes,
+    best_models,
+    tasks,
+    cv_inner,
+    variant,
+    fold,
+    var_dir,
+    config,
+    outer_meta_rows,
+    meta_estimators,
+    meta_param_grids,
 ):
     """Train meta-classifier on binary scores."""
     # Build meta-features
     X_meta_tr = _build_meta_features(X_tr, y_tr, best_pipes, best_models, tasks)
     X_meta_va = _build_meta_features(X_va, y_va, best_pipes, best_models, tasks)
 
-    # Train meta-classifier
-    # Note: multi_class='multinomial' is now the default in sklearn 1.5+
-    meta = LogisticRegression(
-        class_weight="balanced",
-        max_iter=config.max_iter,
-        random_state=config.random_state,
-    )
+    best_meta = None
+    best_grid = None
+    best_score = -np.inf
+    best_name = None
 
-    grid = GridSearchCV(
-        meta,
-        {"C": config.meta_C_grid},
-        cv=cv_inner,
-        scoring="f1_macro",
-        n_jobs=-1,
-        return_train_score=True,
-    )
-    grid.fit(X_meta_tr, y_tr)
-    best_meta = grid.best_estimator_
+    for model_name, meta in meta_estimators.items():
+        grid = GridSearchCV(
+            meta,
+            meta_param_grids.get(model_name, {}),
+            cv=cv_inner,
+            scoring="f1_macro",
+            n_jobs=-1,
+            return_train_score=True,
+        )
+        grid.fit(X_meta_tr, y_tr)
+        if grid.best_score_ > best_score:
+            best_score = grid.best_score_
+            best_meta = grid.best_estimator_
+            best_grid = grid
+            best_name = model_name
+
+    if best_meta is None:
+        raise ValueError("No meta estimator fit successfully.")
 
     # Save meta artifacts
     joblib.dump(best_meta, var_dir / "meta_model.joblib")
@@ -567,7 +621,7 @@ def _train_meta_model(
 
     meta_train = {
         "fold": fold, "sampler": variant, "phase": "train",
-        "model_name": "MultinomialLogReg",
+        "model_name": best_name or "MetaModel",
         "accuracy": accuracy_score(y_tr, y_pred_tr),
         "balanced_accuracy": balanced_accuracy_score(y_tr, y_pred_tr),
         "f1_macro": f1_score(y_tr, y_pred_tr, average="macro"),
@@ -576,12 +630,12 @@ def _train_meta_model(
 
     meta_val = {
         "fold": fold, "sampler": variant, "phase": "val",
-        "model_name": "MultinomialLogReg",
+        "model_name": best_name or "MetaModel",
         "accuracy": accuracy_score(y_va, y_pred_va),
         "balanced_accuracy": balanced_accuracy_score(y_va, y_pred_va),
         "f1_macro": f1_score(y_va, y_pred_va, average="macro"),
         "f1_weighted": f1_score(y_va, y_pred_va, average="weighted"),
-        "meta_C": grid.best_params_.get("C"),
+        "meta_C": best_grid.best_params_.get("C") if best_grid else None,
     }
 
     # Try ROC AUC

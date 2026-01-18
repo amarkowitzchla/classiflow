@@ -15,6 +15,8 @@ try:
 except Exception:  # pragma: no cover - depends on sklearn version
     StratifiedGroupKFold = None
 
+from sklearn.model_selection import GroupKFold
+
 
 def make_group_labels(df: pd.DataFrame, patient_col: str, label_col: str) -> pd.Series:
     """
@@ -50,9 +52,12 @@ def iter_outer_splits(
     n_splits: int,
     random_state: int,
     mode: str = "kfold",
+    stratify: bool = True,
 ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
     """
     Yield outer split indices using patient-level stratification.
+
+    If stratify is False, uses group-only splits without label stratification.
     """
     if mode != "kfold":
         raise ValueError(f"Unsupported split mode: {mode}")
@@ -62,6 +67,15 @@ def iter_outer_splits(
     patient_labels = make_group_labels(patient_df, patient_col, "label")
     patient_ids = patient_labels.index.to_numpy()
     y_patient = patient_labels.values
+
+    if not stratify:
+        splitter = GroupKFold(n_splits=n_splits)
+        X_dummy = np.zeros((len(patient_ids), 1), dtype=np.float32)
+        for tr_pat_idx, va_pat_idx in splitter.split(X_dummy, groups=patient_ids):
+            tr_patients = patient_ids[tr_pat_idx]
+            va_patients = patient_ids[va_pat_idx]
+            yield _expand_patient_indices(df, patient_col, tr_patients, va_patients)
+        return
 
     if StratifiedGroupKFold is not None:
         splitter = StratifiedGroupKFold(
@@ -90,9 +104,12 @@ def iter_inner_splits(
     n_splits: int,
     n_repeats: int,
     random_state: int,
+    stratify: bool = True,
 ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
     """
     Yield inner split indices using patient-level stratification.
+
+    If stratify is False, uses group-only splits without label stratification.
     """
     for repeat in range(n_repeats):
         seed = random_state + repeat
@@ -103,6 +120,7 @@ def iter_inner_splits(
             n_splits=n_splits,
             random_state=seed,
             mode="kfold",
+            stratify=stratify,
         ):
             yield tr_idx, va_idx
 

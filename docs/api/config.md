@@ -111,6 +111,47 @@ config = MetaConfig(
 
 ---
 
+## MulticlassConfig
+
+::: classiflow.config.MulticlassConfig
+    options:
+      show_root_heading: true
+
+Extends `TrainConfig` with multiclass options.
+
+### Example
+
+```python
+from classiflow import MulticlassConfig
+
+config = MulticlassConfig(
+    classes=["TypeA", "TypeB", "TypeC"],
+    patient_col="patient_id",
+    group_stratify=True,
+    logreg_max_iter=5000,
+    logreg_tol=1e-3,
+)
+```
+
+`logreg_multi_class="auto"` selects multinomial behavior for multiclass problems when using `solver="saga"`.
+
+### Additional Attributes
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `classes` | `list[str] \| None` | `None` | Class labels |
+| `group_stratify` | `bool` | `True` | Stratified group splits when `patient_col` is set |
+| `logreg_solver` | `str` | `"saga"` | LogisticRegression solver |
+| `logreg_multi_class` | `str` | `"auto"` | LogisticRegression multi_class |
+| `logreg_penalty` | `str` | `"l2"` | LogisticRegression penalty |
+| `logreg_max_iter` | `int` | `5000` | LogisticRegression max_iter |
+| `logreg_tol` | `float` | `1e-3` | LogisticRegression tolerance |
+| `logreg_C` | `float` | `1.0` | LogisticRegression C |
+| `logreg_class_weight` | `str \| None` | `"balanced"` | LogisticRegression class_weight |
+| `logreg_n_jobs` | `int` | `-1` | LogisticRegression n_jobs |
+
+---
+
 ## HierarchicalConfig
 
 ::: classiflow.config.HierarchicalConfig

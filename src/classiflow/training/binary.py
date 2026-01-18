@@ -12,11 +12,26 @@ from classiflow.config import TrainConfig
 from classiflow.io import load_data, load_data_with_groups, validate_data
 from classiflow.splitting import make_group_labels
 from classiflow.training.nested_cv import NestedCVOrchestrator
+from classiflow.backends.registry import get_backend, get_model_set
 from classiflow.artifacts import save_nested_cv_results
 from classiflow.lineage.manifest import create_training_manifest
 from classiflow.lineage.hashing import get_file_metadata
 
 logger = logging.getLogger(__name__)
+
+
+def _log_torch_status(requested_device: str) -> None:
+    """Log torch availability for GPU-backed binary training."""
+    try:
+        import torch
+    except Exception as exc:
+        logger.info("Torch available: no (%s)", exc)
+        return
+
+    cuda_available = torch.cuda.is_available()
+    mps_available = torch.backends.mps.is_available()
+    logger.info("Torch available: yes (cuda=%s, mps=%s)", cuda_available, mps_available)
+    logger.info("Requested device: %s", requested_device)
 
 
 def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
@@ -41,6 +56,7 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
     logger.info(f"  Data: {data_path}")
     logger.info(f"  Label: {config.label_col}")
     logger.info(f"  Output: {config.outdir}")
+    logger.info(f"  Backend: {config.backend}")
 
     # Create output directory
     config.outdir.mkdir(parents=True, exist_ok=True)
@@ -106,6 +122,23 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
     manifest.save(config.outdir / "run.json")
     logger.info(f"Saved training manifest: run_id={manifest.run_id}")
 
+    backend = get_backend(config.backend)
+    if backend == "sklearn" and config.device != "auto":
+        logger.info("  Device setting is ignored for sklearn backend.")
+    if backend == "torch":
+        _log_torch_status(config.device)
+
+    model_spec = get_model_set(
+        command="train-binary",
+        backend=backend,
+        model_set=config.model_set,
+        random_state=config.random_state,
+        max_iter=config.max_iter,
+        device=config.device,
+        torch_dtype=config.torch_dtype,
+        torch_num_workers=config.torch_num_workers,
+    )
+
     # Run nested CV
     orchestrator = NestedCVOrchestrator(
         outer_folds=config.outer_folds,
@@ -114,6 +147,8 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
         random_state=config.random_state,
         smote_mode=config.smote_mode,
         max_iter=config.max_iter,
+        estimators=model_spec["estimators"],
+        param_grids=model_spec["param_grids"],
     )
 
     results = orchestrator.run_single_task(
