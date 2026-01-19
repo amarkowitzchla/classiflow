@@ -60,6 +60,7 @@ classiflow train-binary [OPTIONS]
 | `--model-set TEXT` | `default` | Model set registry key |
 | `--torch-num-workers INT` | 0 | Torch DataLoader workers |
 | `--torch-dtype [float32\|float16]` | `float32` | Torch dtype |
+| `--require-device/--allow-device-fallback` | `allow-device-fallback` | Require requested torch device |
 
 ### Logging Options
 
@@ -153,6 +154,7 @@ classiflow train-binary \
   --backend torch \
   --device mps \
   --model-set torch_basic \
+  --require-device \
   --outdir derived/binary_torch
 ```
 

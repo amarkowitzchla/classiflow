@@ -14,6 +14,7 @@ from classiflow.inference.loader import ArtifactLoader
 from classiflow.inference.preprocess import FeatureAligner, validate_input_data
 from classiflow.inference.predict import BinaryPredictor, MetaPredictor, HierarchicalPredictor, MulticlassPredictor
 from classiflow.inference.metrics import compute_classification_metrics
+from classiflow.metrics.calibration import compute_probability_quality
 from classiflow.inference.plots import generate_all_plots
 from classiflow.inference.reports import InferenceReportWriter
 
@@ -141,20 +142,36 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
     # Add metadata columns (ID, true label)
     final_predictions = pd.concat([metadata, predictions], axis=1)
 
+    if config.label_col in final_predictions.columns:
+        final_predictions["y_true"] = final_predictions[config.label_col]
+    else:
+        final_predictions["y_true"] = np.nan
+
+    if config.id_col and config.id_col in final_predictions.columns:
+        final_predictions["sample_id"] = final_predictions[config.id_col]
+    else:
+        final_predictions["sample_id"] = final_predictions.index.astype(str)
+
+    final_predictions["split"] = "independent_test"
+    final_predictions["fold_id"] = loader.fold
+
     logger.info(f"  Predictions shape: {final_predictions.shape}")
 
     results["predictions"] = final_predictions
 
     # Compute metrics (if labels provided)
     metrics = None
+    calibration_curve_df = None
     if config.label_col and config.label_col in metadata.columns:
         logger.info("\n[4/7] Computing metrics...")
-        metrics = _compute_metrics(
+        metrics, calibration_curve_df = _compute_metrics(
             final_predictions,
             label_col=config.label_col,
             run_type=run_type,
         )
         results["metrics"] = metrics
+        if calibration_curve_df is not None:
+            results["calibration_curve_df"] = calibration_curve_df
 
         # Log headline metrics
         if "overall" in metrics:
@@ -187,6 +204,11 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
     # Predictions CSV
     pred_path = writer.write_predictions(final_predictions, "predictions.csv")
     output_files["predictions_csv"] = pred_path
+
+    if calibration_curve_df is not None:
+        curve_path = writer.write_calibration_curve(calibration_curve_df, "calibration_curve.csv")
+        if curve_path:
+            output_files["calibration_curve_csv"] = curve_path
 
     # Metrics workbook (if applicable)
     if config.include_excel and metrics is not None:
@@ -258,11 +280,16 @@ def _run_predictions(
 
         # Then run meta-classifier
         try:
-            meta_model, meta_features, meta_classes = loader.load_meta_artifacts(variant="smote")
+            meta_model, meta_features, meta_classes, calibration_metadata = loader.load_meta_artifacts(variant="smote")
         except FileNotFoundError:
-            meta_model, meta_features, meta_classes = loader.load_meta_artifacts(variant="none")
+            meta_model, meta_features, meta_classes, calibration_metadata = loader.load_meta_artifacts(variant="none")
 
-        meta_predictor = MetaPredictor(meta_model, meta_features, meta_classes)
+        meta_predictor = MetaPredictor(
+            meta_model,
+            meta_features,
+            meta_classes,
+            calibration_metadata=calibration_metadata,
+        )
         meta_predictions = meta_predictor.predict(binary_predictions)
 
         # Combine
@@ -298,9 +325,14 @@ def _run_predictions(
 
         # Check if meta-classifier exists (for legacy runs that might have meta)
         try:
-            meta_model, meta_features, meta_classes = loader.load_meta_artifacts(variant="smote")
+            meta_model, meta_features, meta_classes, calibration_metadata = loader.load_meta_artifacts(variant="smote")
             logger.info("  Found meta-classifier, applying...")
-            meta_predictor = MetaPredictor(meta_model, meta_features, meta_classes)
+            meta_predictor = MetaPredictor(
+                meta_model,
+                meta_features,
+                meta_classes,
+                calibration_metadata=calibration_metadata,
+            )
             meta_predictions = meta_predictor.predict(predictions)
             predictions = pd.concat([predictions, meta_predictions], axis=1)
         except FileNotFoundError:
@@ -317,9 +349,10 @@ def _compute_metrics(
     predictions: pd.DataFrame,
     label_col: str,
     run_type: str,
-) -> Dict[str, Any]:
+) -> Tuple[Dict[str, Any], Optional[pd.DataFrame]]:
     """Compute metrics based on available predictions."""
-    metrics = {}
+    metrics: Dict[str, Any] = {}
+    calibration_curve_df: Optional[pd.DataFrame] = None
 
     y_true = predictions[label_col].values
 
@@ -340,7 +373,35 @@ def _compute_metrics(
         overall_metrics = compute_classification_metrics(
             y_true, y_pred, y_proba, class_names
         )
-
+        if y_proba is not None:
+            prob_metrics, cal_curve = compute_probability_quality(
+                y_true.tolist(),
+                y_pred.tolist(),
+                y_proba,
+                class_names,
+                bins=10,
+            )
+            overall_metrics["brier"] = prob_metrics.get("brier")
+            overall_metrics["brier_calibrated"] = prob_metrics.get("brier")
+            overall_metrics["log_loss"] = prob_metrics.get("log_loss")
+            overall_metrics["log_loss_calibrated"] = prob_metrics.get("log_loss")
+            overall_metrics["ece"] = prob_metrics.get("ece")
+            overall_metrics["ece_calibrated"] = prob_metrics.get("ece")
+            overall_metrics["calibration_bins"] = 10
+            metrics["calibration_curve"] = cal_curve.to_dict("records")
+            calibration_curve_df = cal_curve
+        if "calibration_method" in predictions.columns:
+            methods = predictions["calibration_method"].dropna().unique()
+            if len(methods):
+                overall_metrics["calibration_method"] = methods[0]
+            enabled = predictions.get("calibration_enabled")
+            if enabled is not None:
+                overall_metrics["calibration_enabled"] = bool(enabled.any())
+            bins = predictions.get("calibration_bins")
+            if bins is not None:
+                unique_bins = bins.dropna().unique()
+                if len(unique_bins):
+                    overall_metrics["calibration_bins"] = int(unique_bins[0])
         metrics["overall"] = overall_metrics
 
     # Task-level metrics (if binary task scores exist)
@@ -383,7 +444,7 @@ def _compute_metrics(
         if hier_metrics:
             metrics["hierarchical"] = hier_metrics
 
-    return metrics
+    return metrics, calibration_curve_df
 
 
 def _generate_plots(

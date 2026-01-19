@@ -556,8 +556,24 @@ class LocalFilesystemScanner:
             "independent_test": "Independent Test",
         }
 
+        def _get_section(obj, key, default):
+            if hasattr(obj, key):
+                return getattr(obj, key)
+            if isinstance(obj, dict):
+                return obj.get(key, default)
+            return default
+
+        def _as_dict(section):
+            if hasattr(section, "model_dump"):
+                return section.model_dump(mode="python")
+            if isinstance(section, dict):
+                return section
+            return {}
+
         # Technical validation gate
-        tech_config = thresholds.technical_validation
+        tech_config = _as_dict(_get_section(thresholds, "technical_validation", {}))
+        promotion_config = _as_dict(_get_section(thresholds, "promotion", {}))
+        cal_config = _as_dict(_get_section(promotion_config, "calibration", {}))
         tech_run_id = decision.technical_run if decision else None
         if not tech_run_id and "technical_validation" in project.phases:
             # Use latest run
@@ -584,6 +600,25 @@ class LocalFilesystemScanner:
                     actual=actual,
                     passed=passed,
                     check_type="required",
+                ))
+                if not passed:
+                    all_passed = False
+
+            # Calibration metrics
+            brier_max = cal_config.get("brier_max", 0.20) if isinstance(cal_config, dict) else cal_config.brier_max
+            ece_max = cal_config.get("ece_max", 0.25) if isinstance(cal_config, dict) else cal_config.ece_max
+            for metric_name, threshold, direction in [
+                ("brier_calibrated", brier_max, "<="),
+                ("ece_calibrated", ece_max, "<="),
+            ]:
+                actual = tech_metrics.get(metric_name)
+                passed = actual is not None and actual <= threshold
+                checks.append(GateCheck(
+                    metric=metric_name,
+                    threshold=threshold,
+                    actual=actual,
+                    passed=passed,
+                    check_type=f"calibration_{direction}",
                 ))
                 if not passed:
                     all_passed = False
@@ -640,7 +675,9 @@ class LocalFilesystemScanner:
             )
 
         # Independent test gate
-        test_config = thresholds.independent_test
+        test_config = _as_dict(_get_section(thresholds, "independent_test", {}))
+        promotion_config = _as_dict(_get_section(thresholds, "promotion", {}))
+        cal_config = _as_dict(_get_section(promotion_config, "calibration", {}))
         test_run_id = decision.test_run if decision else None
         if not test_run_id and "independent_test" in project.phases:
             test_run_id = project.phases["independent_test"][0] if project.phases["independent_test"] else None
@@ -668,6 +705,24 @@ class LocalFilesystemScanner:
                     actual=actual,
                     passed=passed,
                     check_type="required",
+                ))
+                if not passed:
+                    all_passed = False
+
+            brier_max = cal_config.get("brier_max", 0.20) if isinstance(cal_config, dict) else cal_config.brier_max
+            ece_max = cal_config.get("ece_max", 0.25) if isinstance(cal_config, dict) else cal_config.ece_max
+            for metric_name, threshold, direction in [
+                ("brier_calibrated", brier_max, "<="),
+                ("ece_calibrated", ece_max, "<="),
+            ]:
+                actual = test_metrics.get(metric_name)
+                passed = actual is not None and actual <= threshold
+                checks.append(GateCheck(
+                    metric=metric_name,
+                    threshold=threshold,
+                    actual=actual,
+                    passed=passed,
+                    check_type=f"calibration_{direction}",
                 ))
                 if not passed:
                     all_passed = False

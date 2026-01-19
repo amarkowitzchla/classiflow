@@ -20,6 +20,7 @@ from sklearn.metrics import (
 )
 from sklearn.preprocessing import label_binarize
 
+from classiflow.metrics.decision import compute_decision_metrics
 logger = logging.getLogger(__name__)
 
 
@@ -105,6 +106,11 @@ def compute_classification_metrics(
         "labels": [str(c) for c in class_names],
         "matrix": cm.tolist(),
     }
+
+    decision_metrics = compute_decision_metrics(y_true_clean, y_pred_clean, class_names)
+    metrics.update(decision_metrics)
+    metrics["recall"] = decision_metrics.get("sensitivity")
+    metrics["precision"] = decision_metrics.get("ppv")
 
     # ROC AUC (if probabilities provided)
     if y_proba is not None:

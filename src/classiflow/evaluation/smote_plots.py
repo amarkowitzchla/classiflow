@@ -254,6 +254,14 @@ def plot_distribution_comparison(
     smote_vals = smote_data[metric].dropna()
     no_smote_vals = no_smote_data[metric].dropna()
 
+    if smote_vals.empty and no_smote_vals.empty:
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.text(0.5, 0.5, "No data available for this metric", va="center", ha="center", fontsize=12, fontweight="bold")
+        ax.set_axis_off()
+        if outfile:
+            fig.savefig(outfile, dpi=300, bbox_inches='tight')
+        return fig
+
     # Combine into long format
     combined = pd.DataFrame({
         'Value': pd.concat([no_smote_vals, smote_vals], ignore_index=True),

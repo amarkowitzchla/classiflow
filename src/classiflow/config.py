@@ -82,6 +82,7 @@ class TrainConfig:
     model_set: Optional[str] = None
     torch_num_workers: int = 0
     torch_dtype: Literal["float32", "float16"] = "float32"
+    require_torch_device: bool = False
 
     def __post_init__(self):
         """Convert string paths to Path objects and resolve data path."""
@@ -133,6 +134,11 @@ class MetaConfig(TrainConfig):
 
     # Meta-classifier
     meta_C_grid: List[float] = field(default_factory=lambda: [0.01, 0.1, 1, 10])
+    calibrate_meta: bool = True
+    calibration_method: Literal["sigmoid", "isotonic"] = "sigmoid"
+    calibration_cv: int = 3
+    calibration_bins: int = 10
+    calibration_isotonic_min_samples: int = 100
 
     def __post_init__(self):
         """Convert string paths to Path objects."""
@@ -145,6 +151,13 @@ class MetaConfig(TrainConfig):
         d = super().to_dict()
         if self.tasks_json is not None:
             d["tasks_json"] = str(self.tasks_json)
+        d.update(
+            calibrate_meta=self.calibrate_meta,
+            calibration_method=self.calibration_method,
+            calibration_cv=self.calibration_cv,
+            calibration_bins=self.calibration_bins,
+            calibration_isotonic_min_samples=self.calibration_isotonic_min_samples,
+        )
         return d
 
 

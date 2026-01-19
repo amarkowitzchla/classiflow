@@ -136,7 +136,9 @@ classiflow bundle inspect derived/test_ship/model_bundle.zip --verbose > derived
 - For multiclass + MPS acceleration, set `device: mps` in `project.yaml` (keep `backend: sklearn`).
 - To run only torch multiclass models, set `multiclass.estimator_mode: torch_only`.
 - For binary/meta GPU acceleration, set `backend: torch`, `device: mps`, and `model_set: torch_basic`.
+- If you must run only when MPS/CUDA is available, set `require_torch_device: true`.
 - Configure thresholds in `registry/thresholds.yaml`.
+- Calibration gating defaults live under `promotion.calibration` (Brier/ECE limits).
 - Artifacts are stored under `runs/` and `promotion/`.
 
 ## UI installation and static files

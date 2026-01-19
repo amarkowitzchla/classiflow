@@ -127,6 +127,15 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
         logger.info("  Device setting is ignored for sklearn backend.")
     if backend == "torch":
         _log_torch_status(config.device)
+        try:
+            import torch
+        except Exception as exc:
+            raise ValueError(f"Torch backend requested but torch is unavailable: {exc}") from exc
+        if config.require_torch_device:
+            if config.device == "mps" and not torch.backends.mps.is_available():
+                raise ValueError("MPS device requested but not available; set --device cpu or fix MPS setup.")
+            if config.device == "cuda" and not torch.cuda.is_available():
+                raise ValueError("CUDA device requested but not available; set --device cpu or fix CUDA setup.")
 
     model_spec = get_model_set(
         command="train-binary",
@@ -138,6 +147,7 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
         torch_dtype=config.torch_dtype,
         torch_num_workers=config.torch_num_workers,
     )
+    logger.info("Enabled estimators: %s", ", ".join(model_spec["estimators"].keys()))
 
     # Run nested CV
     orchestrator = NestedCVOrchestrator(

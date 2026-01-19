@@ -317,6 +317,8 @@ classiflow infer \
   --outdir results/
 ```
 
+Predictions now include calibrated `y_prob` plus `y_score_raw` (uncalibrated) and calibration metadata columns; inference also exports a `calibration_curve.csv` plus per-run Brier/ECE/logloss entries in the metrics workbook.
+
 ---
 
 ## Standalone Training Commands
@@ -378,7 +380,12 @@ Options:
 - `--classes`: Subset/order of classes to include
 - `--tasks-json`: Custom task definitions
 - `--tasks-only`: Skip auto OvR/pairwise, use only JSON tasks
+- `--calibrate-meta/--no-calibrate-meta`: Enable or disable meta-classifier probability calibration (default: enabled)
+- `--calibration-method`: Calibration strategy (`sigmoid` (default) or `isotonic`)
+- `--calibration-cv`: Number of folds for the cross-validated calibrator
+- `--calibration-bins`: Number of bins used when computing calibration curves / ECE
 
+Meta training now records calibrated probabilities (see new `y_prob` columns) and exports fold-level `calibration_curve.csv` + `calibration_summary.json`, while the reports aggregate Brier/ECE/logloss for the calibrated meta predictions.
 ### train-hierarchical
 
 Two-level classification with optional patient stratification:

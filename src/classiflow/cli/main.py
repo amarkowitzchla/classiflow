@@ -119,6 +119,11 @@ def train_binary(
         "--torch-dtype",
         help="Torch dtype: float32 or float16 (torch backend only).",
     ),
+    require_device: bool = typer.Option(
+        False,
+        "--require-device/--allow-device-fallback",
+        help="Require requested torch device (mps/cuda) instead of falling back to CPU.",
+    ),
     verbose: bool = typer.Option(False, "--verbose", help="Verbose logging"),
 ):
     """
@@ -173,6 +178,7 @@ def train_binary(
         model_set=model_set,
         torch_num_workers=torch_num_workers,
         torch_dtype=torch_dtype,
+        require_torch_device=require_device,
     )
 
     try:
@@ -240,6 +246,36 @@ def train_meta(
         "--torch-dtype",
         help="Torch dtype: float32 or float16 (torch backend only).",
     ),
+    require_device: bool = typer.Option(
+        False,
+        "--require-device/--allow-device-fallback",
+        help="Require requested torch device (mps/cuda) instead of falling back to CPU.",
+    ),
+    calibrate_meta: bool = typer.Option(
+        True,
+        "--calibrate-meta/--no-calibrate-meta",
+        help="Enable probability calibration for the meta-classifier.",
+    ),
+    calibration_method: str = typer.Option(
+        "sigmoid",
+        "--calibration-method",
+        help="Calibration method: sigmoid (default) or isotonic.",
+    ),
+    calibration_cv: int = typer.Option(
+        3,
+        "--calibration-cv",
+        help="Number of folds for cross-validated calibration.",
+    ),
+    calibration_bins: int = typer.Option(
+        10,
+        "--calibration-bins",
+        help="Number of bins when computing calibration curves.",
+    ),
+    calibration_isotonic_min_samples: int = typer.Option(
+        100,
+        "--calibration-isotonic-min-samples",
+        help="Minimum samples to allow isotonic calibration.",
+    ),
     verbose: bool = typer.Option(False, "--verbose", help="Verbose logging"),
 ):
     """
@@ -283,6 +319,14 @@ def train_meta(
     if model_set is None:
         model_set = "torch_basic" if backend == "torch" else "default"
 
+    calibration_method = calibration_method.lower().strip()
+    valid_methods = {"sigmoid", "isotonic"}
+    if calibration_method not in valid_methods:
+        raise typer.BadParameter(
+            f"Unsupported calibration method '{calibration_method}'. "
+            f"Choose from {', '.join(sorted(valid_methods))}."
+        )
+
     config = MetaConfig(
         data_path=resolved_path,
         patient_col=patient_col,
@@ -302,6 +346,12 @@ def train_meta(
         model_set=model_set,
         torch_num_workers=torch_num_workers,
         torch_dtype=torch_dtype,
+        require_torch_device=require_device,
+        calibrate_meta=calibrate_meta,
+        calibration_method=calibration_method,
+        calibration_cv=calibration_cv,
+        calibration_bins=calibration_bins,
+        calibration_isotonic_min_samples=calibration_isotonic_min_samples,
     )
 
     # Check data compatibility before training

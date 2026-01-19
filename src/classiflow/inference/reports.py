@@ -62,6 +62,21 @@ class InferenceReportWriter:
         logger.info(f"Wrote predictions to {output_path}")
         return output_path
 
+    def write_calibration_curve(
+        self,
+        curve_df: pd.DataFrame,
+        filename: str = "calibration_curve.csv",
+    ) -> Optional[Path]:
+        """
+        Write calibration curve data to CSV if available.
+        """
+        if curve_df is None or curve_df.empty:
+            return None
+        output_path = self.output_dir / filename
+        curve_df.to_csv(output_path, index=False)
+        logger.info(f"Wrote calibration curve data to {output_path}")
+        return output_path
+
     def write_metrics_workbook(
         self,
         run_info: Dict[str, Any],

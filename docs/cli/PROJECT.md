@@ -27,6 +27,7 @@ device: auto
 model_set: default
 torch_dtype: float32
 torch_num_workers: 0
+require_torch_device: false
 ```
 
 Example torch configuration:
@@ -35,6 +36,7 @@ Example torch configuration:
 backend: torch
 device: mps
 model_set: torch_basic
+require_torch_device: true
 ```
 
 For binary/meta GPU acceleration, set `backend: torch` and a GPU device

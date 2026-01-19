@@ -208,6 +208,8 @@ class ArtifactLoader:
             Ordered list of meta-feature names (e.g., ['TaskA_score', 'TaskB_score'])
         meta_classes : List[str]
             Ordered list of class names
+        calibration_metadata : Dict[str, Any]
+            Metadata about the probability calibration step
         """
         var_dir = self.fold_dir / f"binary_{variant}"
 
@@ -240,8 +242,16 @@ class ArtifactLoader:
                 logger.warning("meta_classes.csv not found and model has no classes_ attribute")
 
         logger.info(f"Loaded meta-classifier with {len(meta_features)} features and {len(meta_classes)} classes")
+        calibration_path = var_dir / "calibration_metadata.json"
+        calibration_metadata = {}
+        if calibration_path.exists():
+            try:
+                with open(calibration_path, "r") as handle:
+                    calibration_metadata = json.load(handle)
+            except Exception as exc:
+                logger.warning(f"Failed to load calibration metadata: {exc}")
 
-        return meta_model, meta_features, meta_classes
+        return meta_model, meta_features, meta_classes, calibration_metadata
 
     def load_multiclass_artifacts(
         self, variant: str = "smote"

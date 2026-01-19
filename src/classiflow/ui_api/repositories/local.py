@@ -206,6 +206,7 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
                 "technical_validation": project.thresholds.technical_validation,
                 "independent_test": project.thresholds.independent_test,
                 "promotion_logic": project.thresholds.promotion_logic,
+                "promotion": project.thresholds.promotion,
             }
 
         # Build promotion summary with detailed gate results

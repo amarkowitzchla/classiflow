@@ -227,6 +227,10 @@ independent_test:
     f1_macro: 0.7
     balanced_accuracy: 0.7
 promotion_logic: ALL_REQUIRED_AND_STABILITY
+promotion:
+  calibration:
+    brier_max: 0.20
+    ece_max: 0.25
 override:
   allow_override: true
   require_comment: true
@@ -247,6 +251,8 @@ override:
   comment: null
   approver: null
 ```
+
+`promotion_decision.json` includes the same decision plus explicit gating vs report-only metrics.
 
 ## ID Conventions
 

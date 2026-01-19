@@ -78,3 +78,33 @@ def test_promotion_gate_evaluation_missing_metrics() -> None:
     results = evaluate_promotion(thresholds, {}, {}, {})
     assert not results["technical_validation"].passed
     assert not results["independent_test"].passed
+
+
+def test_promotion_fails_on_poor_calibration() -> None:
+    thresholds = ThresholdsConfig()
+    thresholds.technical_validation.required = {"recall": 0.8}
+    thresholds.independent_test.required = {"recall": 0.8}
+    thresholds.promotion.calibration.brier_max = 0.2
+    thresholds.promotion.calibration.ece_max = 0.25
+
+    tech_metrics = {"recall": 0.9, "brier_calibrated": 0.3, "ece_calibrated": 0.1}
+    test_metrics = {"recall": 0.92, "brier_calibrated": 0.3, "ece_calibrated": 0.2}
+
+    results = evaluate_promotion(thresholds, tech_metrics, {}, test_metrics)
+    assert not results["technical_validation"].passed
+    assert not results["independent_test"].passed
+
+
+def test_promotion_passes_when_decision_and_calibration_pass() -> None:
+    thresholds = ThresholdsConfig()
+    thresholds.technical_validation.required = {"recall": 0.8}
+    thresholds.independent_test.required = {"recall": 0.8}
+    thresholds.promotion.calibration.brier_max = 0.2
+    thresholds.promotion.calibration.ece_max = 0.25
+
+    tech_metrics = {"recall": 0.9, "brier_calibrated": 0.1, "ece_calibrated": 0.1}
+    test_metrics = {"recall": 0.92, "brier_calibrated": 0.12, "ece_calibrated": 0.2}
+
+    results = evaluate_promotion(thresholds, tech_metrics, {}, test_metrics)
+    assert results["technical_validation"].passed
+    assert results["independent_test"].passed

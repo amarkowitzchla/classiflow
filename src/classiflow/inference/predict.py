@@ -111,6 +111,7 @@ class MetaPredictor:
         meta_model: Any,
         meta_features: List[str],
         meta_classes: List[str],
+        calibration_metadata: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize meta predictor.
@@ -123,10 +124,13 @@ class MetaPredictor:
             Ordered list of meta-feature names
         meta_classes : List[str]
             Ordered list of class names
+        calibration_metadata : Optional[Dict[str, Any]]
+            Calibration metadata captured during training
         """
         self.meta_model = meta_model
         self.meta_features = meta_features
         self.meta_classes = meta_classes
+        self.calibration_metadata = calibration_metadata or {}
 
     def predict(self, binary_predictions: pd.DataFrame) -> pd.DataFrame:
         """
@@ -161,6 +165,7 @@ class MetaPredictor:
 
         predictions = pd.DataFrame(index=binary_predictions.index)
         predictions["predicted_label"] = y_pred
+        predictions["y_pred"] = y_pred
 
         # Probabilities
         if hasattr(self.meta_model, "predict_proba"):
@@ -173,12 +178,36 @@ class MetaPredictor:
             if len(classes) == y_proba.shape[1]:
                 for i, cls in enumerate(classes):
                     predictions[f"predicted_proba_{cls}"] = y_proba[:, i]
+                    predictions[f"y_prob_{cls}"] = y_proba[:, i]
 
                 predictions["predicted_proba"] = y_proba.max(axis=1)
+                predictions["y_prob"] = predictions["predicted_proba"]
             else:
                 logger.warning(
                     f"Class count mismatch: {len(classes)} classes but {y_proba.shape[1]} proba columns"
                 )
+                predictions["y_prob"] = np.nan
+
+            raw_model = getattr(self.meta_model, "base_estimator_", self.meta_model)
+            raw_proba = _safe_raw_proba(raw_model, X_meta)
+            if raw_proba is not None and raw_proba.shape[1] == len(classes):
+                raw_scores = np.max(raw_proba, axis=1)
+                predictions["y_score_raw"] = raw_scores
+                for i, cls in enumerate(classes):
+                    predictions[f"y_score_raw_{cls}"] = raw_proba[:, i]
+            else:
+                predictions["y_score_raw"] = np.nan
+        else:
+            predictions["y_prob"] = np.nan
+            predictions["y_score_raw"] = np.nan
+
+        predictions["threshold_used"] = 0.5 if len(classes) == 2 else None
+        predictions["calibration_method"] = self.calibration_metadata.get("method_used")
+        predictions["calibration_enabled"] = self.calibration_metadata.get("enabled", False)
+        predictions["calibration_cv"] = self.calibration_metadata.get("cv")
+        predictions["calibration_bins"] = self.calibration_metadata.get("bins")
+        warnings = self.calibration_metadata.get("warnings") or []
+        predictions["calibration_warnings"] = "; ".join(map(str, warnings))
 
         return predictions
 
@@ -304,3 +333,13 @@ class MulticlassPredictor:
             predictions["predicted_proba"] = y_proba.max(axis=1)
 
         return predictions
+
+
+def _safe_raw_proba(model, X):
+    """Attempt to compute probabilities without altering state."""
+    if hasattr(model, "predict_proba"):
+        try:
+            return model.predict_proba(X)
+        except Exception as exc:
+            logger.warning(f"Raw predict_proba failed: {exc}")
+    return None

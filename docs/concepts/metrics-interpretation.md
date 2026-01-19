@@ -131,6 +131,21 @@ Groups predictions into bins and measures calibration per bin.
 
 - **Use when**: You need well-calibrated probabilities (e.g., risk scores)
 
+### Why Calibration Gates Promotion
+
+High AUC can still produce misleading probabilities, so ROC AUC alone is not enough
+for clinical deployment. Clinical workflows often rely on probabilities for triage,
+counseling, and downstream decision support. Calibration metrics such as Brier and ECE
+ensure probability quality, not just ranking.
+
+In classiflow, promotion gates use calibrated Brier and ECE to confirm that a model
+is both discriminative and probabilistically reliable.
+
+- **Brier**: squared error of predicted probabilities; values closer to 0 mean the
+  reported risk matches observed outcomes more closely.
+- **ECE**: average absolute calibration error in bins; lower values indicate that
+  predicted probabilities align with real-world frequencies.
+
 ## Metric Selection Guide
 
 ### By Use Case

@@ -23,7 +23,7 @@ from classiflow.projects.orchestrator import (
 from classiflow.projects.project_fs import ProjectPaths, project_root, choose_project_id
 from classiflow.projects.project_models import ProjectConfig, ThresholdsConfig, StabilityGate
 from classiflow.projects.reporting import write_promotion_report
-from classiflow.projects.promotion import evaluate_promotion, promotion_decision
+from classiflow.projects.promotion import evaluate_promotion, promotion_decision, normalize_metric_name
 from classiflow.projects.yaml_utils import dump_yaml
 
 logger = logging.getLogger(__name__)
@@ -72,6 +72,7 @@ def _append_torch_backend_hint(project_yaml: Path) -> None:
         "# model_set: torch_basic\n"
         "# torch_dtype: float32\n"
         "# torch_num_workers: 0\n"
+        "# require_torch_device: false\n"
         "#\n"
         "# Multiclass torch estimators (keep backend: sklearn)\n"
         "# device: mps\n"
@@ -242,6 +243,8 @@ def bootstrap_project(
         "f1_macro": 0.7,
         "balanced_accuracy": 0.7,
     }
+    thresholds_cfg.promotion.calibration.brier_max = 0.20
+    thresholds_cfg.promotion.calibration.ece_max = 0.25
     for entry in thresholds:
         if ":" not in entry:
             continue
@@ -441,7 +444,127 @@ def recommend_cmd(
             "reasons": "; ".join(result.reasons) if result.reasons else "",
         })
 
-    report_path = write_promotion_report(paths.promotion_dir, decision, reasons, pd.DataFrame(gate_rows))
+    gating_rows = []
+    report_only_rows = []
+    cal_thresholds = thresholds.promotion.calibration
+    phases = {
+        "technical_validation": (tech_summary, thresholds.technical_validation),
+        "independent_test": (test_summary, thresholds.independent_test),
+    }
+    for phase, (metrics, phase_thresholds) in phases.items():
+        for metric_name, threshold in phase_thresholds.required.items():
+            normalized = normalize_metric_name(metric_name)
+            actual = metrics.get(normalized)
+            passed = actual is not None and actual >= threshold
+            gating_rows.append({
+                "phase": phase,
+                "metric": metric_name,
+                "value": actual,
+                "threshold": threshold,
+                "direction": ">=",
+                "passed": passed,
+            })
+        for metric_name, max_allowed in phase_thresholds.safety.items():
+            normalized = normalize_metric_name(metric_name)
+            actual = metrics.get(normalized)
+            passed = actual is not None and actual <= max_allowed
+            gating_rows.append({
+                "phase": phase,
+                "metric": metric_name,
+                "value": actual,
+                "threshold": max_allowed,
+                "direction": "<=",
+                "passed": passed,
+            })
+        brier_value = metrics.get("brier_calibrated")
+        gating_rows.append({
+            "phase": phase,
+            "metric": "brier_calibrated",
+            "value": brier_value,
+            "threshold": cal_thresholds.brier_max,
+            "direction": "<=",
+            "passed": brier_value is not None and brier_value <= cal_thresholds.brier_max,
+        })
+        ece_value = metrics.get("ece_calibrated")
+        gating_rows.append({
+            "phase": phase,
+            "metric": "ece_calibrated",
+            "value": ece_value,
+            "threshold": cal_thresholds.ece_max,
+            "direction": "<=",
+            "passed": ece_value is not None and ece_value <= cal_thresholds.ece_max,
+        })
+        if phase == "technical_validation" and phase_thresholds.stability:
+            stability = phase_thresholds.stability
+            for metric_name, max_std in stability.std_max.items():
+                normalized = normalize_metric_name(metric_name)
+                actual = gate_results["technical_validation"].metrics.get(f"{normalized}_std")
+                passed = actual is not None and actual <= max_std
+                gating_rows.append({
+                    "phase": phase,
+                    "metric": f"{metric_name}_std",
+                    "value": actual,
+                    "threshold": max_std,
+                    "direction": "<=",
+                    "passed": passed,
+                })
+            for metric_name in phase_thresholds.required.keys():
+                normalized = normalize_metric_name(metric_name)
+                actual = gate_results["technical_validation"].metrics.get(f"{normalized}_pass_rate")
+                passed = actual is not None and actual >= stability.pass_rate_min
+                gating_rows.append({
+                    "phase": phase,
+                    "metric": f"{metric_name}_pass_rate",
+                    "value": actual,
+                    "threshold": stability.pass_rate_min,
+                    "direction": ">=",
+                    "passed": passed,
+                })
+
+        report_only_keys = {
+            "roc_auc",
+            "roc_auc_ovr_macro",
+            "roc_auc_macro",
+            "pr_auc",
+            "accuracy",
+            "log_loss",
+            "brier",
+            "ece",
+            "log_loss_uncalibrated",
+            "brier_uncalibrated",
+            "ece_uncalibrated",
+            "calibration_method",
+            "calibration_enabled",
+            "calibration_bins",
+        }
+        for key, value in metrics.items():
+            if key in report_only_keys:
+                report_only_rows.append({
+                    "phase": phase,
+                    "metric": key,
+                    "value": value,
+                })
+
+    calibration_selection = {}
+    comparison_path = technical_run / "calibration_comparison.json"
+    if comparison_path.exists():
+        try:
+            comparison = json.loads(comparison_path.read_text(encoding="utf-8"))
+            selection = comparison.get("selection", {})
+            if selection:
+                calibration_selection = selection
+        except Exception:
+            calibration_selection = {}
+
+    report_path = write_promotion_report(
+        paths.promotion_dir,
+        decision,
+        reasons,
+        pd.DataFrame(gate_rows),
+        pd.DataFrame(gating_rows),
+        pd.DataFrame(report_only_rows),
+        calibration_selection=calibration_selection,
+    )
 
     decision_payload = {
         "decision": "PASS" if decision else "FAIL",
@@ -456,6 +579,17 @@ def recommend_cmd(
         },
     }
     dump_yaml(decision_payload, paths.promotion_dir / "decision.yaml")
+    decision_json = {
+        **decision_payload,
+        "gates": gate_rows,
+        "metrics": {
+            "gating": gating_rows,
+            "report_only": report_only_rows,
+        },
+        "calibration": calibration_selection,
+    }
+    with open(paths.promotion_dir / "promotion_decision.json", "w", encoding="utf-8") as handle:
+        json.dump(decision_json, handle, indent=2)
     typer.echo(str(report_path))
 
 

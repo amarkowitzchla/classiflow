@@ -13,6 +13,7 @@ from sklearn.metrics import (
     matthews_corrcoef,
     roc_auc_score,
 )
+from sklearn.metrics import confusion_matrix
 
 
 def compute_binary_metrics(y_true: np.ndarray, scores: np.ndarray) -> Dict[str, float]:
@@ -39,6 +40,10 @@ def compute_binary_metrics(y_true: np.ndarray, scores: np.ndarray) -> Dict[str, 
 
     y_pred = (scores >= threshold).astype(int)
 
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
+    specificity = tn / (tn + fp) if (tn + fp) else 0.0
+    npv = tn / (tn + fn) if (tn + fn) else 0.0
+
     # ROC AUC
     auc_val = np.nan
     if len(np.unique(y_true)) == 2 and np.std(scores) > 0:
@@ -61,7 +66,11 @@ def compute_binary_metrics(y_true: np.ndarray, scores: np.ndarray) -> Dict[str, 
         "accuracy": float(accuracy_score(y_true, y_pred)),
         "balanced_accuracy": float(balanced_accuracy_score(y_true, y_pred)),
         "precision": float(precision_score(y_true, y_pred, zero_division=0)),
+        "ppv": float(precision_score(y_true, y_pred, zero_division=0)),
         "recall": float(recall_score(y_true, y_pred, zero_division=0)),
+        "sensitivity": float(recall_score(y_true, y_pred, zero_division=0)),
+        "specificity": float(specificity),
+        "npv": float(npv),
         "f1": float(f1_score(y_true, y_pred, zero_division=0)),
         "mcc": float(mcc_val) if mcc_val == mcc_val else np.nan,
         "roc_auc": float(auc_val) if auc_val == auc_val else np.nan,

@@ -251,6 +251,7 @@ device: auto
 model_set: default
 torch_dtype: float32
 torch_num_workers: 0
+require_torch_device: false
 ```
 
 For binary/meta GPU runs, set:
@@ -259,6 +260,7 @@ For binary/meta GPU runs, set:
 backend: torch
 device: mps
 model_set: torch_basic
+require_torch_device: true
 ```
 
 For hierarchical:
