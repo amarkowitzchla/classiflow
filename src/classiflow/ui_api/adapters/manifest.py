@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import logging
 from dataclasses import dataclass, field
@@ -387,7 +388,21 @@ def parse_metrics(run_dir: Path, phase: str) -> dict[str, Any]:
             overall = data.get("overall", data)
 
             # Extract summary metrics
-            for key in ["accuracy", "balanced_accuracy", "f1_macro", "f1_weighted", "mcc", "log_loss"]:
+            for key in [
+                "accuracy",
+                "balanced_accuracy",
+                "f1_macro",
+                "f1_weighted",
+                "f1_micro",
+                "mcc",
+                "log_loss",
+                "brier",
+                "brier_calibrated",
+                "ece",
+                "ece_calibrated",
+                "roc_auc_ovr_macro",
+                "roc_auc_ovr_micro",
+            ]:
                 if key in overall:
                     result["summary"][key] = overall[key]
 
@@ -400,11 +415,58 @@ def parse_metrics(run_dir: Path, phase: str) -> dict[str, Any]:
                 result["confusion_matrix"] = overall["confusion_matrix"]
 
             # ROC AUC
-            if "roc_auc" in overall:
-                result["roc_auc"] = overall["roc_auc"]
+            roc_auc = overall.get("roc_auc")
+            if isinstance(roc_auc, dict):
+                if "macro" in roc_auc and "roc_auc_ovr_macro" not in result["summary"]:
+                    result["summary"]["roc_auc_ovr_macro"] = roc_auc.get("macro")
+                if "micro" in roc_auc and "roc_auc_ovr_micro" not in result["summary"]:
+                    result["summary"]["roc_auc_ovr_micro"] = roc_auc.get("micro")
+                result["roc_auc"] = roc_auc
+            elif roc_auc is not None:
+                result["roc_auc"] = roc_auc
 
         except (json.JSONDecodeError, OSError) as e:
             logger.warning(f"Failed to parse metrics.json: {e}")
+
+    # Fallback: metrics/overall_metrics.csv (independent_test)
+    overall_csv = run_dir / "metrics" / "overall_metrics.csv"
+    if overall_csv.exists():
+        try:
+            with open(overall_csv, newline="") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    metric = (row.get("Metric") or row.get("metric") or "").strip()
+                    value = (row.get("Value") or row.get("value") or "").strip()
+                    if not metric or not value:
+                        continue
+                    try:
+                        numeric = float(value)
+                    except ValueError:
+                        continue
+
+                    key = metric.lower()
+                    key = key.replace(" ", "_").replace("(", "").replace(")", "")
+                    key = key.replace("-", "_")
+                    key = key.replace("__", "_")
+                    key = key.replace("roc_auc", "roc_auc")
+
+                    metric_map = {
+                        "sample_count": "sample_count",
+                        "accuracy": "accuracy",
+                        "balanced_accuracy": "balanced_accuracy",
+                        "f1_macro": "f1_macro",
+                        "f1_weighted": "f1_weighted",
+                        "f1_micro": "f1_micro",
+                        "matthews_correlation_coefficient": "mcc",
+                        "log_loss": "log_loss",
+                        "roc_auc_macro": "roc_auc_ovr_macro",
+                        "roc_auc_micro": "roc_auc_ovr_micro",
+                    }
+                    mapped = metric_map.get(key)
+                    if mapped and mapped not in result["summary"]:
+                        result["summary"][mapped] = numeric
+        except (OSError, csv.Error) as e:
+            logger.warning(f"Failed to parse overall_metrics.csv: {e}")
 
     return result
 

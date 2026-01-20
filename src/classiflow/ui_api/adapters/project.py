@@ -67,6 +67,7 @@ class ThresholdsConfig:
     technical_validation: dict[str, Any] = field(default_factory=dict)
     independent_test: dict[str, Any] = field(default_factory=dict)
     promotion_logic: str = "ALL_REQUIRED_AND_STABILITY"
+    promotion: dict[str, Any] = field(default_factory=dict)
     allow_override: bool = True
     require_comment: bool = True
     require_approver: bool = True
@@ -226,6 +227,7 @@ def parse_thresholds(project_dir: Path) -> ThresholdsConfig:
     config.technical_validation = data.get("technical_validation", {})
     config.independent_test = data.get("independent_test", {})
     config.promotion_logic = data.get("promotion_logic", "ALL_REQUIRED_AND_STABILITY")
+    config.promotion = data.get("promotion", {})
 
     # Override settings
     override = data.get("override", {})

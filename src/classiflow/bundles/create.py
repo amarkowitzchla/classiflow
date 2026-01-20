@@ -32,7 +32,15 @@ def create_bundle(
     - version.txt (package version)
     - README.txt (bundle metadata and usage)
     - fold{N}/ directories with serialized models
+    - registry/ selected configs (if present)
+    - sanity_checks.json (if present)
+    - class_order.json (if present)
+    - feature_schema.json (if present)
     - Optional: metrics CSVs
+
+    The bundle is designed to be completely self-contained for inference,
+    with all necessary preprocessing, encoding, calibration, and schema
+    information included.
 
     Parameters
     ----------
@@ -128,6 +136,29 @@ def create_bundle(
         # Add fold directories
         for fold_dir in fold_dirs:
             _add_fold_to_bundle(zf, fold_dir, run_dir)
+
+        # Add registry directory if present (selected configs)
+        registry_dir = run_dir / "registry"
+        if registry_dir.exists():
+            for item in registry_dir.iterdir():
+                if item.is_file():
+                    arcname = f"registry/{item.name}"
+                    zf.write(item, arcname=arcname)
+                    logger.debug(f"Added registry: {arcname}")
+
+        # Add schema and sanity check files if present
+        extra_files = [
+            "sanity_checks.json",
+            "class_order.json",
+            "feature_schema.json",
+            "final_train_config.json",
+            "training_stats.json",
+        ]
+        for filename in extra_files:
+            filepath = run_dir / filename
+            if filepath.exists():
+                zf.write(filepath, arcname=filename)
+                logger.debug(f"Added {filename}")
 
         # Add metrics if requested
         if include_metrics:

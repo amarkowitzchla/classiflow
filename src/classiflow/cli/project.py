@@ -349,8 +349,29 @@ def build_bundle_cmd(
     project_dir: Path = typer.Argument(..., help="Project root directory"),
     technical_run_id: Optional[str] = typer.Option(None, "--technical-run", help="Technical run id"),
     run_id: Optional[str] = typer.Option(None, "--run-id", help="Override run id"),
+    sampler: Optional[str] = typer.Option(
+        None,
+        "--sampler",
+        help="Sampler for final training: none, smote (auto-selects if not specified)",
+    ),
 ):
-    """Train final model and build bundle."""
+    """
+    Train final model and build bundle.
+
+    The final model is ALWAYS trained from scratch on 100% of the training data
+    using the validated per-task configurations from technical validation.
+
+    This ensures:
+    - No reuse of fold pipelines (deterministic, auditable training)
+    - Per-task hyperparameter selection (not global selection)
+    - Sanity checks to detect degenerate predictions
+    - Complete artifact trail for clinical-grade reproducibility
+
+    The --sampler option controls whether SMOTE is applied during final training:
+    - none: No oversampling (default if SMOTE disabled in config)
+    - smote: Apply SMOTE oversampling
+    - If not specified, auto-selects based on config and technical validation results
+    """
     paths = ProjectPaths(project_dir)
     config = _load_config(paths)
 
@@ -359,7 +380,10 @@ def build_bundle_cmd(
     if not technical_run:
         raise typer.BadParameter("No technical validation runs found")
 
-    run_dir = build_final_model(paths, config, technical_run, run_id=run_id)
+    if sampler and sampler not in ("none", "smote"):
+        raise typer.BadParameter(f"Invalid sampler: {sampler}. Must be 'none' or 'smote'")
+
+    run_dir = build_final_model(paths, config, technical_run, run_id=run_id, sampler=sampler)
     typer.echo(str(run_dir))
 
 

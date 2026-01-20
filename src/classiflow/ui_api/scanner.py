@@ -569,6 +569,12 @@ class LocalFilesystemScanner:
             if isinstance(section, dict):
                 return section
             return {}
+        def _numeric_metrics(metrics: dict[str, Any]) -> dict[str, float]:
+            return {
+                key: value
+                for key, value in metrics.items()
+                if isinstance(value, (int, float))
+            }
 
         # Technical validation gate
         tech_config = _as_dict(_get_section(thresholds, "technical_validation", {}))
@@ -605,23 +611,24 @@ class LocalFilesystemScanner:
                     all_passed = False
 
             # Calibration metrics
-            brier_max = cal_config.get("brier_max", 0.20) if isinstance(cal_config, dict) else cal_config.brier_max
-            ece_max = cal_config.get("ece_max", 0.25) if isinstance(cal_config, dict) else cal_config.ece_max
-            for metric_name, threshold, direction in [
-                ("brier_calibrated", brier_max, "<="),
-                ("ece_calibrated", ece_max, "<="),
-            ]:
-                actual = tech_metrics.get(metric_name)
-                passed = actual is not None and actual <= threshold
-                checks.append(GateCheck(
-                    metric=metric_name,
-                    threshold=threshold,
-                    actual=actual,
-                    passed=passed,
-                    check_type=f"calibration_{direction}",
-                ))
-                if not passed:
-                    all_passed = False
+            if cal_config:
+                brier_max = cal_config.get("brier_max", 0.20) if isinstance(cal_config, dict) else cal_config.brier_max
+                ece_max = cal_config.get("ece_max", 0.25) if isinstance(cal_config, dict) else cal_config.ece_max
+                for metric_name, threshold, direction in [
+                    ("brier_calibrated", brier_max, "<="),
+                    ("ece_calibrated", ece_max, "<="),
+                ]:
+                    actual = tech_metrics.get(metric_name)
+                    passed = actual is not None and actual <= threshold
+                    checks.append(GateCheck(
+                        metric=metric_name,
+                        threshold=threshold,
+                        actual=actual,
+                        passed=passed,
+                        check_type=f"calibration_{direction}",
+                    ))
+                    if not passed:
+                        all_passed = False
 
             # Stability checks
             stability = tech_config.get("stability", {})
@@ -671,7 +678,7 @@ class LocalFilesystemScanner:
                 run_id=tech_run_id,
                 run_key=f"{project_id}:technical_validation:{tech_run_id}",
                 checks=checks,
-                metrics_available=tech_metrics,
+                metrics_available=_numeric_metrics(tech_metrics),
             )
 
         # Independent test gate
@@ -709,23 +716,24 @@ class LocalFilesystemScanner:
                 if not passed:
                     all_passed = False
 
-            brier_max = cal_config.get("brier_max", 0.20) if isinstance(cal_config, dict) else cal_config.brier_max
-            ece_max = cal_config.get("ece_max", 0.25) if isinstance(cal_config, dict) else cal_config.ece_max
-            for metric_name, threshold, direction in [
-                ("brier_calibrated", brier_max, "<="),
-                ("ece_calibrated", ece_max, "<="),
-            ]:
-                actual = test_metrics.get(metric_name)
-                passed = actual is not None and actual <= threshold
-                checks.append(GateCheck(
-                    metric=metric_name,
-                    threshold=threshold,
-                    actual=actual,
-                    passed=passed,
-                    check_type=f"calibration_{direction}",
-                ))
-                if not passed:
-                    all_passed = False
+            if cal_config:
+                brier_max = cal_config.get("brier_max", 0.20) if isinstance(cal_config, dict) else cal_config.brier_max
+                ece_max = cal_config.get("ece_max", 0.25) if isinstance(cal_config, dict) else cal_config.ece_max
+                for metric_name, threshold, direction in [
+                    ("brier_calibrated", brier_max, "<="),
+                    ("ece_calibrated", ece_max, "<="),
+                ]:
+                    actual = test_metrics.get(metric_name)
+                    passed = actual is not None and actual <= threshold
+                    checks.append(GateCheck(
+                        metric=metric_name,
+                        threshold=threshold,
+                        actual=actual,
+                        passed=passed,
+                        check_type=f"calibration_{direction}",
+                    ))
+                    if not passed:
+                        all_passed = False
 
             results["independent_test"] = GateResult(
                 phase="independent_test",
@@ -734,7 +742,7 @@ class LocalFilesystemScanner:
                 run_id=test_run_id,
                 run_key=f"{project_id}:independent_test:{test_run_id}",
                 checks=checks,
-                metrics_available=test_metrics,
+                metrics_available=_numeric_metrics(test_metrics),
             )
 
         return results

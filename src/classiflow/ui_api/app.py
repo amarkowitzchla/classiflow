@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.requests import Request
 
 import classiflow
 from classiflow.ui_api.config import UIConfig, StorageMode
@@ -39,6 +40,22 @@ from classiflow.ui_api.repositories.local import LocalFilesystemRepository
 from classiflow.ui_api.repositories.sqlite import SQLiteCommentReviewRepository
 
 logger = logging.getLogger(__name__)
+
+
+class SPAStaticFiles(StaticFiles):
+    """Static files with SPA fallback for client-side routes."""
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code != 404:
+            return response
+
+        request = Request(scope)
+        accept = request.headers.get("accept", "")
+        if "." in path and "text/html" not in accept:
+            return response
+
+        return await super().get_response("index.html", scope)
 
 
 def create_app(config: Optional[UIConfig] = None) -> FastAPI:
@@ -460,7 +477,7 @@ def mount_static(app: FastAPI, static_dir: Path):
     """
     if static_dir.is_dir():
         # Mount at root, but after API routes
-        app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+        app.mount("/", SPAStaticFiles(directory=static_dir, html=True), name="static")
         logger.info(f"Mounted static files from {static_dir}")
     else:
         logger.warning(f"Static directory not found: {static_dir}")
