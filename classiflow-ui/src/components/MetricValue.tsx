@@ -1,7 +1,7 @@
 import { clsx } from 'clsx';
 
 interface MetricValueProps {
-  value: number;
+  value: number | null | undefined;
   format?: 'percent' | 'decimal' | 'integer';
   precision?: number;
   className?: string;
@@ -14,8 +14,11 @@ export function MetricValue({
   className,
 }: MetricValueProps) {
   let displayValue: string;
+  const isValidNumber = typeof value === 'number' && Number.isFinite(value);
 
-  if (format === 'percent') {
+  if (!isValidNumber) {
+    displayValue = 'NA';
+  } else if (format === 'percent') {
     displayValue = `${(value * 100).toFixed(precision - 2)}%`;
   } else if (format === 'integer') {
     displayValue = Math.round(value).toString();
@@ -32,7 +35,7 @@ export function MetricValue({
 
 interface MetricCardProps {
   label: string;
-  value: number;
+  value: number | null | undefined;
   format?: 'percent' | 'decimal' | 'integer';
   precision?: number;
   sublabel?: string;

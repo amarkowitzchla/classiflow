@@ -484,7 +484,7 @@ def train_multiclass(
         group_stratify=group_stratify,
         logreg_solver=logreg_solver,
         logreg_multi_class=logreg_multi_class,
-        logreg_penalty=logreg_penalty,
+        # penalty deprecated in sklearn 1.8; keep default and tune via l1_ratio/C
         logreg_max_iter=logreg_max_iter,
         logreg_tol=logreg_tol,
         logreg_C=logreg_C,

@@ -100,7 +100,7 @@ class LogisticRegressionConfig(BaseModel):
 
     solver: str = "saga"
     multi_class: str = "auto"
-    penalty: str = "l2"
+    penalty: str = "l2"  # deprecated in sklearn 1.8; retained for compatibility
     max_iter: int = 5000
     tol: float = 1e-3
     C: float = 1.0
