@@ -150,7 +150,7 @@ def _run_multiclass_nested_cv(
     label_ids = list(range(len(classes)))
     logreg_params = {
         "solver": config.logreg_solver,
-        "penalty": config.logreg_penalty,
+        # penalty deprecated in sklearn 1.8; keep default and tune via l1_ratio/C
         "max_iter": config.logreg_max_iter,
         "tol": config.logreg_tol,
         "C": config.logreg_C,

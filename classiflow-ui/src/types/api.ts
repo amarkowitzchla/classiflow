@@ -6,23 +6,23 @@ export type ArtifactKind = 'image' | 'report' | 'metrics' | 'model' | 'data' | '
 export type ReviewStatus = 'pending' | 'approved' | 'rejected' | 'needs_changes';
 
 export interface MetricsSummary {
-  primary: Record<string, number>;
-  per_fold: Record<string, number[]>;
+  primary: Record<string, number | null>;
+  per_fold: Record<string, Array<number | null>>;
   per_class: Array<{
     class: string;
-    precision: number;
-    recall: number;
-    f1: number;
-    support: number;
+    precision: number | null;
+    recall: number | null;
+    f1: number | null;
+    support: number | null;
   }>;
   confusion_matrix?: {
     labels: string[];
-    matrix: number[][];
+    matrix: Array<Array<number | null>>;
   };
   roc_auc?: {
-    per_class: Array<{ class: string; auc: number }>;
-    macro: number;
-    micro: number;
+    per_class: Array<{ class: string; auc: number | null }>;
+    macro: number | null;
+    micro: number | null;
   };
 }
 
@@ -32,7 +32,7 @@ export interface RunBrief {
   phase: string;
   created_at: string | null;
   task_type: string | null;
-  headline_metrics: Record<string, number>;
+  headline_metrics: Record<string, number | null>;
 }
 
 export interface RunDetail {
@@ -99,7 +99,7 @@ export interface GateResult {
   run_id: string | null;
   run_key: string | null;
   checks: GateCheck[];
-  metrics_available: Record<string, number>;
+  metrics_available: Record<string, number | null>;
 }
 
 export interface PromotionSummary {
@@ -125,7 +125,7 @@ export interface ProjectCard {
   decision_badge: DecisionBadge;
   gate_status: Record<string, GateStatus>;
   latest_runs_by_phase: Record<string, RunBrief>;
-  headline_metrics: Record<string, number>;
+  headline_metrics: Record<string, number | null>;
   run_count: number;
 }
 

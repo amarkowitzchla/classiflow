@@ -35,7 +35,7 @@ def get_estimators(
         Estimator name -> sklearn estimator instance
     """
     base_logreg_params: Dict[str, Any] = {
-        "penalty": "l1",
+        # penalty deprecated in sklearn 1.8; prefer l1_ratio/C if tuning
         "solver": "saga",
         "class_weight": "balanced",
         "max_iter": max_iter,

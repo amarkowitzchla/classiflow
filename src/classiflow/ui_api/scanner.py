@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import mimetypes
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+import numbers
 from typing import Optional
 
 from classiflow.ui_api.adapters.manifest import (
@@ -289,10 +291,34 @@ class LocalFilesystemScanner:
             return None
         return self.get_run(parts[0], parts[1], parts[2])
 
+    @staticmethod
+    def _sanitize_metrics(value):
+        if isinstance(value, dict):
+            cleaned = {}
+            for key, item in value.items():
+                cleaned_item = LocalFilesystemScanner._sanitize_metrics(item)
+                if cleaned_item is None:
+                    continue
+                cleaned[key] = cleaned_item
+            return cleaned
+        if isinstance(value, list):
+            cleaned_list = []
+            for item in value:
+                cleaned_item = LocalFilesystemScanner._sanitize_metrics(item)
+                if cleaned_item is None:
+                    continue
+                cleaned_list.append(cleaned_item)
+            return cleaned_list
+        if isinstance(value, numbers.Real):
+            numeric = float(value)
+            return numeric if math.isfinite(numeric) else None
+        return value
+
     def _scan_single_run(self, run_dir: Path, project_id: str, phase: str) -> ScannedRun:
         """Scan a single run directory."""
         manifest = parse_run_manifest(run_dir, project_id, phase)
         metrics = parse_metrics(run_dir, phase)
+        metrics = self._sanitize_metrics(metrics)
 
         # Scan artifacts
         artifact_paths = []
@@ -570,11 +596,13 @@ class LocalFilesystemScanner:
                 return section
             return {}
         def _numeric_metrics(metrics: dict[str, Any]) -> dict[str, float]:
-            return {
-                key: value
-                for key, value in metrics.items()
-                if isinstance(value, (int, float))
-            }
+            filtered: dict[str, float] = {}
+            for key, value in metrics.items():
+                if isinstance(value, numbers.Real):
+                    numeric = float(value)
+                    if math.isfinite(numeric):
+                        filtered[key] = numeric
+            return filtered
 
         # Technical validation gate
         tech_config = _as_dict(_get_section(thresholds, "technical_validation", {}))

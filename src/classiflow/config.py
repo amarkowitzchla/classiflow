@@ -171,7 +171,7 @@ class MulticlassConfig(TrainConfig):
     group_stratify: bool = True
     logreg_solver: str = "saga"
     logreg_multi_class: str = "auto"
-    logreg_penalty: str = "l2"
+    logreg_penalty: str = "l2"  # deprecated in sklearn 1.8; retained for compatibility
     logreg_max_iter: int = 5000
     logreg_tol: float = 1e-3
     logreg_C: float = 1.0

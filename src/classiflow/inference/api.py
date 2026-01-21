@@ -164,10 +164,20 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
     calibration_curve_df = None
     if config.label_col and config.label_col in metadata.columns:
         logger.info("\n[4/7] Computing metrics...")
+        positive_class = None
+        if loader.manifest and loader.manifest.task_definitions:
+            task_def = loader.manifest.task_definitions.get("binary_task")
+            if isinstance(task_def, str):
+                prefix = "positive_class="
+                if prefix in task_def:
+                    positive_class = task_def.split(prefix, 1)[1].strip()
+            elif isinstance(task_def, dict):
+                positive_class = task_def.get("positive_class") or task_def.get("pos_label")
         metrics, calibration_curve_df = _compute_metrics(
             final_predictions,
             label_col=config.label_col,
             run_type=run_type,
+            positive_class=positive_class,
         )
         results["metrics"] = metrics
         if calibration_curve_df is not None:
@@ -349,6 +359,7 @@ def _compute_metrics(
     predictions: pd.DataFrame,
     label_col: str,
     run_type: str,
+    positive_class: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], Optional[pd.DataFrame]]:
     """Compute metrics based on available predictions."""
     metrics: Dict[str, Any] = {}
@@ -403,6 +414,55 @@ def _compute_metrics(
                 if len(unique_bins):
                     overall_metrics["calibration_bins"] = int(unique_bins[0])
         metrics["overall"] = overall_metrics
+    elif run_type == "binary":
+        pred_cols = [c for c in predictions.columns if c.endswith("_pred")]
+        if pred_cols:
+            pred_col = sorted(pred_cols)[0]
+            if len(pred_cols) > 1:
+                logger.warning(f"Multiple binary prediction columns found; using '{pred_col}'")
+            y_pred_raw = predictions[pred_col].values
+            class_names = sorted(list(pd.unique(y_true)))
+            if len(class_names) == 2:
+                pos_label = positive_class if positive_class in class_names else None
+                if not pos_label:
+                    logger.warning(
+                        "Positive class not found in manifest; skipping binary metrics."
+                    )
+                    return metrics, calibration_curve_df
+                neg_label = class_names[0] if class_names[1] == pos_label else class_names[1]
+                if pd.api.types.is_numeric_dtype(predictions[pred_col]):
+                    y_pred = np.where(y_pred_raw == 1, pos_label, neg_label)
+                else:
+                    y_pred = y_pred_raw
+                class_order = [neg_label, pos_label]
+                y_proba = None
+                score_cols = [c for c in predictions.columns if c.endswith("_score")]
+                if score_cols:
+                    score_col = sorted(score_cols)[0]
+                    scores = pd.to_numeric(predictions[score_col], errors="coerce").values
+                    if np.nanmin(scores) >= 0.0 and np.nanmax(scores) <= 1.0:
+                        y_proba = np.column_stack([1.0 - scores, scores])
+                overall_metrics = compute_classification_metrics(
+                    y_true, y_pred, y_proba, class_order
+                )
+                if y_proba is not None:
+                    prob_metrics, cal_curve = compute_probability_quality(
+                        y_true.tolist(),
+                        y_pred.tolist(),
+                        y_proba,
+                        class_order,
+                        bins=10,
+                    )
+                    overall_metrics["brier"] = prob_metrics.get("brier")
+                    overall_metrics["brier_calibrated"] = prob_metrics.get("brier")
+                    overall_metrics["log_loss"] = prob_metrics.get("log_loss")
+                    overall_metrics["log_loss_calibrated"] = prob_metrics.get("log_loss")
+                    overall_metrics["ece"] = prob_metrics.get("ece")
+                    overall_metrics["ece_calibrated"] = prob_metrics.get("ece")
+                    overall_metrics["calibration_bins"] = 10
+                    metrics["calibration_curve"] = cal_curve.to_dict("records")
+                    calibration_curve_df = cal_curve
+                metrics["overall"] = overall_metrics
 
     # Task-level metrics (if binary task scores exist)
     task_score_cols = [c for c in predictions.columns if c.endswith("_score")]

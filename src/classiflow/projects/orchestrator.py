@@ -403,7 +403,7 @@ def run_technical_validation(
             estimator_mode=config.multiclass.estimator_mode,
             logreg_solver=config.multiclass.logreg.solver,
             logreg_multi_class=config.multiclass.logreg.multi_class,
-            logreg_penalty=config.multiclass.logreg.penalty,
+            # penalty deprecated in sklearn 1.8; keep default and tune via l1_ratio/C
             logreg_max_iter=config.multiclass.logreg.max_iter,
             logreg_tol=config.multiclass.logreg.tol,
             logreg_C=config.multiclass.logreg.C,
@@ -729,7 +729,7 @@ def _train_final_binary(
     train_manifest: Path,
     outdir: Path,
     best_cfg: Dict[str, str],
-) -> None:
+) -> str:
     from classiflow.io import load_data
 
     X, y_raw = load_data(train_manifest, config.key_columns.label)
@@ -758,6 +758,7 @@ def _train_final_binary(
     fold_dir = outdir / "fold1" / f"binary_{'smote' if best_cfg.get('sampler') == 'smote' else 'none'}"
     fold_dir.mkdir(parents=True, exist_ok=True)
     joblib.dump({"pipes": {"binary_task__" + best_cfg["model_name"]: pipe}, "best_models": {"binary_task": best_cfg["model_name"]}}, fold_dir / "binary_pipes.joblib")
+    return str(pos_label)
 
 
 def _train_final_meta(
@@ -1095,7 +1096,7 @@ def _train_final_multiclass(
 
     logreg_params = {
         "solver": config.multiclass.logreg.solver,
-        "penalty": config.multiclass.logreg.penalty,
+        # penalty deprecated in sklearn 1.8; keep default and tune via l1_ratio/C
         "max_iter": config.multiclass.logreg.max_iter,
         "tol": config.multiclass.logreg.tol,
         "C": config.multiclass.logreg.C,
@@ -1407,6 +1408,9 @@ def build_final_model(
     # Save selected configs as source of truth
     save_selected_configs(run_dir, binary_configs, meta_config)
 
+    task_definitions: Dict[str, Any] = {}
+    best_models: Dict[str, str] = {}
+
     # Mode-specific training
     if effective_config.task.mode == "meta":
         logger.info("\n[2/4] Training final meta-classifier (from scratch)...")
@@ -1457,7 +1461,9 @@ def build_final_model(
         )
         if sampler:
             best_cfg["sampler"] = sampler
-        _train_final_binary(effective_config, train_manifest, run_dir, best_cfg)
+        pos_label = _train_final_binary(effective_config, train_manifest, run_dir, best_cfg)
+        task_definitions = {"binary_task": f"positive_class={pos_label}"}
+        best_models = {"binary_task": best_cfg["model_name"]}
 
     elif effective_config.task.mode == "multiclass":
         logger.info("\n[2/4] Training final multiclass model (from scratch)...")
@@ -1497,6 +1503,8 @@ def build_final_model(
         hostname=platform.node(),
         git_hash=_git_hash(paths.root),
         feature_list=train_entry.data_schema.feature_columns,
+        task_definitions=task_definitions,
+        best_models=best_models,
     )
     manifest.save(run_dir / "run.json")
 
