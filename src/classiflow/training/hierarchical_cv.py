@@ -27,6 +27,7 @@ from classiflow.plots import (
     plot_feature_importance,
     extract_feature_importance_mlp,
 )
+from classiflow.tracking import get_tracker, extract_loggable_params, summarize_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +198,16 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
 
     logger.info(f"Starting hierarchical training: {config.hierarchical=}")
     logger.info(f"Device: {config.device}")
+
+    # Initialize experiment tracker
+    tracker = get_tracker(
+        backend=config.tracker,
+        experiment_name=config.experiment_name or "classiflow-hierarchical",
+    )
+    tracker.start_run(
+        run_name=config.run_name,
+        tags=config.tracker_tags,
+    )
 
     # ========== Load and validate data ==========
     from classiflow.data import load_table
@@ -892,6 +903,35 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
     logger.info(f"\nOutputs saved to: {outdir}/")
     logger.info(f"  • metrics_*.{config.output_format}")
     logger.info(f"  • fold*/scaler.joblib, model_*.pt, label_encoder_*.joblib")
+
+    # Log to experiment tracker
+    tracker.log_params(extract_loggable_params(config))
+    tracker.set_tags({
+        "task_type": "hierarchical",
+        "device": config.device,
+        "num_l1_classes": str(len(l1_classes)),
+        "hierarchical_mode": str(config.hierarchical),
+    })
+
+    # Log summary metrics from summary_df
+    if not summary_df.empty:
+        # Log mean metrics across folds
+        numeric_cols = summary_df.select_dtypes(include=[np.number]).columns
+        summary_metrics = {}
+        for col in numeric_cols:
+            summary_metrics[f"mean_{col}"] = float(summary_df[col].mean())
+            summary_metrics[f"std_{col}"] = float(summary_df[col].std())
+        tracker.log_metrics(summary_metrics)
+
+    # Log artifacts
+    for csv_file in outdir.glob("metrics_*.csv"):
+        tracker.log_artifact(csv_file)
+    for xlsx_file in outdir.glob("metrics_*.xlsx"):
+        tracker.log_artifact(xlsx_file)
+    for png_file in outdir.glob("*.png"):
+        tracker.log_artifact(png_file)
+
+    tracker.end_run()
 
     logger.info("\nDone!")
 

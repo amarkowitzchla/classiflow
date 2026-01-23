@@ -52,6 +52,7 @@ from classiflow.splitting import (
     assert_no_patient_leakage,
     make_group_labels,
 )
+from classiflow.tracking import get_tracker, extract_loggable_params, summarize_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,16 @@ def train_meta_classifier(config: MetaConfig) -> Dict[str, Any]:
     logger.info(f"  Label: {config.label_col}")
     logger.info(f"  SMOTE: {config.smote_mode}")
     logger.info(f"  Backend: {config.backend}")
+
+    # Initialize experiment tracker
+    tracker = get_tracker(
+        backend=config.tracker,
+        experiment_name=config.experiment_name or "classiflow-meta",
+    )
+    tracker.start_run(
+        run_name=config.run_name,
+        tags=config.tracker_tags,
+    )
 
     # Create output directory
     config.outdir.mkdir(parents=True, exist_ok=True)
@@ -201,6 +212,29 @@ def train_meta_classifier(config: MetaConfig) -> Dict[str, Any]:
         config=config,
         groups=groups,
     )
+
+    # Log to experiment tracker
+    tracker.log_params(extract_loggable_params(config))
+    tracker.set_tags({
+        "task_type": "meta",
+        "backend": config.backend,
+        "smote_mode": config.smote_mode,
+        "run_id": manifest.run_id,
+        "num_classes": str(len(config.classes)) if config.classes else "auto",
+    })
+
+    # Log summary metrics if available
+    if "summary" in results:
+        tracker.log_metrics(summarize_metrics(results["summary"]))
+
+    # Log artifacts
+    tracker.log_artifact(config.outdir / "run.json")
+    for csv_file in config.outdir.glob("metrics_*.csv"):
+        tracker.log_artifact(csv_file)
+    for png_file in config.outdir.glob("*.png"):
+        tracker.log_artifact(png_file)
+
+    tracker.end_run()
 
     logger.info("Meta-classifier training complete")
     return results
@@ -526,7 +560,7 @@ def _train_binary_tasks(
                 cv=cv_for_task,
                 scoring=scorers,
                 refit="F1 Score",
-                n_jobs=-1,
+                n_jobs=1,
                 verbose=0,
                 return_train_score=False,
                 error_score=np.nan,
@@ -659,7 +693,7 @@ def _train_meta_model(
             meta_param_grids.get(model_name, {}),
             cv=cv_inner,
             scoring="f1_macro",
-            n_jobs=-1,
+            n_jobs=1,
             return_train_score=True,
         )
         grid.fit(X_meta_tr, y_tr)

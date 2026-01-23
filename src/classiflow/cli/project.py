@@ -294,10 +294,25 @@ def run_technical_cmd(
     project_dir: Path = typer.Argument(..., help="Project root directory"),
     run_id: Optional[str] = typer.Option(None, "--run-id", help="Override run id"),
     compare_smote: bool = typer.Option(False, "--compare-smote", help="Run SMOTE comparison"),
+    tracker: Optional[str] = typer.Option(
+        None,
+        "--tracker",
+        help="Experiment tracking backend: mlflow, wandb (requires optional deps)",
+    ),
+    experiment_name: Optional[str] = typer.Option(
+        None,
+        "--experiment-name",
+        help="Experiment/project name for tracking (default: {project_id}/technical)",
+    ),
 ):
     """Run technical validation."""
     paths = ProjectPaths(project_dir)
     config = _load_config(paths)
+    # Override tracking settings from CLI if provided
+    if tracker:
+        config.tracker = tracker
+    if experiment_name:
+        config.experiment_name = experiment_name
     run_dir = run_technical_validation(paths, config, run_id=run_id, compare_smote=compare_smote)
     typer.echo(str(run_dir))
 

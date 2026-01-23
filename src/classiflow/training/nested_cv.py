@@ -419,7 +419,7 @@ class NestedCVOrchestrator:
                 cv=cv_inner,
                 scoring=self.scorers,
                 refit="F1 Score",
-                n_jobs=-1,
+                n_jobs=1,
                 verbose=0,
                 return_train_score=False,
                 error_score=np.nan,

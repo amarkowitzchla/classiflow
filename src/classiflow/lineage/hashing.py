@@ -142,6 +142,19 @@ def get_file_metadata(file_path: Path) -> dict:
         Dictionary with size_bytes, row_count (if CSV), and hash
     """
     metadata = {}
+    file_path = Path(file_path)
+
+    if file_path.is_dir():
+        parquet_files = _list_parquet_files(file_path)
+        if not parquet_files:
+            raise ValueError(f"No parquet files found in dataset directory: {file_path}")
+
+        metadata["size_bytes"] = sum(f.stat().st_size for f in parquet_files)
+        row_count, column_count = _get_parquet_dataset_shape(parquet_files)
+        metadata["row_count"] = row_count
+        metadata["column_count"] = column_count
+        metadata["sha256_hash"] = _compute_directory_hash(file_path, parquet_files)
+        return metadata
 
     # File size
     metadata["size_bytes"] = file_path.stat().st_size
@@ -161,3 +174,45 @@ def get_file_metadata(file_path: Path) -> dict:
     metadata["sha256_hash"] = compute_file_hash(file_path, algorithm="sha256")
 
     return metadata
+
+
+def _list_parquet_files(dataset_path: Path) -> list[Path]:
+    """List parquet files under a dataset directory, excluding hidden/system files."""
+    parquet_files = [
+        f
+        for f in dataset_path.rglob("*.parquet")
+        if not f.name.startswith(".") and not f.name.startswith("_")
+    ]
+    return sorted(parquet_files)
+
+
+def _get_parquet_dataset_shape(parquet_files: list[Path]) -> tuple[Optional[int], Optional[int]]:
+    """Get row/column counts from parquet metadata when available."""
+    try:
+        import pyarrow.parquet as pq
+    except Exception:
+        logger.warning("pyarrow not available; parquet row/column counts will be omitted")
+        return None, None
+
+    try:
+        row_count = 0
+        column_count = None
+        for f in parquet_files:
+            pf = pq.ParquetFile(f)
+            if column_count is None:
+                column_count = pf.metadata.num_columns if pf.metadata else None
+            row_count += pf.metadata.num_rows if pf.metadata else 0
+        return row_count, column_count
+    except Exception as e:
+        logger.warning(f"Could not read parquet metadata: {e}")
+        return None, None
+
+
+def _compute_directory_hash(dataset_path: Path, parquet_files: list[Path]) -> str:
+    """Compute a stable hash for a parquet dataset directory."""
+    hasher = hashlib.new("sha256")
+    for f in parquet_files:
+        rel_path = f.relative_to(dataset_path)
+        hasher.update(str(rel_path).encode("utf-8"))
+        hasher.update(compute_file_hash(f, algorithm="sha256").encode("utf-8"))
+    return hasher.hexdigest()

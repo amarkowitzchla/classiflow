@@ -14,8 +14,6 @@ import typer
 from classiflow import __version__
 from classiflow.config import TrainConfig, MetaConfig, MulticlassConfig, HierarchicalConfig, _resolve_data_path
 from classiflow.training import train_binary_task, train_meta_classifier, train_multiclass_classifier
-from classiflow.training.hierarchical_cv import train_hierarchical
-from classiflow.inference import HierarchicalInference
 from classiflow.io.compatibility import assess_data_compatibility
 from classiflow.evaluation.smote_comparison import SMOTEComparison
 from classiflow.cli.stats import stats_app
@@ -124,6 +122,21 @@ def train_binary(
         "--require-device/--allow-device-fallback",
         help="Require requested torch device (mps/cuda) instead of falling back to CPU.",
     ),
+    tracker: Optional[str] = typer.Option(
+        None,
+        "--tracker",
+        help="Experiment tracking backend: mlflow, wandb (requires optional deps)",
+    ),
+    experiment_name: Optional[str] = typer.Option(
+        None,
+        "--experiment-name",
+        help="Experiment/project name for tracking (default: classiflow-binary)",
+    ),
+    run_name: Optional[str] = typer.Option(
+        None,
+        "--run-name",
+        help="Run name for tracking (default: auto-generated)",
+    ),
     verbose: bool = typer.Option(False, "--verbose", help="Verbose logging"),
 ):
     """
@@ -179,6 +192,9 @@ def train_binary(
         torch_num_workers=torch_num_workers,
         torch_dtype=torch_dtype,
         require_torch_device=require_device,
+        tracker=tracker,
+        experiment_name=experiment_name,
+        run_name=run_name,
     )
 
     try:
@@ -276,6 +292,21 @@ def train_meta(
         "--calibration-isotonic-min-samples",
         help="Minimum samples to allow isotonic calibration.",
     ),
+    tracker: Optional[str] = typer.Option(
+        None,
+        "--tracker",
+        help="Experiment tracking backend: mlflow, wandb (requires optional deps)",
+    ),
+    experiment_name: Optional[str] = typer.Option(
+        None,
+        "--experiment-name",
+        help="Experiment/project name for tracking (default: classiflow-meta)",
+    ),
+    run_name: Optional[str] = typer.Option(
+        None,
+        "--run-name",
+        help="Run name for tracking (default: auto-generated)",
+    ),
     verbose: bool = typer.Option(False, "--verbose", help="Verbose logging"),
 ):
     """
@@ -352,6 +383,9 @@ def train_meta(
         calibration_cv=calibration_cv,
         calibration_bins=calibration_bins,
         calibration_isotonic_min_samples=calibration_isotonic_min_samples,
+        tracker=tracker,
+        experiment_name=experiment_name,
+        run_name=run_name,
     )
 
     # Check data compatibility before training
@@ -433,6 +467,21 @@ def train_multiclass(
         "--estimator-mode",
         help="Estimator selection: all, torch_only, cpu_only",
     ),
+    tracker: Optional[str] = typer.Option(
+        None,
+        "--tracker",
+        help="Experiment tracking backend: mlflow, wandb (requires optional deps)",
+    ),
+    experiment_name: Optional[str] = typer.Option(
+        None,
+        "--experiment-name",
+        help="Experiment/project name for tracking (default: classiflow-multiclass)",
+    ),
+    run_name: Optional[str] = typer.Option(
+        None,
+        "--run-name",
+        help="Run name for tracking (default: auto-generated)",
+    ),
     verbose: bool = typer.Option(False, "--verbose", help="Verbose logging"),
 ):
     """
@@ -492,6 +541,9 @@ def train_multiclass(
         logreg_n_jobs=logreg_n_jobs,
         device=device,
         estimator_mode=estimator_mode,
+        tracker=tracker,
+        experiment_name=experiment_name,
+        run_name=run_name,
     )
 
     try:
@@ -659,6 +711,21 @@ def train_hierarchical_cmd(
     use_smote: bool = typer.Option(False, "--use-smote", help="Apply SMOTE"),
     smote_k_neighbors: int = typer.Option(5, "--smote-k-neighbors", help="SMOTE k-neighbors"),
     output_format: str = typer.Option("xlsx", "--output-format", help="Output format: xlsx or csv"),
+    tracker: Optional[str] = typer.Option(
+        None,
+        "--tracker",
+        help="Experiment tracking backend: mlflow, wandb (requires optional deps)",
+    ),
+    experiment_name: Optional[str] = typer.Option(
+        None,
+        "--experiment-name",
+        help="Experiment/project name for tracking (default: classiflow-hierarchical)",
+    ),
+    run_name: Optional[str] = typer.Option(
+        None,
+        "--run-name",
+        help="Run name for tracking (default: auto-generated)",
+    ),
     verbose: int = typer.Option(1, "--verbose", help="Verbosity: 0=minimal, 1=standard, 2=detailed"),
 ):
     """
@@ -717,6 +784,9 @@ def train_hierarchical_cmd(
         smote_k_neighbors=smote_k_neighbors,
         output_format=output_format,
         verbose=verbose,
+        tracker=tracker,
+        experiment_name=experiment_name,
+        run_name=run_name,
     )
 
     # Check data compatibility before training
@@ -736,6 +806,8 @@ def train_hierarchical_cmd(
             raise typer.Exit(code=0)
 
     try:
+        from classiflow.training.hierarchical_cv import train_hierarchical
+
         results = train_hierarchical(config)
         typer.secho(f"\n✓ Training complete. Results saved to {outdir}", fg=typer.colors.GREEN)
         typer.echo(f"  Folds: {results['n_folds']}")
@@ -804,6 +876,8 @@ def infer_hierarchical(
         typer.echo(f"Loading models from {model_dir}, fold {fold}...")
 
         # Load inference object
+        from classiflow.inference import HierarchicalInference
+
         infer = HierarchicalInference(model_dir, fold=fold, device=device)
 
         typer.echo(f"Model type: {'Hierarchical' if infer.hierarchical else 'Single-label'}")

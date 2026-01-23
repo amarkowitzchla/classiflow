@@ -22,6 +22,8 @@ def test_train_multiclass_outputs(tmp_path):
         random_state=42,
         smote_mode="off",
         max_iter=500,
+        device="cpu",
+        estimator_mode="cpu_only",
     )
 
     train_multiclass_classifier(config)

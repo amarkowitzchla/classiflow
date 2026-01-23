@@ -181,6 +181,10 @@ class ProjectConfig(BaseModel):
     torch_num_workers: int = 0
     require_torch_device: bool = False
 
+    # Experiment tracking (optional)
+    tracker: Optional[Literal["mlflow", "wandb"]] = None
+    experiment_name: Optional[str] = None
+
     @classmethod
     def load(cls, path: Path) -> "ProjectConfig":
         """Load project configuration from YAML."""

@@ -25,8 +25,6 @@ from classiflow.models import get_estimators, AdaptiveSMOTE
 from classiflow.backends.registry import get_backend, get_model_set
 from classiflow.tasks import TaskBuilder
 from classiflow.training import train_binary_task, train_meta_classifier, train_multiclass_classifier
-from classiflow.training.hierarchical_cv import train_hierarchical
-from classiflow.models.torch_mlp import TorchMLPWrapper
 from classiflow.projects.dataset_registry import verify_manifest_hash
 from classiflow.projects.project_fs import ProjectPaths
 from classiflow.projects.project_models import ProjectConfig, DatasetRegistry
@@ -358,6 +356,9 @@ def run_technical_validation(
             torch_num_workers=config.torch_num_workers,
             torch_dtype=config.torch_dtype,
             require_torch_device=config.require_torch_device,
+            tracker=config.tracker,
+            experiment_name=config.experiment_name or f"{config.project.id}/technical",
+            run_name=f"technical-{run_id}",
         )
         train_binary_task(train_config)
     elif config.task.mode == "meta":
@@ -384,6 +385,9 @@ def run_technical_validation(
             calibration_cv=config.calibration.cv,
             calibration_bins=config.calibration.bins,
             calibration_isotonic_min_samples=config.calibration.isotonic_min_samples,
+            tracker=config.tracker,
+            experiment_name=config.experiment_name or f"{config.project.id}/technical",
+            run_name=f"technical-{run_id}",
         )
         train_meta_classifier(train_config)
     elif config.task.mode == "multiclass":
@@ -410,6 +414,9 @@ def run_technical_validation(
             logreg_class_weight=config.multiclass.logreg.class_weight,
             logreg_n_jobs=config.multiclass.logreg.n_jobs,
             device=config.device,
+            tracker=config.tracker,
+            experiment_name=config.experiment_name or f"{config.project.id}/technical",
+            run_name=f"technical-{run_id}",
         )
         train_multiclass_classifier(train_config)
     else:
@@ -424,7 +431,12 @@ def run_technical_validation(
             random_state=config.validation.nested_cv.seed,
             use_smote=config.imbalance.smote.get("enabled", False),
             output_format="csv",
+            tracker=config.tracker,
+            experiment_name=config.experiment_name or f"{config.project.id}/technical",
+            run_name=f"technical-{run_id}",
         )
+        from classiflow.training.hierarchical_cv import train_hierarchical
+
         train_hierarchical(train_config)
 
     if config.imbalance.smote.get("compare") or compare_smote:
@@ -1209,6 +1221,8 @@ def _train_final_hierarchical(
         X_train_l1, y_train_l1 = apply_smote(
             X_train_l1, y_train_l1, 5, config.validation.nested_cv.seed
         )
+
+    from classiflow.models.torch_mlp import TorchMLPWrapper
 
     model_l1 = TorchMLPWrapper(
         input_dim=X_train.shape[1],

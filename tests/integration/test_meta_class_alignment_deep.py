@@ -136,9 +136,15 @@ def trace_class_order_through_training(train_path: Path, training_dir: Path):
     print(f"meta_classes.csv == model.classes_: {meta_classes == model_classes}")
     print(f"meta_classes.csv == sorted: {meta_classes == sorted_classes}")
 
-    # 5. Verify predict_proba column order
-    X_test = train_df.drop(columns=['sample_id', 'label']).iloc[:5]
-    y_proba = meta_model.predict_proba(X_test)
+    # 5. Verify predict_proba column order (use meta-feature schema)
+    meta_features_path = fold_dir / 'meta_features.csv'
+    if meta_features_path.exists():
+        meta_features = pd.read_csv(meta_features_path, header=None).iloc[:, 0].astype(str).tolist()
+        X_test_meta = pd.DataFrame(0.0, index=train_df.index[:5], columns=meta_features)
+    else:
+        # Fallback: use raw features if meta schema is missing
+        X_test_meta = train_df.drop(columns=['sample_id', 'label']).iloc[:5]
+    y_proba = meta_model.predict_proba(X_test_meta)
     print(f"\n=== PREDICT_PROBA CHECK ===")
     print(f"Shape: {y_proba.shape}")
     print(f"Column order: {model_classes}")

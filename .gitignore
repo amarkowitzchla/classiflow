@@ -84,3 +84,6 @@ legacy/
 personal_projects/
 tmp/
 manuscript/
+**/*.parquet
+
+docs/*

@@ -84,6 +84,12 @@ class TrainConfig:
     torch_dtype: Literal["float32", "float16"] = "float32"
     require_torch_device: bool = False
 
+    # Experiment tracking (optional)
+    tracker: Optional[Literal["mlflow", "wandb"]] = None
+    experiment_name: Optional[str] = None
+    run_name: Optional[str] = None
+    tracker_tags: Optional[Dict[str, str]] = None
+
     def __post_init__(self):
         """Convert string paths to Path objects and resolve data path."""
         # Resolve data path (prefer data_path over data_csv)
@@ -230,6 +236,12 @@ class HierarchicalConfig:
 
     # Logging
     verbose: int = 1  # 0=minimal, 1=standard, 2=detailed
+
+    # Experiment tracking (optional)
+    tracker: Optional[Literal["mlflow", "wandb"]] = None
+    experiment_name: Optional[str] = None
+    run_name: Optional[str] = None
+    tracker_tags: Optional[Dict[str, str]] = None
 
     def __post_init__(self):
         """Convert string paths to Path objects and resolve data path."""

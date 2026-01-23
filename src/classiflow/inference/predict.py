@@ -81,10 +81,11 @@ class BinaryPredictor:
     @staticmethod
     def _get_scores(pipe, X) -> np.ndarray:
         """Extract scores from pipeline (proba or decision function)."""
+        X_aligned = _align_features_for_model(X, pipe)
         if hasattr(pipe, "predict_proba"):
-            return pipe.predict_proba(X)[:, 1]
+            return pipe.predict_proba(X_aligned)[:, 1]
         elif hasattr(pipe, "decision_function"):
-            return pipe.decision_function(X)
+            return pipe.decision_function(X_aligned)
         else:
             raise ValueError("Pipeline has neither predict_proba nor decision_function")
 
@@ -155,10 +156,9 @@ class MetaPredictor:
             raise ValueError(f"Missing meta-features in binary predictions: {missing}")
 
         # Extract meta-features in correct order
-        X_meta = binary_predictions[self.meta_features].values
-
-        # Fill any NaN values with 0
-        X_meta = np.nan_to_num(X_meta, nan=0.0)
+        X_meta = binary_predictions[self.meta_features].copy()
+        X_meta = _align_features_for_model(X_meta, self.meta_model)
+        X_meta = X_meta.fillna(0.0)
 
         # Predict
         y_pred = self.meta_model.predict(X_meta).astype(str)
@@ -322,11 +322,12 @@ class MulticlassPredictor:
 
     def predict(self, X: pd.DataFrame) -> pd.DataFrame:
         predictions = pd.DataFrame(index=X.index)
-        y_pred = self.model.predict(X)
+        X_aligned = _align_features_for_model(X, self.model)
+        y_pred = self.model.predict(X_aligned)
         predictions["predicted_label"] = y_pred
 
         if hasattr(self.model, "predict_proba"):
-            y_proba = self.model.predict_proba(X)
+            y_proba = self.model.predict_proba(X_aligned)
             classes = self.classes or [str(i) for i in range(y_proba.shape[1])]
             for idx, cls in enumerate(classes):
                 predictions[f"predicted_proba_{cls}"] = y_proba[:, idx]
@@ -342,4 +343,42 @@ def _safe_raw_proba(model, X):
             return model.predict_proba(X)
         except Exception as exc:
             logger.warning(f"Raw predict_proba failed: {exc}")
+    return None
+
+
+def _align_features_for_model(X, model):
+    """Align dataframe columns to the model's expected feature order."""
+    if not isinstance(X, pd.DataFrame):
+        return X
+
+    expected = _extract_feature_names_in(model)
+    if not expected:
+        return X
+
+    missing = [col for col in expected if col not in X.columns]
+    if missing:
+        msg = f"Missing {len(missing)} required features for model: {missing[:10]}"
+        if len(missing) > 10:
+            msg += f" ... and {len(missing) - 10} more"
+        raise ValueError(msg)
+
+    return X.loc[:, expected]
+
+
+def _extract_feature_names_in(model) -> Optional[List[str]]:
+    """Return feature names expected by a fitted estimator, if available."""
+    if hasattr(model, "feature_names_in_"):
+        return [str(name) for name in model.feature_names_in_]
+
+    for attr in ("base_estimator_", "estimator"):
+        inner = getattr(model, attr, None)
+        if inner is not None and hasattr(inner, "feature_names_in_"):
+            return [str(name) for name in inner.feature_names_in_]
+
+    named_steps = getattr(model, "named_steps", None)
+    if named_steps:
+        for step in named_steps.values():
+            if hasattr(step, "feature_names_in_"):
+                return [str(name) for name in step.feature_names_in_]
+
     return None

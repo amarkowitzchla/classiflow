@@ -45,6 +45,10 @@ cd classiflow
 pip install -e ".[dev]"
 ```
 
+### Troubleshooting
+
+- If you hit `ImportError: cannot import name '_safe_tags' from 'sklearn.utils._tags'`, you have an incompatible `scikit-learn`/`imbalanced-learn` pairing. Upgrade/downgrade to a compatible set (for example: `pip install -U "scikit-learn<1.6" "imbalanced-learn<0.14"`).
+
 ## CLI Overview
 
 | Command | Purpose |

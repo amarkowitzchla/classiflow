@@ -16,6 +16,7 @@ from classiflow.backends.registry import get_backend, get_model_set
 from classiflow.artifacts import save_nested_cv_results
 from classiflow.lineage.manifest import create_training_manifest
 from classiflow.lineage.hashing import get_file_metadata
+from classiflow.tracking import get_tracker, extract_loggable_params, summarize_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,16 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
     logger.info(f"  Label: {config.label_col}")
     logger.info(f"  Output: {config.outdir}")
     logger.info(f"  Backend: {config.backend}")
+
+    # Initialize experiment tracker
+    tracker = get_tracker(
+        backend=config.tracker,
+        experiment_name=config.experiment_name or "classiflow-binary",
+    )
+    tracker.start_run(
+        run_name=config.run_name,
+        tags=config.tracker_tags,
+    )
 
     # Create output directory
     config.outdir.mkdir(parents=True, exist_ok=True)
@@ -172,6 +183,28 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
 
     # Save results
     save_nested_cv_results(results, config.outdir)
+
+    # Log to experiment tracker
+    tracker.log_params(extract_loggable_params(config))
+    tracker.set_tags({
+        "task_type": "binary",
+        "backend": config.backend,
+        "smote_mode": config.smote_mode,
+        "run_id": manifest.run_id,
+    })
+
+    # Log summary metrics if available
+    if "summary" in results:
+        tracker.log_metrics(summarize_metrics(results["summary"]))
+
+    # Log artifacts
+    tracker.log_artifact(config.outdir / "run.json")
+    for csv_file in config.outdir.glob("metrics_*.csv"):
+        tracker.log_artifact(csv_file)
+    for png_file in config.outdir.glob("*.png"):
+        tracker.log_artifact(png_file)
+
+    tracker.end_run()
 
     logger.info("Binary task training complete")
     return results

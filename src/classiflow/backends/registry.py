@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, TYPE_CHECKING
 
 from sklearn.linear_model import LogisticRegression
 
 from classiflow.models.estimators import get_estimators as get_sklearn_estimators
 from classiflow.models.estimators import get_param_grids as get_sklearn_param_grids
-from classiflow.backends.torch.estimators import (
-    TorchLogisticRegressionClassifier,
-    TorchMLPClassifier,
-    TorchSoftmaxRegressionClassifier,
-    TorchMLPMulticlassClassifier,
-)
+
+if TYPE_CHECKING:  # pragma: no cover
+    from classiflow.backends.torch.estimators import (  # noqa: F401
+        TorchLogisticRegressionClassifier,
+        TorchMLPClassifier,
+        TorchSoftmaxRegressionClassifier,
+        TorchMLPMulticlassClassifier,
+    )
 
 
 def get_backend(name: str | None) -> str:
@@ -94,6 +96,13 @@ def get_model_set(
 
     if model_set not in {"torch_basic", "torch_fast"}:
         raise ValueError(f"Unsupported torch model_set: {model_set}")
+
+    from classiflow.backends.torch.estimators import (
+        TorchLogisticRegressionClassifier,
+        TorchMLPClassifier,
+        TorchSoftmaxRegressionClassifier,
+        TorchMLPMulticlassClassifier,
+    )
 
     if command == "train-binary":
         estimators = {

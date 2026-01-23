@@ -2,7 +2,6 @@
 
 from classiflow.inference.api import run_inference
 from classiflow.inference.config import InferenceConfig, RunManifest
-from classiflow.inference.hierarchical import HierarchicalInference
 
 __all__ = [
     "run_inference",
@@ -10,3 +9,15 @@ __all__ = [
     "RunManifest",
     "HierarchicalInference",
 ]
+
+
+def __getattr__(name: str):
+    if name == "HierarchicalInference":
+        from classiflow.inference.hierarchical import HierarchicalInference
+
+        return HierarchicalInference
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted(__all__)
