@@ -133,7 +133,8 @@ classiflow project bootstrap \
   --test-manifest data/test.csv \
   --name "Tumor Detection" \
   --mode binary \
-  --label-col diagnosis
+  --label-col diagnosis \
+  --out projects/
 ```
 
 #### Meta (multiclass) classification
@@ -144,7 +145,8 @@ classiflow project bootstrap \
   --test-manifest data/test.csv \
   --name "Glioma Subtype" \
   --mode meta \
-  --label-col subtype
+  --label-col subtype \
+  --out projects/
 ```
 
 #### Hierarchical classification (clinical default)
@@ -157,28 +159,33 @@ classiflow project bootstrap \
   --mode hierarchical \
   --label-col tumor_type \
   --hierarchy subtype \
-  --patient-id-col patient_id
+  --patient-id-col patient_id \
+  --out projects/
 ```
 
 This creates a self‑contained project directory with configs and manifests.
 
 ---
 
-### 3. Train and build a bundle
+### 3. Train nested CV models
+
+```bash
+classiflow project run-technical projects/BRAIN_TUMOR__brain_tumor
+```
+
+### 4. Bundle model for deployment and inference
 
 ```bash
 classiflow project build-bundle projects/BRAIN_TUMOR__brain_tumor
 ```
 
 This:
-
-* runs nested CV
 * selects the best model
 * produces a deployable model bundle
 
 ---
 
-### 4. Evaluate on the test set
+### 5. Evaluate on the test set
 
 ```bash
 classiflow project run-test projects/BRAIN_TUMOR__brain_tumor
