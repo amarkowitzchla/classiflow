@@ -190,3 +190,14 @@ export async function updateReview(
 export async function reindex(): Promise<{ status: string }> {
   return fetchJson(`${API_BASE}/reindex`, { method: 'POST' });
 }
+
+// Plot data
+import type { PlotCurve, PlotKeyType } from '../types/plots';
+
+export async function getPlotData(runKey: string, plotKey: PlotKeyType): Promise<PlotCurve> {
+  return fetchJson(`${API_BASE}/runs/${encodeURIComponent(runKey)}/plots/${plotKey}`);
+}
+
+export function getPlotDataUrl(runKey: string, plotKey: PlotKeyType): string {
+  return `${API_BASE}/runs/${encodeURIComponent(runKey)}/plots/${plotKey}`;
+}

@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, BarChart2, FileText, GitBranch, Settings, XCircle, Clock } from 'lucide-react';
+import { ArrowLeft, BarChart2, FileText, GitBranch, Settings, XCircle, Clock, TrendingUp } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { clsx } from 'clsx';
 import { useRun } from '../hooks/useApi';
 import { MetricValue, MetricCard } from '../components/MetricValue';
 import { ArtifactList } from '../components/ArtifactViewer';
 import { Comments } from '../components/Comments';
+import { InteractivePlotSection } from '../components/charts';
 import type { RunDetail, MetricsSummary } from '../types/api';
 
-type TabId = 'metrics' | 'artifacts' | 'config' | 'lineage';
+type TabId = 'metrics' | 'charts' | 'artifacts' | 'config' | 'lineage';
 
 export function RunPage() {
   const { projectId, phase, runId } = useParams<{
@@ -43,6 +44,7 @@ export function RunPage() {
 
   const tabs: { id: TabId; label: string; icon: typeof BarChart2 }[] = [
     { id: 'metrics', label: 'Metrics', icon: BarChart2 },
+    { id: 'charts', label: 'Charts', icon: TrendingUp },
     { id: 'artifacts', label: `Artifacts (${run.artifact_count})`, icon: FileText },
     { id: 'config', label: 'Config', icon: Settings },
     { id: 'lineage', label: 'Lineage', icon: GitBranch },
@@ -119,6 +121,14 @@ export function RunPage() {
       {/* Tab Content */}
       <div>
         {activeTab === 'metrics' && <MetricsTab metrics={run.metrics} />}
+        {activeTab === 'charts' && (
+          <InteractivePlotSection
+            runKey={run.run_key}
+            phase={run.phase}
+            plotManifest={run.plot_manifest}
+            artifacts={run.artifacts}
+          />
+        )}
         {activeTab === 'artifacts' && <ArtifactsTab run={run} />}
         {activeTab === 'config' && <ConfigTab config={run.config} features={run.feature_list} />}
         {activeTab === 'lineage' && <LineageTab lineage={run.lineage} />}

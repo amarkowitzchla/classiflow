@@ -343,6 +343,89 @@ def _register_routes(app: FastAPI):
         )
 
     # -------------------------------------------------------------------------
+    # Plot data endpoints
+    # -------------------------------------------------------------------------
+
+    @app.get(
+        "/api/runs/{run_key}/plots/{plot_key}",
+        tags=["Plots"],
+    )
+    async def get_plot_data(
+        run_key: str,
+        plot_key: str,
+    ):
+        """
+        Get plot JSON data for interactive chart rendering.
+
+        Parameters
+        ----------
+        run_key : str
+            Run key (project:phase:run_id)
+        plot_key : str
+            Plot key (e.g., 'roc_averaged', 'pr_averaged', 'roc_inference')
+
+        Returns
+        -------
+        JSONResponse
+            Plot curve data for rendering in the UI
+        """
+        artifact_repo: ArtifactRepository = app.state.artifact_repo
+
+        # Parse run key
+        parts = run_key.split(":")
+        if len(parts) != 3:
+            raise HTTPException(status_code=400, detail="Invalid run_key format")
+
+        project_id, phase, run_id = parts
+
+        # Map plot key to file path
+        plot_files = {
+            "roc_averaged": "plots/roc_averaged.json",
+            "pr_averaged": "plots/pr_averaged.json",
+            "roc_by_fold": "plots/roc_by_fold.json",
+            "pr_by_fold": "plots/pr_by_fold.json",
+            "roc_inference": "plots/roc_inference.json",
+            "pr_inference": "plots/pr_inference.json",
+        }
+
+        if plot_key not in plot_files:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid plot_key. Must be one of: {', '.join(plot_files.keys())}"
+            )
+
+        # Resolve path
+        path = artifact_repo.resolve_artifact_path(project_id, phase, run_id, plot_files[plot_key])
+        if not path or not path.is_file():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Plot data not available for this run (key: {plot_key})"
+            )
+
+        return FileResponse(
+            path=path,
+            media_type="application/json",
+        )
+
+    @app.get(
+        "/api/projects/{project_id}/runs/{phase}/{run_id}/plots/{plot_key}",
+        tags=["Plots"],
+    )
+    async def get_plot_data_by_path(
+        project_id: str,
+        phase: str,
+        run_id: str,
+        plot_key: str,
+    ):
+        """
+        Get plot JSON data by path components.
+
+        This is an alternative endpoint with more discoverable URLs.
+        """
+        run_key = f"{project_id}:{phase}:{run_id}"
+        return await get_plot_data(run_key, plot_key)
+
+    # -------------------------------------------------------------------------
     # Comment endpoints
     # -------------------------------------------------------------------------
 

@@ -3,13 +3,13 @@ message: "If you use classiflow in your research, please cite it as below."
 authors:
   - family-names: "Markowitz"
     given-names: "Alexander"
-    email: "alexmarkowitz@ucla.edu"
-    affiliation: "University of California, Los Angeles"
+    email: "amarkowitz@chla.usc.edu"
+    affiliation: "University of Southern California"
 title: "classiflow: Production-grade ML toolkit for molecular subtype classification"
 version: 0.1.0
-date-released: 2024-01-13
-url: "https://github.com/alexmarkowitz/classiflow"
-repository-code: "https://github.com/alexmarkowitz/classiflow"
+date-released: 2026-01-13
+url: "https://github.com/amarkowitzchla/classiflow"
+repository-code: "https://github.com/amarkowitzchla/classiflow"
 keywords:
   - machine-learning
   - classification

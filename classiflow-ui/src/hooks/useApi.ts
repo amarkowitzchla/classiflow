@@ -4,6 +4,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as api from '../api/client';
 import type { ReviewStatus } from '../types/api';
 
+import type { PlotKeyType } from '../types/plots';
+
 // Query keys
 export const queryKeys = {
   health: ['health'] as const,
@@ -15,6 +17,7 @@ export const queryKeys = {
   artifact: (id: string) => ['artifact', id] as const,
   comments: (scopeType: string, scopeId: string) => ['comments', scopeType, scopeId] as const,
   reviews: (scopeType: string, scopeId: string) => ['reviews', scopeType, scopeId] as const,
+  plotData: (runKey: string, plotKey: PlotKeyType) => ['plot', runKey, plotKey] as const,
 };
 
 // Health
@@ -156,5 +159,16 @@ export function useReindex() {
       queryClient.invalidateQueries({ queryKey: ['project'] });
       queryClient.invalidateQueries({ queryKey: ['health'] });
     },
+  });
+}
+
+// Plot data
+export function usePlotData(runKey: string, plotKey: PlotKeyType, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.plotData(runKey, plotKey),
+    queryFn: () => api.getPlotData(runKey, plotKey),
+    enabled: !!runKey && !!plotKey && enabled,
+    staleTime: 5 * 60 * 1000, // 5 minutes - plot data doesn't change
+    retry: 1, // Only retry once for plot data
   });
 }

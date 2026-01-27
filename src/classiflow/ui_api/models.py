@@ -94,6 +94,19 @@ class RunBrief(BaseModel):
     )
 
 
+class PlotManifestResponse(BaseModel):
+    """Plot manifest for a run."""
+
+    available: dict[str, str] = Field(
+        default_factory=dict, description="Mapping of plot key to relative JSON file path"
+    )
+    fallback_pngs: dict[str, str] = Field(
+        default_factory=dict, description="Mapping of plot key to fallback PNG file path"
+    )
+    generated_at: Optional[datetime] = Field(default=None, description="When the manifest was generated")
+    classiflow_version: Optional[str] = Field(default=None, description="Version that generated the manifest")
+
+
 class RunDetail(BaseModel):
     """Full run details."""
 
@@ -110,6 +123,9 @@ class RunDetail(BaseModel):
     lineage: Optional[dict[str, Any]] = Field(default=None, description="Lineage metadata")
     artifact_count: int = Field(default=0, description="Number of artifacts")
     artifacts: list[Artifact] = Field(default_factory=list, description="Run artifacts")
+    plot_manifest: Optional[PlotManifestResponse] = Field(
+        default=None, description="Plot data manifest for interactive charts"
+    )
 
 
 # ---------------------------------------------------------------------------

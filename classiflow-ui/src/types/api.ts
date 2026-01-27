@@ -35,6 +35,13 @@ export interface RunBrief {
   headline_metrics: Record<string, number | null>;
 }
 
+export interface PlotManifest {
+  available: Record<string, string>;
+  fallback_pngs: Record<string, string>;
+  generated_at: string | null;
+  classiflow_version: string | null;
+}
+
 export interface RunDetail {
   run_key: string;
   run_id: string;
@@ -49,6 +56,7 @@ export interface RunDetail {
   lineage: Record<string, unknown> | null;
   artifact_count: number;
   artifacts: Artifact[];
+  plot_manifest: PlotManifest | null;
 }
 
 export interface Artifact {

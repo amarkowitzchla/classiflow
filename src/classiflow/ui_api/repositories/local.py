@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -12,6 +13,7 @@ from classiflow.ui_api.models import (
     DecisionBadge,
     GateStatus,
     MetricsSummary,
+    PlotManifestResponse,
     ProjectCard,
     ProjectDashboard,
     PromotionSummary,
@@ -329,9 +331,14 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
         # Get artifacts
         parts = run_key.split(":")
         artifacts = []
+        plot_manifest = None
         if len(parts) == 3:
-            scanned_arts = self.scanner.get_artifacts(parts[0], parts[1], parts[2])
+            project_id, phase, run_id = parts
+            scanned_arts = self.scanner.get_artifacts(project_id, phase, run_id)
             artifacts = [self._to_artifact(a) for a in scanned_arts]
+
+            # Load plot manifest if available
+            plot_manifest = self._load_plot_manifest(project_id, phase, run_id)
 
         return RunDetail(
             run_key=m.run_key,
@@ -347,7 +354,33 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
             lineage=m.lineage if m.lineage else None,
             artifact_count=scanned.artifact_count,
             artifacts=artifacts,
+            plot_manifest=plot_manifest,
         )
+
+    def _load_plot_manifest(
+        self,
+        project_id: str,
+        phase: str,
+        run_id: str,
+    ) -> Optional[PlotManifestResponse]:
+        """Load plot manifest for a run if available."""
+        # Get run directory
+        run_dir = self.scanner.resolve_artifact_path(project_id, phase, run_id, "plots/plot_manifest.json")
+        if not run_dir or not run_dir.is_file():
+            return None
+
+        try:
+            with open(run_dir) as f:
+                data = json.load(f)
+
+            return PlotManifestResponse(
+                available=data.get("available", {}),
+                fallback_pngs=data.get("fallback_pngs", {}),
+                generated_at=datetime.fromisoformat(data["generated_at"]) if data.get("generated_at") else None,
+                classiflow_version=data.get("classiflow_version"),
+            )
+        except Exception:
+            return None
 
     def list_runs(
         self,
