@@ -91,6 +91,6 @@ docs/*
 mlruns/*
 
 mlflow.db
-.classflow/
+.classflow/ui.db
 dist/
 AGENTS.md
