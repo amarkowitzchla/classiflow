@@ -172,6 +172,7 @@ This creates a self‑contained project directory with configs and manifests.
 ```bash
 classiflow project run-technical projects/BRAIN_TUMOR__brain_tumor
 ```
+---
 
 ### 4. Bundle model for deployment and inference
 

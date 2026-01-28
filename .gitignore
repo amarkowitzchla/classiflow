@@ -89,3 +89,8 @@ manuscript/
 docs/*
 
 mlruns/*
+
+mlflow.db
+.classflow/
+dist/
+AGENTS.md
