@@ -27,6 +27,7 @@ from classiflow.plots import (
     plot_feature_importance,
     extract_feature_importance_mlp,
 )
+from classiflow.splitting import iter_inner_splits, iter_outer_splits, assert_no_patient_leakage, make_group_labels
 from classiflow.tracking import get_tracker, extract_loggable_params, summarize_metrics
 
 logger = logging.getLogger(__name__)
@@ -58,14 +59,88 @@ def get_hyperparam_candidates(base_hidden: int, base_epochs: int) -> List[Dict]:
     ]
 
 
+def _make_es_split(
+    df_tr: pd.DataFrame,
+    y_tr: np.ndarray,
+    patient_col: Optional[str],
+    random_state: int,
+    test_size: float = 0.2,
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """Build an early-stopping split using outer-train rows only."""
+    if len(df_tr) < 2:
+        return None, None
+
+    if patient_col:
+        n_groups = int(df_tr[patient_col].nunique())
+        n_splits = max(2, int(round(1 / test_size)))
+        n_splits = min(n_splits, n_groups)
+        if n_splits < 2:
+            return None, None
+        splits = iter_outer_splits(
+            df=df_tr[[patient_col]],
+            y=y_tr,
+            patient_col=patient_col,
+            n_splits=n_splits,
+            random_state=random_state,
+        )
+        tr_idx, va_idx = next(iter(splits))
+        assert_no_patient_leakage(
+            df_tr[[patient_col]],
+            patient_col,
+            np.asarray(tr_idx),
+            np.asarray(va_idx),
+            "hierarchical early-stopping split",
+        )
+        return tr_idx, va_idx
+
+    splitter = StratifiedShuffleSplit(
+        n_splits=1,
+        test_size=test_size,
+        random_state=random_state,
+    )
+    X_dummy = np.zeros((len(y_tr), 1), dtype=np.float32)
+    tr_idx, va_idx = next(splitter.split(X_dummy, y_tr))
+    return tr_idx, va_idx
+
+
+def _build_group_inner_splits(
+    df_tr: pd.DataFrame,
+    y_tr: np.ndarray,
+    patient_col: str,
+    n_splits: int,
+    n_repeats: int,
+    random_state: int,
+    context: str,
+) -> List[Tuple[np.ndarray, np.ndarray]]:
+    """Build group-aware inner CV splits with explicit leakage checks."""
+    splits = list(iter_inner_splits(
+        df_tr=df_tr[[patient_col]],
+        y_tr=y_tr,
+        patient_col=patient_col,
+        n_splits=n_splits,
+        n_repeats=n_repeats,
+        random_state=random_state,
+    ))
+    for split_idx, (tr_idx, va_idx) in enumerate(splits, 1):
+        assert_no_patient_leakage(
+            df_tr[[patient_col]],
+            patient_col,
+            np.asarray(tr_idx),
+            np.asarray(va_idx),
+            f"{context} inner split {split_idx}",
+        )
+    return splits
+
+
 def tune_hyperparameters(
     X: np.ndarray,
     y: np.ndarray,
     n_classes: int,
-    inner_cv: StratifiedKFold,
+    inner_cv: Optional[StratifiedKFold],
     candidate_params: List[Dict],
     config: HierarchicalConfig,
     level_name: str = "L1",
+    inner_splits: Optional[List[Tuple[np.ndarray, np.ndarray]]] = None,
 ) -> Tuple[Dict, List[Dict]]:
     """
     Tune hyperparameters using inner CV.
@@ -103,7 +178,14 @@ def tune_hyperparameters(
         if config.verbose >= 2:
             logger.debug(f"  Testing config: {cfg}")
 
-        for fold_idx, (inner_tr_idx, inner_va_idx) in enumerate(inner_cv.split(X, y)):
+        if inner_splits is not None:
+            split_iter = inner_splits
+        elif inner_cv is not None:
+            split_iter = list(inner_cv.split(X, y))
+        else:
+            raise ValueError("Either inner_cv or inner_splits must be provided.")
+
+        for fold_idx, (inner_tr_idx, inner_va_idx) in enumerate(split_iter):
             X_in_tr, X_in_va = X[inner_tr_idx], X[inner_va_idx]
             y_in_tr, y_in_va = y[inner_tr_idx], y[inner_va_idx]
 
@@ -272,6 +354,14 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
         exclude_cols.append(config.label_l2)
 
     if config.feature_cols:
+        forbidden = {config.label_l1}
+        if config.hierarchical:
+            forbidden.add(config.label_l2)
+        if use_patient_stratification:
+            forbidden.add(config.patient_col)
+        overlap = forbidden.intersection(config.feature_cols)
+        if overlap:
+            raise ValueError(f"feature_cols contains forbidden columns: {sorted(overlap)}")
         feature_cols = config.feature_cols
     else:
         feature_cols = (
@@ -295,16 +385,11 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
 
     # ========== Stratification setup ==========
     if use_patient_stratification:
-        # Patient-level stratification: Group by patient and assign majority L1 label per patient
-        patient_counts = df_all.groupby([config.patient_col, config.label_l1]).size().reset_index(name="n")
-        patient_df = (
-            patient_counts.sort_values("n", ascending=False)
-            .drop_duplicates(subset=[config.patient_col])
-            .loc[:, [config.patient_col, config.label_l1]]
-            .reset_index(drop=True)
-        )
-        stratify_ids = patient_df[config.patient_col].values
-        stratify_labels = patient_df[config.label_l1].values
+        # Patient-level stratification: fail closed on conflicting labels.
+        patient_df = df_all.loc[:, [config.patient_col, config.label_l1]].copy()
+        patient_labels = make_group_labels(patient_df, config.patient_col, config.label_l1)
+        stratify_ids = patient_labels.index.values
+        stratify_labels = patient_labels.values
         logger.info(f"Unique patients: {len(stratify_ids)}")
     else:
         # Sample-level stratification: Use sample indices directly
@@ -383,6 +468,7 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
             train_mask[sample_indices_train] = True
             val_mask[sample_indices_val] = True
 
+        df_tr = df_all.loc[train_mask].copy()
         X_tr = X_all[train_mask]
         y_l1_tr = y_l1_all[train_mask]
         X_va = X_all[val_mask]
@@ -410,30 +496,56 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
         # ========== Level-1 Training ==========
         logger.info("\n[Level-1] Hyperparameter tuning...")
 
-        inner_cv_l1 = StratifiedKFold(
-            n_splits=config.inner_splits,
-            shuffle=True,
-            random_state=config.random_state + fold_id,
-        )
+        inner_cv_l1 = None
+        inner_splits_l1 = None
+        if use_patient_stratification:
+            inner_splits_l1 = _build_group_inner_splits(
+                df_tr=df_tr,
+                y_tr=y_l1_tr,
+                patient_col=config.patient_col,
+                n_splits=config.inner_splits,
+                n_repeats=1,
+                random_state=config.random_state + fold_id,
+                context=f"hierarchical L1 fold {fold_id}",
+            )
+        else:
+            inner_cv_l1 = StratifiedKFold(
+                n_splits=config.inner_splits,
+                shuffle=True,
+                random_state=config.random_state + fold_id,
+            )
 
         best_cfg_l1, inner_results_l1 = tune_hyperparameters(
             X_tr_scaled, y_l1_tr_enc, len(l1_classes), inner_cv_l1,
-            candidate_params, config, "L1"
+            candidate_params, config, "L1", inner_splits=inner_splits_l1
         )
 
         for res in inner_results_l1:
             res["fold"] = fold_id
             inner_cv_rows.append(res)
 
-        # Apply SMOTE for final training if enabled
-        X_tr_l1_final = X_tr_scaled
-        y_tr_l1_final = y_l1_tr_enc
+        es_tr_idx, es_va_idx = _make_es_split(
+            df_tr=df_tr,
+            y_tr=y_l1_tr,
+            patient_col=config.patient_col if use_patient_stratification else None,
+            random_state=config.random_state + fold_id,
+            test_size=0.2,
+        )
+        if es_tr_idx is None or es_va_idx is None:
+            logger.warning("Insufficient samples for early-stopping split; disabling early stopping for fold %s.", fold_id)
+            X_es_tr, y_es_tr = X_tr_scaled, y_l1_tr_enc
+            X_es_va, y_es_va = None, None
+        else:
+            X_es_tr, y_es_tr = X_tr_scaled[es_tr_idx], y_l1_tr_enc[es_tr_idx]
+            X_es_va, y_es_va = X_tr_scaled[es_va_idx], y_l1_tr_enc[es_va_idx]
+
+        # Apply SMOTE for final training if enabled (train-only)
         if config.use_smote:
-            X_tr_l1_final, y_tr_l1_final = apply_smote(
-                X_tr_scaled, y_l1_tr_enc, config.smote_k_neighbors, config.random_state
+            X_es_tr, y_es_tr = apply_smote(
+                X_es_tr, y_es_tr, config.smote_k_neighbors, config.random_state
             )
             if config.verbose >= 2:
-                logger.debug(f"SMOTE: {len(X_tr_scaled)} → {len(X_tr_l1_final)} samples")
+                logger.debug(f"SMOTE: {len(X_tr_scaled)} → {len(X_es_tr)} samples")
 
         # Train final L1 model
         logger.info("[Level-1] Training final model...")
@@ -450,7 +562,8 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
             random_state=config.random_state + fold_id,
             verbose=config.verbose,
         )
-        model_l1.fit(X_tr_l1_final, y_tr_l1_final, X_va_scaled, y_l1_va_enc)
+        # Outer-val is evaluation-only; use early-stopping split from outer-train.
+        model_l1.fit(X_es_tr, y_es_tr, X_es_va, y_es_va)
 
         if config.verbose >= 2:
             logger.debug(f"Best epoch: {model_l1.best_epoch}")
@@ -557,17 +670,20 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
 
                 X_tr_b = X_tr_scaled[branch_train_mask]
                 y_l2_tr_b = y_l2_tr[branch_train_mask]
+                df_tr_b = df_tr.iloc[branch_train_mask]
 
                 # Keep only non-NA L2
                 valid_tr = pd.notna(y_l2_tr_b)
                 X_tr_b = X_tr_b[valid_tr]
                 y_l2_tr_b = y_l2_tr_b[valid_tr]
+                df_tr_b = df_tr_b.loc[valid_tr]
 
                 # Filter by l2_classes if specified
                 if config.l2_classes:
                     keep_tr = np.isin(y_l2_tr_b, config.l2_classes)
                     X_tr_b = X_tr_b[keep_tr]
                     y_l2_tr_b = y_l2_tr_b[keep_tr]
+                    df_tr_b = df_tr_b.loc[keep_tr]
 
                 unique_l2_b = sorted(np.unique(y_l2_tr_b).tolist()) if len(y_l2_tr_b) > 0 else []
                 n_l2_b = len(unique_l2_b)
@@ -587,15 +703,28 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
                 y_l2_tr_b_enc = le_l2_b.transform(y_l2_tr_b)
 
                 # Hyperparameter tuning
-                inner_cv_l2 = StratifiedKFold(
-                    n_splits=config.inner_splits,
-                    shuffle=True,
-                    random_state=config.random_state + fold_id + 1000,
-                )
+                inner_cv_l2 = None
+                inner_splits_l2 = None
+                if use_patient_stratification:
+                    inner_splits_l2 = _build_group_inner_splits(
+                        df_tr=df_tr_b,
+                        y_tr=y_l2_tr_b,
+                        patient_col=config.patient_col,
+                        n_splits=config.inner_splits,
+                        n_repeats=1,
+                        random_state=config.random_state + fold_id + 1000,
+                        context=f"hierarchical L2 {l1_val} fold {fold_id}",
+                    )
+                else:
+                    inner_cv_l2 = StratifiedKFold(
+                        n_splits=config.inner_splits,
+                        shuffle=True,
+                        random_state=config.random_state + fold_id + 1000,
+                    )
 
                 best_cfg_l2, inner_results_l2 = tune_hyperparameters(
                     X_tr_b, y_l2_tr_b_enc, n_l2_b, inner_cv_l2,
-                    candidate_params, config, f"L2_{l1_val}"
+                    candidate_params, config, f"L2_{l1_val}", inner_splits=inner_splits_l2
                 )
 
                 for res in inner_results_l2:
@@ -603,11 +732,29 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
                     inner_cv_rows.append(res)
 
                 # Train final L2 branch model
-                X_tr_b_final = X_tr_b
-                y_tr_b_final = y_l2_tr_b_enc
+                es_tr_idx_b, es_va_idx_b = _make_es_split(
+                    df_tr=df_tr_b,
+                    y_tr=y_l2_tr_b,
+                    patient_col=config.patient_col if use_patient_stratification else None,
+                    random_state=config.random_state + fold_id + 1000,
+                    test_size=0.2,
+                )
+                if es_tr_idx_b is None or es_va_idx_b is None:
+                    logger.warning(
+                        "Insufficient samples for L2 early-stopping split; disabling early stopping "
+                        "for fold %s branch %s.",
+                        fold_id,
+                        l1_val,
+                    )
+                    X_es_tr_b, y_es_tr_b = X_tr_b, y_l2_tr_b_enc
+                    X_es_va_b, y_es_va_b_enc = None, None
+                else:
+                    X_es_tr_b, y_es_tr_b = X_tr_b[es_tr_idx_b], y_l2_tr_b_enc[es_tr_idx_b]
+                    X_es_va_b, y_es_va_b_enc = X_tr_b[es_va_idx_b], y_l2_tr_b_enc[es_va_idx_b]
+
                 if config.use_smote:
-                    X_tr_b_final, y_tr_b_final = apply_smote(
-                        X_tr_b, y_l2_tr_b_enc, config.smote_k_neighbors, config.random_state + 1000
+                    X_es_tr_b, y_es_tr_b = apply_smote(
+                        X_es_tr_b, y_es_tr_b, config.smote_k_neighbors, config.random_state + 1000
                     )
 
                 model_l2_b = TorchMLPWrapper(
@@ -624,7 +771,21 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
                     verbose=config.verbose,
                 )
 
-                # Get val data for early stopping
+                # Outer-val is evaluation-only; use early-stopping split from outer-train.
+                model_l2_b.fit(X_es_tr_b, y_es_tr_b, X_es_va_b, y_es_va_b_enc)
+
+                # Save branch model
+                safe_l1 = l1_val.replace(" ", "_")
+                model_l2_b.save(fold_dir / f"model_level2_{safe_l1}_fold{fold_id}.pt")
+                joblib.dump(le_l2_b, fold_dir / f"label_encoder_l2_{safe_l1}.joblib")
+                with open(fold_dir / f"model_config_l2_{safe_l1}_fold{fold_id}.json", "w") as f:
+                    json.dump(model_l2_b.get_config(), f, indent=2)
+
+                branch_models[l1_val] = model_l2_b
+                branch_encoders[l1_val] = le_l2_b
+                branch_trained[l1_val] = True
+
+                # Evaluate branch (oracle-gated by true L1)
                 X_va_b = X_va_scaled[branch_val_mask] if branch_val_mask.sum() > 0 else None
                 y_l2_va_b = y_l2_va[branch_val_mask] if branch_val_mask.sum() > 0 else None
                 y_l2_va_b_enc = None
@@ -646,19 +807,6 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
                             y_l2_va_b = y_l2_va_b[in_train]
                             y_l2_va_b_enc = le_l2_b.transform(y_l2_va_b)
 
-                model_l2_b.fit(X_tr_b_final, y_tr_b_final, X_va_b, y_l2_va_b_enc)
-
-                # Save branch model
-                safe_l1 = l1_val.replace(" ", "_")
-                model_l2_b.save(fold_dir / f"model_level2_{safe_l1}_fold{fold_id}.pt")
-                joblib.dump(le_l2_b, fold_dir / f"label_encoder_l2_{safe_l1}.joblib")
-                with open(fold_dir / f"model_config_l2_{safe_l1}_fold{fold_id}.json", "w") as f:
-                    json.dump(model_l2_b.get_config(), f, indent=2)
-
-                branch_models[l1_val] = model_l2_b
-                branch_encoders[l1_val] = le_l2_b
-                branch_trained[l1_val] = True
-
                 # Evaluate branch
                 if X_va_b is not None and len(X_va_b) > 0 and y_l2_va_b_enc is not None:
                     y_l2_pred_b_enc = model_l2_b.predict(X_va_b)
@@ -670,7 +818,8 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
 
                     l2_row = {
                         "fold": fold_id,
-                        "level": f"L2_{l1_val}",
+                        "level": f"L2_oracle_{l1_val}",
+                        "gate": "oracle_l1",
                         "accuracy": l2_acc,
                         "balanced_accuracy": l2_bal_acc,
                         "f1_macro": l2_f1,
@@ -808,9 +957,9 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
     # L2 summaries (if hierarchical)
     if config.hierarchical:
         for l1_val in l1_classes:
-            l2_outer = outer_df[outer_df["level"] == f"L2_{l1_val}"]
+            l2_outer = outer_df[outer_df["level"] == f"L2_oracle_{l1_val}"]
             if len(l2_outer) > 0:
-                l2_summary = {"level": f"L2_{l1_val}"}
+                l2_summary = {"level": f"L2_oracle_{l1_val}", "gate": "oracle_l1"}
                 for col in ["accuracy", "balanced_accuracy", "f1_macro"]:
                     vals = l2_outer[col].dropna()
                     if len(vals) > 0:

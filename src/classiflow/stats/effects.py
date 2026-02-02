@@ -38,6 +38,34 @@ def cohen_d(x: np.ndarray, y: np.ndarray) -> float:
     return (np.mean(x) - np.mean(y)) / np.sqrt(sp2)
 
 
+def hedges_g(x: np.ndarray, y: np.ndarray) -> float:
+    """Calculate Hedges' g effect size (small-sample corrected Cohen's d).
+
+    Args:
+        x: First group values
+        y: Second group values
+
+    Returns:
+        Hedges' g
+
+    Notes:
+        Returns NaN if insufficient data or zero variance
+    """
+    x, y = np.asarray(x), np.asarray(y)
+    nx, ny = len(x), len(y)
+
+    d = cohen_d(x, y)
+    if not np.isfinite(d):
+        return np.nan
+
+    df = nx + ny - 2
+    if df <= 0:
+        return np.nan
+
+    correction = 1.0 - (3.0 / (4.0 * df - 1.0))
+    return d * correction
+
+
 def cliff_delta(x: np.ndarray, y: np.ndarray) -> float:
     """Calculate Cliff's Delta effect size.
 

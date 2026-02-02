@@ -59,6 +59,8 @@ def load_data(
         missing = set(feature_cols) - set(df.columns)
         if missing:
             raise ValueError(f"Feature columns not found: {missing}")
+        if label_col in feature_cols:
+            raise ValueError(f"feature_cols contains forbidden columns: {[label_col]}")
         X = df[feature_cols].copy()
     else:
         # Auto-select numeric columns excluding label
@@ -133,6 +135,10 @@ def load_data_with_groups(
         missing = set(feature_cols) - set(df.columns)
         if missing:
             raise ValueError(f"Feature columns not found: {missing}")
+        forbidden = {label_col, patient_col}
+        overlap = forbidden.intersection(feature_cols)
+        if overlap:
+            raise ValueError(f"feature_cols contains forbidden columns: {sorted(overlap)}")
         X = df[feature_cols].copy()
     else:
         # Auto-select numeric columns excluding label + patient

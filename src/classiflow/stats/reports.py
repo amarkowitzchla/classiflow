@@ -253,15 +253,28 @@ def format_nonparametric_overall(overall: List[Dict[str, Any]]) -> pd.DataFrame:
 
     df = pd.DataFrame(overall)
 
-    col_order = [
-        "feature",
-        "feature_normality",
-        "test",
-        "k_groups",
-        "df",
-        "statistic",
-        "p_value",
-    ]
+    if "group1" in df.columns:  # Mann-Whitney U
+        col_order = [
+            "feature",
+            "feature_normality",
+            "test",
+            "group1",
+            "group2",
+            "n1",
+            "n2",
+            "statistic",
+            "p_value",
+        ]
+    else:  # Kruskal-Wallis
+        col_order = [
+            "feature",
+            "feature_normality",
+            "test",
+            "k_groups",
+            "df",
+            "statistic",
+            "p_value",
+        ]
 
     existing_cols = [c for c in col_order if c in df.columns]
     return df[existing_cols]

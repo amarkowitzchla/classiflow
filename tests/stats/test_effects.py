@@ -5,6 +5,7 @@ import numpy as np
 
 from classiflow.stats.effects import (
     cohen_d,
+    hedges_g,
     cliff_delta,
     rank_biserial,
     log2_fold_change,
@@ -43,6 +44,28 @@ def test_cohen_d_insufficient_data():
     d = cohen_d(x, y)
 
     assert np.isnan(d)
+
+
+def test_hedges_g_basic():
+    """Test Hedges' g calculation."""
+    x = np.array([1.0, 2.0, 3.0, 4.0])
+    y = np.array([2.0, 3.0, 4.0, 5.0])
+
+    g = hedges_g(x, y)
+
+    assert g < 0
+    assert abs(g) > 0.4
+    assert abs(g) < 0.8
+
+
+def test_hedges_g_insufficient_data():
+    """Test Hedges' g with insufficient data returns NaN."""
+    x = np.array([1.0])
+    y = np.array([2.0, 3.0])
+
+    g = hedges_g(x, y)
+
+    assert np.isnan(g)
 
 
 def test_cliff_delta_basic():
