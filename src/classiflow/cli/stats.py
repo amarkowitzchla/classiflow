@@ -43,8 +43,11 @@ def run_stats_cmd(
     """
     Run complete statistical analysis pipeline.
 
-    Performs normality testing, parametric/nonparametric tests, and generates
+    Performs normality testing and class-count-aware statistical tests, and generates
     publication-ready Excel workbooks with pairwise comparisons and effect sizes.
+
+    Binary (2-class) runs use Welch's t-test when both classes pass normality,
+    otherwise Mann–Whitney U. Multiclass runs use ANOVA/Tukey or Kruskal–Wallis/Dunn.
 
     Supports CSV, Parquet, and Parquet dataset directories.
 

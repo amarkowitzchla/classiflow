@@ -670,6 +670,8 @@ def _train_meta_model(
         config,
         groups_tr=groups_tr,
         use_oof=True,
+        fold=fold,
+        variant=variant,
     )
     X_meta_va = _build_meta_features(
         X_va,
@@ -680,7 +682,27 @@ def _train_meta_model(
         config,
         groups_tr=None,
         use_oof=False,
+        fold=fold,
+        variant=variant,
     )
+
+    X_meta_tr, y_tr_meta, groups_tr_meta = _filter_meta_training_rows(
+        X_meta_tr, y_tr, groups_tr, fold, variant
+    )
+    if X_meta_tr.empty or y_tr_meta.nunique() < 2:
+        raise ValueError("Insufficient meta training samples after OOF filtering.")
+
+    cv_inner_meta = cv_inner
+    if config.patient_col and groups_tr_meta is not None:
+        df_groups_meta = pd.DataFrame({config.patient_col: groups_tr_meta}, index=X_meta_tr.index)
+        cv_inner_meta = list(iter_inner_splits(
+            df_tr=df_groups_meta,
+            y_tr=y_tr_meta,
+            patient_col=config.patient_col,
+            n_splits=config.inner_splits,
+            n_repeats=config.inner_repeats,
+            random_state=config.random_state,
+        ))
 
     best_meta = None
     best_grid = None
@@ -691,12 +713,12 @@ def _train_meta_model(
         grid = GridSearchCV(
             meta,
             meta_param_grids.get(model_name, {}),
-            cv=cv_inner,
+            cv=cv_inner_meta,
             scoring="f1_macro",
             n_jobs=1,
             return_train_score=True,
         )
-        grid.fit(X_meta_tr, y_tr)
+        grid.fit(X_meta_tr, y_tr_meta)
         if grid.best_score_ > best_score:
             best_score = grid.best_score_
             best_meta = grid.best_estimator_
@@ -707,7 +729,7 @@ def _train_meta_model(
         raise ValueError("No meta estimator fit successfully.")
 
     calibrated_meta, calibration_metadata = _calibrate_meta_classifier(
-        best_meta, X_meta_tr, y_tr, config
+        best_meta, X_meta_tr, y_tr_meta, config
     )
 
     joblib.dump(calibrated_meta, var_dir / "meta_model.joblib")
@@ -761,10 +783,10 @@ def _train_meta_model(
         "sampler": variant,
         "phase": "train",
         "model_name": best_name or "MetaModel",
-        "accuracy": accuracy_score(y_tr, y_pred_tr),
-        "balanced_accuracy": balanced_accuracy_score(y_tr, y_pred_tr),
-        "f1_macro": f1_score(y_tr, y_pred_tr, average="macro"),
-        "f1_weighted": f1_score(y_tr, y_pred_tr, average="weighted"),
+        "accuracy": accuracy_score(y_tr_meta, y_pred_tr),
+        "balanced_accuracy": balanced_accuracy_score(y_tr_meta, y_pred_tr),
+        "f1_macro": f1_score(y_tr_meta, y_pred_tr, average="macro"),
+        "f1_weighted": f1_score(y_tr_meta, y_pred_tr, average="weighted"),
         "calibration_method": calibration_metadata.get("method_used"),
         "calibration_enabled": calibration_metadata.get("enabled", False),
         "calibration_cv": calibration_metadata.get("cv"),
@@ -837,7 +859,7 @@ def _train_meta_model(
     calibration_comparison = _compare_calibration_methods(
         model=best_meta,
         X_meta_tr=X_meta_tr,
-        y_tr=y_tr,
+        y_tr=y_tr_meta,
         X_meta_va=X_meta_va,
         y_va=y_va,
         classes=classes,
@@ -1092,6 +1114,8 @@ def _build_meta_features(
     config,
     groups_tr: Optional[pd.Series] = None,
     use_oof: bool = False,
+    fold: Optional[int] = None,
+    variant: Optional[str] = None,
 ):
     """Build meta-features from binary task scores."""
     meta = pd.DataFrame(index=X.index)
@@ -1118,13 +1142,49 @@ def _build_meta_features(
             if splits:
                 scores = _cross_val_scores(pipe, X_subset, y_bin, splits)
             else:
-                scores = _get_scores(pipe, X_subset)
+                scores = _cross_val_scores(pipe, X_subset, y_bin, [])
         else:
             scores = _get_scores(pipe, X_subset)
 
-        meta.loc[idx, f"{task_name}_score"] = scores
+        col_name = f"{task_name}_score"
+        meta[col_name] = 0.0
+        meta.loc[idx, col_name] = scores
 
-    return meta.fillna(0.0)
+        if use_oof and np.isnan(scores).any():
+            missing = int(np.isnan(scores).sum())
+            logger.warning(
+                "OOF scores missing for task=%s fold=%s variant=%s (n=%s).",
+                task_name,
+                fold if fold is not None else "unknown",
+                variant if variant is not None else "unknown",
+                missing,
+            )
+
+    return meta
+
+
+def _filter_meta_training_rows(
+    X_meta_tr: pd.DataFrame,
+    y_tr: pd.Series,
+    groups_tr: Optional[pd.Series],
+    fold: int,
+    variant: str,
+) -> Tuple[pd.DataFrame, pd.Series, Optional[pd.Series]]:
+    """Drop rows with missing OOF scores to avoid in-sample leakage."""
+    nan_mask = X_meta_tr.isna().any(axis=1)
+    if nan_mask.any():
+        missing = int(nan_mask.sum())
+        logger.warning(
+            "Dropping %s meta rows with missing OOF scores (fold=%s variant=%s).",
+            missing,
+            fold,
+            variant,
+        )
+        X_meta_tr = X_meta_tr.loc[~nan_mask]
+        y_tr = y_tr.loc[X_meta_tr.index]
+        if groups_tr is not None:
+            groups_tr = groups_tr.loc[X_meta_tr.index]
+    return X_meta_tr, y_tr, groups_tr
 
 
 def _inner_cv_splits_for_task(
@@ -1161,7 +1221,7 @@ def _inner_cv_splits_for_task(
 def _cross_val_scores(pipe, X, y, splits):
     """Run cross-validated predictions to build out-of-fold scores."""
     if not splits:
-        return _get_scores(pipe, X)
+        return np.full(len(X), np.nan)
 
     scores = pd.Series(np.nan, index=X.index)
     for train_idx, val_idx in splits:
@@ -1174,10 +1234,7 @@ def _cross_val_scores(pipe, X, y, splits):
 
     missing = scores.isna()
     if missing.any():
-        try:
-            scores.loc[missing] = _get_scores(pipe, X.loc[missing])
-        except Exception:
-            scores.loc[missing] = 0.0
+        scores.loc[missing] = np.nan
 
     return scores.values
 

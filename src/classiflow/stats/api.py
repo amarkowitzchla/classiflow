@@ -10,6 +10,11 @@ from classiflow.stats.config import StatsConfig, VizConfig
 from classiflow.stats.preprocess import prepare_data
 from classiflow.stats.normality import check_normality_all_features
 from classiflow.stats.tests import run_parametric_tests, run_nonparametric_tests
+from classiflow.stats.binary import (
+    binary_feature_tests,
+    split_binary_test_tables,
+    build_binary_pairwise_summary,
+)
 from classiflow.stats import reports
 from classiflow.stats.excel import (
     write_publication_workbook,
@@ -95,6 +100,11 @@ def run_stats_from_config(
 
     Returns:
         Dictionary with results and output paths
+
+    Notes:
+        - Binary (2-class): Welch's t-test when both classes pass normality,
+          otherwise Mann–Whitney U with per-feature p-value adjustment.
+        - Multiclass (3+): ANOVA/Tukey or Kruskal–Wallis/Dunn as configured.
     """
     print(f"Loading data from {config.data_csv}...")
     df = pd.read_csv(config.data_csv)
@@ -132,66 +142,118 @@ def run_stats_from_config(
     normality_map = normality_summary.set_index("feature")["normality"].to_dict()
 
     # ──────────────────────────────────────────────────────────────
-    # 2. Parametric tests
+    # 2-3. Statistical tests (dispatch by class count)
     # ──────────────────────────────────────────────────────────────
-    print("[2/5] Running parametric tests (Welch t-test / ANOVA + Tukey)...")
-    param_overall, param_posthoc = run_parametric_tests(
-        df, features, config.label_col, normality_map, config.alpha
-    )
+    if len(classes) < 2:
+        raise ValueError("At least 2 classes required for statistical analysis")
 
-    parametric_overall = reports.format_parametric_overall(param_overall)
-    parametric_posthoc = reports.format_parametric_posthoc(param_posthoc)
+    if len(classes) == 2:
+        print("[2/5] Running binary tests (Welch t-test or Mann–Whitney U)...")
+        binary_results = binary_feature_tests(
+            df,
+            features,
+            config.label_col,
+            classes,
+            normality_by_class,
+            config.alpha,
+            config.min_n,
+            config.dunn_adjust,
+            fc_center=fc_center,
+            fc_eps=fc_eps,
+        )
 
-    # ──────────────────────────────────────────────────────────────
-    # 3. Nonparametric tests
-    # ──────────────────────────────────────────────────────────────
-    print("[3/5] Running nonparametric tests (Kruskal–Wallis + Dunn)...")
-    nonparam_overall, nonparam_posthoc = run_nonparametric_tests(
-        df, features, config.label_col, normality_map, config.dunn_adjust, config.alpha
-    )
+        print("[3/5] Preparing binary summaries...")
+        param_overall, nonparam_overall, nonparam_posthoc = split_binary_test_tables(
+            binary_results
+        )
+        param_posthoc = []
 
-    nonparametric_overall = reports.format_nonparametric_overall(nonparam_overall)
-    nonparametric_posthoc = reports.format_nonparametric_posthoc(nonparam_posthoc)
+        parametric_overall = reports.format_parametric_overall(param_overall)
+        parametric_posthoc = reports.format_parametric_posthoc(param_posthoc)
+        nonparametric_overall = reports.format_nonparametric_overall(nonparam_overall)
+        nonparametric_posthoc = reports.format_nonparametric_posthoc(nonparam_posthoc)
+        pairwise_summary = build_binary_pairwise_summary(binary_results)
+    else:
+        # ──────────────────────────────────────────────────────────────
+        # 2. Parametric tests
+        # ──────────────────────────────────────────────────────────────
+        print("[2/5] Running parametric tests (Welch t-test / ANOVA + Tukey)...")
+        param_overall, param_posthoc = run_parametric_tests(
+            df, features, config.label_col, normality_map, config.alpha
+        )
 
-    # ──────────────────────────────────────────────────────────────
-    # 4. Build publication tables
-    # ──────────────────────────────────────────────────────────────
-    print("[4/5] Building publication-ready tables...")
+        parametric_overall = reports.format_parametric_overall(param_overall)
+        parametric_posthoc = reports.format_parametric_posthoc(param_posthoc)
 
-    # Run manifest
-    run_manifest = reports.build_run_manifest(
-        config.data_csv,
-        config.label_col,
-        classes,
-        class_counts,
-        config.alpha,
-        config.min_n,
-        config.dunn_adjust,
-        config.top_n_features,
-    )
+        # ──────────────────────────────────────────────────────────────
+        # 3. Nonparametric tests
+        # ──────────────────────────────────────────────────────────────
+        print("[3/5] Running nonparametric tests (Kruskal–Wallis + Dunn)...")
+        nonparam_overall, nonparam_posthoc = run_nonparametric_tests(
+            df, features, config.label_col, normality_map, config.dunn_adjust, config.alpha
+        )
 
-    # Descriptives by class
-    descriptives_by_class = reports.build_descriptives_by_class(
-        df, features, config.label_col, classes
-    )
+        nonparametric_overall = reports.format_nonparametric_overall(nonparam_overall)
+        nonparametric_posthoc = reports.format_nonparametric_posthoc(nonparam_posthoc)
 
-    # Pairwise summary with effect sizes
-    pairwise_summary = reports.build_pairwise_summary(
-        df,
-        features,
-        config.label_col,
-        classes,
-        nonparametric_posthoc,
-        normality_map,
-        fc_center,
-        fc_eps,
-        config.alpha,
-    )
+        # ──────────────────────────────────────────────────────────────
+        # 4. Build publication tables
+        # ──────────────────────────────────────────────────────────────
+        print("[4/5] Building publication-ready tables...")
 
-    # Top features
-    top_features_per_pair, top_features_overall = reports.build_top_features(
-        pairwise_summary, config.top_n_features
-    )
+        # Run manifest
+        run_manifest = reports.build_run_manifest(
+            config.data_csv,
+            config.label_col,
+            classes,
+            class_counts,
+            config.alpha,
+            config.min_n,
+            config.dunn_adjust,
+            config.top_n_features,
+        )
+
+        # Descriptives by class
+        descriptives_by_class = reports.build_descriptives_by_class(
+            df, features, config.label_col, classes
+        )
+
+        # Pairwise summary with effect sizes
+        pairwise_summary = reports.build_pairwise_summary(
+            df,
+            features,
+            config.label_col,
+            classes,
+            nonparametric_posthoc,
+            normality_map,
+            fc_center,
+            fc_eps,
+            config.alpha,
+        )
+
+        # Top features
+        top_features_per_pair, top_features_overall = reports.build_top_features(
+            pairwise_summary, config.top_n_features
+        )
+
+    if len(classes) == 2:
+        print("[4/5] Building publication-ready tables...")
+        run_manifest = reports.build_run_manifest(
+            config.data_csv,
+            config.label_col,
+            classes,
+            class_counts,
+            config.alpha,
+            config.min_n,
+            config.dunn_adjust,
+            config.top_n_features,
+        )
+        descriptives_by_class = reports.build_descriptives_by_class(
+            df, features, config.label_col, classes
+        )
+        top_features_per_pair, top_features_overall = reports.build_top_features(
+            pairwise_summary, config.top_n_features
+        )
 
     # ──────────────────────────────────────────────────────────────
     # 5. Write outputs

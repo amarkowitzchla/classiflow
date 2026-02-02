@@ -61,11 +61,12 @@ def write_sheet_with_formatting(
 
     # Apply numeric formatting
     for col_idx, col_name in enumerate(df.columns):
-        if col_name in ["p_value", "p_adj"]:
+        if col_name in ["p_value", "p_adj", "normality_p1", "normality_p2"]:
             # Scientific notation for p-values
             ws.set_column(col_idx, col_idx, None, formats["pvalue"])
         elif col_name in [
             "log2fc",
+            "hedges_g",
             "cohen_d",
             "cliff_delta",
             "rank_biserial",
@@ -73,6 +74,8 @@ def write_sheet_with_formatting(
             "sd",
             "median",
             "iqr",
+            "delta_mean",
+            "delta_median",
             "W",
             "statistic",
             "mean_diff",

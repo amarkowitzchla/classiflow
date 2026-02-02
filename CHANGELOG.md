@@ -22,6 +22,7 @@ Guidelines:
   - Project workflow integration via `project.yaml` config
   - Optional dependencies: `pip install classiflow[mlflow]` or `pip install classiflow[wandb]`
   - See `docs/TRACKING_GUIDE.md` for full documentation
+- **Stats binary mode**: 2-class datasets now dispatch to Welch's t-test or Mann–Whitney U with per-feature p-value adjustment.
 
 ### Changed
 
@@ -30,5 +31,8 @@ Guidelines:
 ### Removed
 
 ### Fixed
+- Prevented hierarchical early stopping from using outer validation data; inner CV now respects patient groups.
+- Removed in-sample fallback for meta OOF features and drop missing OOF rows during meta training.
+- Guarded against label/patient leakage via explicit `feature_cols`.
 
 ### Security
