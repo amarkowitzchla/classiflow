@@ -121,6 +121,21 @@ def test_legacy_backend_fields_are_normalized() -> None:
     assert config.torch_dtype == "float32"
 
 
+def test_legacy_calibration_toggle_is_normalized() -> None:
+    config = ProjectConfig.model_validate(
+        {
+            "project": {"id": "C001", "name": "Calibration"},
+            "data": {"train": {"manifest": "train.csv"}},
+            "key_columns": {"label": "label"},
+            "task": {"mode": "meta", "patient_stratified": False},
+            "calibration": {"calibrate_meta": False, "method": "sigmoid"},
+        }
+    )
+
+    assert config.calibration.enabled == "false"
+    assert config.calibration.method == "sigmoid"
+
+
 def test_sklearn_engine_rejects_torch_subtree() -> None:
     with pytest.raises(ValueError, match="execution.torch is not allowed"):
         ProjectConfig.model_validate(

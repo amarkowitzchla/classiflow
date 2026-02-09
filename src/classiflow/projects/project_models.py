@@ -40,7 +40,9 @@ def available_project_options() -> Dict[str, List[str]]:
         "multiclass.backend[torch]": ["torch_auto", "torch_cpu", "torch_cuda", "torch_mps"],
         "multiclass.backend[hybrid]": ["hybrid_sklearn_meta_torch_base"],
         "models.selection_direction": ["max", "min"],
+        "calibration.enabled": ["auto", "true", "false"],
         "calibration.method": ["sigmoid", "isotonic"],
+        "calibration.binning": ["uniform", "quantile"],
         "execution.torch.dtype": ["float32", "float16"],
     }
 
@@ -133,6 +135,16 @@ def normalize_project_payload(payload: Dict[str, Any]) -> Tuple[Dict[str, Any], 
             )
 
         data["multiclass"] = mc
+
+    if isinstance(data.get("calibration"), dict):
+        calibration = dict(data["calibration"])
+        legacy_toggle = calibration.pop("calibrate_meta", None)
+        if legacy_toggle is not None and "enabled" not in calibration:
+            calibration["enabled"] = "true" if bool(legacy_toggle) else "false"
+            warnings_out.append(
+                "Legacy calibration.calibrate_meta was normalized to calibration.enabled."
+            )
+        data["calibration"] = calibration
 
     return data, warnings_out
 
@@ -289,11 +301,32 @@ class MetricsConfig(BaseModel):
 class CalibrationConfig(BaseModel):
     """Meta classifier calibration settings."""
 
-    calibrate_meta: bool = True
+    enabled: Literal["false", "true", "auto"] = "auto"
     method: Literal["sigmoid", "isotonic"] = "sigmoid"
     cv: int = 3
     bins: int = 10
+    binning: Literal["uniform", "quantile"] = "quantile"
     isotonic_min_samples: int = 100
+    policy: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "apply_to_modes": ["binary", "multiclass", "hierarchical", "meta"],
+            "force_keep": False,
+            "probability_quality_checks": {
+                "enabled": True,
+                "apply_to_modes": ["binary", "multiclass", "hierarchical", "meta"],
+            },
+            "thresholds": {
+                "underconfidence_gap": -0.10,
+                "high_accuracy": 0.90,
+                "near_perfect_accuracy": 0.97,
+                "min_calibration_n": 200,
+                "min_class_n": 25,
+                "min_brier_improvement": 0.002,
+                "max_log_loss_regression": 0.01,
+                "max_ece_ovr_regression": 0.01,
+            },
+        }
+    )
 
 
 class FinalModelConfig(BaseModel):

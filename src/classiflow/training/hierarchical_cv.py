@@ -12,10 +12,13 @@ import pandas as pd
 import joblib
 from sklearn.model_selection import StratifiedShuffleSplit, StratifiedKFold
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score, matthews_corrcoef
 from tqdm import tqdm
 
 from classiflow.config import HierarchicalConfig
+from classiflow.lineage.hashing import get_file_metadata
+from classiflow.lineage.manifest import create_training_manifest
+from classiflow.metrics.calibration import compute_probability_quality
 from classiflow.models.torch_mlp import TorchMLPWrapper
 from classiflow.models.smote import apply_smote
 from classiflow.plots import (
@@ -29,6 +32,11 @@ from classiflow.plots import (
 )
 from classiflow.splitting import iter_inner_splits, iter_outer_splits, assert_no_patient_leakage, make_group_labels
 from classiflow.tracking import get_tracker, extract_loggable_params, summarize_metrics
+from classiflow.training.probability_quality import (
+    attach_probability_quality_to_run_manifest,
+    serialize_probability_quality_metrics,
+    write_probability_quality_curve_artifacts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -383,6 +391,22 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
     le_l1 = LabelEncoder()
     le_l1.fit(l1_classes)
 
+    file_metadata = get_file_metadata(data_path)
+    manifest = create_training_manifest(
+        data_path=data_path,
+        data_hash=file_metadata["sha256_hash"],
+        data_size_bytes=file_metadata["size_bytes"],
+        data_row_count=file_metadata.get("row_count"),
+        config=config.to_dict(),
+        task_type="hierarchical",
+        feature_list=feature_cols,
+        task_definitions={"hierarchical_l1": f"classes={l1_classes}"},
+        hierarchical=True,
+    )
+    manifest.l1_classes = list(l1_classes)
+    manifest.l2_classes_per_branch = branch_l2_global if config.hierarchical else {}
+    manifest.save(outdir / "run.json")
+
     # ========== Stratification setup ==========
     if use_patient_stratification:
         # Patient-level stratification: fail closed on conflicting labels.
@@ -418,6 +442,7 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
 
     all_l2_roc_data = {l1: {"fpr": [], "tpr": [], "auc": []} for l1 in l1_classes} if config.hierarchical else {}
     all_l2_pr_data = {l1: {"rec": [], "prec": [], "ap": []} for l1 in l1_classes} if config.hierarchical else {}
+    fold_probability_quality: Dict[str, Dict[str, object]] = {}
 
     # ========== Outer CV Loop ==========
     fold_id = 0
@@ -576,6 +601,7 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
         # Evaluate L1
         y_l1_pred_enc = model_l1.predict(X_va_scaled)
         y_l1_proba = model_l1.predict_proba(X_va_scaled)
+        y_l1_pred_labels = le_l1.inverse_transform(y_l1_pred_enc)
 
         l1_acc = accuracy_score(y_l1_va_enc, y_l1_pred_enc)
         l1_bal_acc = balanced_accuracy_score(y_l1_va_enc, y_l1_pred_enc)
@@ -587,6 +613,7 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
             "accuracy": l1_acc,
             "balanced_accuracy": l1_bal_acc,
             "f1_macro": l1_f1,
+            "mcc": float(matthews_corrcoef(y_l1_va_enc, y_l1_pred_enc)),
             "n_classes": len(l1_classes),
         }
         outer_rows.append(l1_row)
@@ -653,6 +680,38 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
         all_l1_pr_data["rec"].append(rec)
         all_l1_pr_data["prec"].append(prec)
         all_l1_pr_data["ap"].append(ap_val)
+
+        prob_metrics, prob_curves = compute_probability_quality(
+            y_true=[str(v) for v in y_l1_va.tolist()],
+            y_pred=[str(v) for v in y_l1_pred_labels.tolist()],
+            y_proba=y_l1_proba,
+            classes=[str(v) for v in l1_classes],
+            bins=config.calibration_bins,
+            mode="hierarchical",
+            binning=config.calibration_binning,
+        )
+        class_counts = {
+            str(k): int(v)
+            for k, v in pd.Series([str(v) for v in y_l1_va.tolist()]).value_counts().to_dict().items()
+        }
+        fold_probability_quality[f"fold_{fold_id}_none"] = {
+            "uncalibrated": serialize_probability_quality_metrics(prob_metrics),
+            "calibrated": {},
+            "final_variant": "uncalibrated",
+            "calibration_decision": {
+                "decision": "not_applicable",
+                "n_samples": int(len(y_l1_va)),
+                "metrics_compared": {},
+            },
+            "class_counts": class_counts,
+        }
+        write_probability_quality_curve_artifacts(
+            var_dir=fold_dir / "hierarchical_none",
+            final_variant="uncalibrated",
+            final_curves=prob_curves,
+            uncal_curves=prob_curves,
+            cal_curves={},
+        )
 
         # ========== Level-2 (if hierarchical) ==========
         if config.hierarchical:
@@ -823,6 +882,7 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
                         "accuracy": l2_acc,
                         "balanced_accuracy": l2_bal_acc,
                         "f1_macro": l2_f1,
+                        "mcc": float(matthews_corrcoef(y_l2_va_b_enc, y_l2_pred_b_enc)),
                         "n_classes": n_l2_b,
                     }
                     outer_rows.append(l2_row)
@@ -920,6 +980,7 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
                             "accuracy": acc_pipe,
                             "balanced_accuracy": balacc_pipe,
                             "f1_macro": f1_pipe,
+                            "mcc": float(matthews_corrcoef(hier_true, hier_pred)),
                             "n_classes": len(np.unique(hier_true)),
                             "n_eval": int(len(hier_true)),
                         }
@@ -946,7 +1007,7 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
     l1_outer = outer_df[outer_df["level"] == "L1"]
     if len(l1_outer) > 0:
         l1_summary = {"level": "L1"}
-        for col in ["accuracy", "balanced_accuracy", "f1_macro"]:
+        for col in ["accuracy", "balanced_accuracy", "f1_macro", "mcc"]:
             if col in l1_outer.columns:
                 vals = l1_outer[col].dropna()
                 if len(vals) > 0:
@@ -960,7 +1021,7 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
             l2_outer = outer_df[outer_df["level"] == f"L2_oracle_{l1_val}"]
             if len(l2_outer) > 0:
                 l2_summary = {"level": f"L2_oracle_{l1_val}", "gate": "oracle_l1"}
-                for col in ["accuracy", "balanced_accuracy", "f1_macro"]:
+                for col in ["accuracy", "balanced_accuracy", "f1_macro", "mcc"]:
                     vals = l2_outer[col].dropna()
                     if len(vals) > 0:
                         l2_summary[f"{col}_mean"] = vals.mean()
@@ -971,7 +1032,7 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
         pipe_outer = outer_df[outer_df["level"] == "pipeline"]
         if len(pipe_outer) > 0:
             pipe_summary = {"level": "pipeline"}
-            for col in ["accuracy", "balanced_accuracy", "f1_macro"]:
+            for col in ["accuracy", "balanced_accuracy", "f1_macro", "mcc"]:
                 vals = pipe_outer[col].dropna()
                 if len(vals) > 0:
                     pipe_summary[f"{col}_mean"] = vals.mean()
@@ -1081,6 +1142,12 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
         tracker.log_artifact(png_file)
 
     tracker.end_run()
+
+    if fold_probability_quality:
+        attach_probability_quality_to_run_manifest(
+            run_manifest_path=outdir / "run.json",
+            fold_probability_quality=fold_probability_quality,
+        )
 
     logger.info("\nDone!")
 

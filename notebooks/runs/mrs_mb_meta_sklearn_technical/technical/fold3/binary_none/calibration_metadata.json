@@ -1,0 +1,16 @@
+{
+  "enabled": false,
+  "enabled_requested": "true",
+  "method_requested": "sigmoid",
+  "method_used": "sigmoid",
+  "cv": 3,
+  "bins": 10,
+  "binning": "uniform",
+  "warnings": [],
+  "enabled_candidate": true,
+  "decision": "disabled_by_metrics",
+  "decision_reasons": [
+    "R4_failed_improvement: ece_ovr_macro delta=+0.013540, allowed <= 0.010000"
+  ],
+  "final_variant": "uncalibrated"
+}

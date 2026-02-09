@@ -86,6 +86,11 @@ def test_hierarchical_es_split_uses_outer_train(tmp_path, monkeypatch):
 
     assert captured
     assert captured[0] is not None
+    outer_df = pd.read_csv(config.outdir / "metrics_outer_eval.csv")
+    assert "mcc" in outer_df.columns
+    l1_rows = outer_df[outer_df["level"] == "L1"]
+    assert not l1_rows.empty
+    assert l1_rows["mcc"].notna().all()
 
     stratify_ids = np.arange(len(df))
     outer_cv = StratifiedShuffleSplit(

@@ -17,6 +17,7 @@ from sklearn.exceptions import FitFailedWarning
 from classiflow.models import get_estimators, get_param_grids, AdaptiveSMOTE
 from classiflow.metrics.scorers import get_scorers, SCORER_ORDER
 from classiflow.metrics.binary import compute_binary_metrics
+from classiflow.metrics.calibration import compute_probability_quality
 from classiflow.splitting import iter_outer_splits, iter_inner_splits, assert_no_patient_leakage, make_group_labels
 from classiflow.plots import (
     plot_roc_curve,
@@ -24,6 +25,10 @@ from classiflow.plots import (
     plot_confusion_matrix,
     plot_averaged_roc_curves,
     plot_averaged_pr_curves,
+)
+from classiflow.training.probability_quality import (
+    serialize_probability_quality_metrics,
+    write_probability_quality_curve_artifacts,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,6 +66,8 @@ class NestedCVOrchestrator:
         random_state: int = 42,
         smote_mode: Literal["off", "on", "both"] = "off",
         max_iter: int = 10000,
+        calibration_bins: int = 10,
+        calibration_binning: Literal["uniform", "quantile"] = "quantile",
         estimators: Optional[Dict[str, Any]] = None,
         param_grids: Optional[Dict[str, Dict[str, list]]] = None,
     ):
@@ -70,6 +77,8 @@ class NestedCVOrchestrator:
         self.random_state = random_state
         self.smote_mode = smote_mode
         self.max_iter = max_iter
+        self.calibration_bins = calibration_bins
+        self.calibration_binning = calibration_binning
 
         self.estimators = estimators or get_estimators(random_state, max_iter)
         self.param_grids = param_grids or get_param_grids()
@@ -134,6 +143,7 @@ class NestedCVOrchestrator:
             "inner_cv_rows": [],
             "inner_cv_split_rows": [],
             "outer_rows": [],
+            "fold_probability_quality": {},
         }
 
         # Collectors for averaged plots across folds
@@ -172,6 +182,7 @@ class NestedCVOrchestrator:
             results["inner_cv_rows"].extend(fold_results["inner_cv_rows"])
             results["inner_cv_split_rows"].extend(fold_results["inner_cv_split_rows"])
             results["outer_rows"].extend(fold_results["outer_rows"])
+            results["fold_probability_quality"].update(fold_results.get("fold_probability_quality", {}))
 
             # Collect ROC/PR data for averaged plots
             if fold_results.get("roc_data"):
@@ -235,6 +246,7 @@ class NestedCVOrchestrator:
             "inner_cv_rows": [],
             "inner_cv_split_rows": [],
             "outer_rows": [],
+            "fold_probability_quality": {},
         }
 
         # Track best model across variants for plotting
@@ -259,6 +271,9 @@ class NestedCVOrchestrator:
             fold_results["inner_cv_rows"].extend(var_results["inner_cv_rows"])
             fold_results["inner_cv_split_rows"].extend(var_results["inner_cv_split_rows"])
             fold_results["outer_rows"].extend(var_results["outer_rows"])
+            if var_results.get("probability_quality_payload"):
+                key = f"fold_{fold_idx}_{variant}"
+                fold_results["fold_probability_quality"][key] = var_results["probability_quality_payload"]
 
             # Track best model for plotting (use first variant's best if multiple)
             if best_estimator is None and var_results["best_estimator"] is not None:
@@ -397,6 +412,7 @@ class NestedCVOrchestrator:
             "inner_cv_rows": [],
             "inner_cv_split_rows": [],
             "outer_rows": [],
+            "probability_quality_payload": None,
         }
 
         best_score = -np.inf
@@ -498,6 +514,44 @@ class NestedCVOrchestrator:
         var_results["best_model"] = best_model_name
         var_results["best_estimator"] = best_estimator
         logger.info(f"      Best model: {best_model_name} (F1={best_score:.3f})")
+
+        if best_estimator is not None:
+            y_va_scores = self._get_scores(best_estimator, X_va)
+            y_va_pred = best_estimator.predict(X_va)
+            y_va_proba = np.column_stack([1.0 - y_va_scores, y_va_scores])
+            prob_metrics, prob_curves = compute_probability_quality(
+                y_true=y_va.astype(str).tolist(),
+                y_pred=np.asarray(y_va_pred).astype(str).tolist(),
+                y_proba=y_va_proba,
+                classes=["0", "1"],
+                bins=self.calibration_bins,
+                mode="binary",
+                binning=self.calibration_binning,
+            )
+            class_counts = {
+                str(k): int(v)
+                for k, v in pd.Series(y_va.astype(str)).value_counts().to_dict().items()
+            }
+            var_results["probability_quality_payload"] = {
+                "uncalibrated": serialize_probability_quality_metrics(prob_metrics),
+                "calibrated": {},
+                "final_variant": "uncalibrated",
+                "calibration_decision": {
+                    "decision": "not_applicable",
+                    "n_samples": int(len(y_va)),
+                    "metrics_compared": {},
+                },
+                "class_counts": class_counts,
+            }
+            if outdir is not None:
+                var_dir = outdir / f"fold{fold_idx}" / f"binary_{variant}"
+                write_probability_quality_curve_artifacts(
+                    var_dir=var_dir,
+                    final_variant="uncalibrated",
+                    final_curves=prob_curves,
+                    uncal_curves=prob_curves,
+                    cal_curves={},
+                )
 
         return var_results
 

@@ -24,10 +24,14 @@ from classiflow.lineage.hashing import compute_file_hash
 from classiflow.models import get_estimators, AdaptiveSMOTE
 from classiflow.backends.registry import get_backend, get_model_set
 from classiflow.tasks import TaskBuilder
-from classiflow.training import train_binary_task, train_meta_classifier, train_multiclass_classifier
+from classiflow.training import (
+    train_binary_task,
+    train_meta_classifier,
+    train_multiclass_classifier,
+)
 from classiflow.projects.dataset_registry import verify_manifest_hash
 from classiflow.projects.project_fs import ProjectPaths
-from classiflow.projects.project_models import ProjectConfig, DatasetRegistry
+from classiflow.projects.project_models import ProjectConfig, DatasetRegistry, ThresholdsConfig
 from classiflow.projects.reporting import write_technical_report, write_test_report
 from classiflow.projects.promotion import normalize_metric_name
 from classiflow.projects.final_train import (
@@ -47,6 +51,7 @@ logger = logging.getLogger(__name__)
 def _git_hash(cwd: Path) -> Optional[str]:
     try:
         import subprocess
+
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
             capture_output=True,
@@ -200,6 +205,9 @@ def _technical_metrics_from_run(
             per_fold,
             ["sensitivity", "specificity", "ppv", "npv", "recall", "precision", "mcc"],
         )
+        pq_summary, pq_per_fold = _probability_quality_metrics_from_manifest(run_dir)
+        summary.update(pq_summary)
+        per_fold.update(pq_per_fold)
         return summary, per_fold
     if mode == "meta":
         metrics_path = run_dir / "metrics_outer_meta_eval.csv"
@@ -217,6 +225,9 @@ def _technical_metrics_from_run(
             cal_summary, cal_per_fold = _calibration_metrics_from_meta_df(df)
         summary.update(cal_summary)
         per_fold.update(cal_per_fold)
+        pq_summary, pq_per_fold = _probability_quality_metrics_from_manifest(run_dir)
+        summary.update(pq_summary)
+        per_fold.update(pq_per_fold)
         return summary, per_fold
     if mode == "multiclass":
         metrics_path = run_dir / "metrics_outer_multiclass_eval.csv"
@@ -229,6 +240,9 @@ def _technical_metrics_from_run(
             per_fold,
             ["sensitivity", "specificity", "ppv", "npv", "recall", "precision", "mcc"],
         )
+        pq_summary, pq_per_fold = _probability_quality_metrics_from_manifest(run_dir)
+        summary.update(pq_summary)
+        per_fold.update(pq_per_fold)
         return summary, per_fold
 
     metrics_path = run_dir / "metrics_outer_eval.csv"
@@ -241,6 +255,71 @@ def _technical_metrics_from_run(
         per_fold,
         ["sensitivity", "specificity", "ppv", "npv", "recall", "precision", "mcc"],
     )
+    pq_summary, pq_per_fold = _probability_quality_metrics_from_manifest(run_dir)
+    summary.update(pq_summary)
+    per_fold.update(pq_per_fold)
+    return summary, per_fold
+
+
+def _probability_quality_metrics_from_manifest(
+    run_dir: Path,
+) -> Tuple[Dict[str, float], Dict[str, List[float]]]:
+    run_manifest_path = run_dir / "run.json"
+    if not run_manifest_path.exists():
+        return {}, {}
+    try:
+        run_payload = json.loads(run_manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}, {}
+    prob_quality = ((run_payload.get("artifact_registry", {}) or {}).get("probability_quality", {}) or {})
+    folds = prob_quality.get("folds")
+    if not isinstance(folds, dict) or not folds:
+        return {}, {}
+
+    final_metric_values: Dict[str, List[float]] = {}
+    variant_metric_values: Dict[str, List[float]] = {}
+    for payload in folds.values():
+        if not isinstance(payload, dict):
+            continue
+        final_variant = str(payload.get("final_variant") or "uncalibrated")
+        final_metrics = payload.get(final_variant, {})
+        if isinstance(final_metrics, dict):
+            for key, value in final_metrics.items():
+                try:
+                    value_float = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if value_float != value_float:
+                    continue
+                final_metric_values.setdefault(key, []).append(value_float)
+        for variant in ("uncalibrated", "calibrated"):
+            variant_metrics = payload.get(variant, {})
+            if not isinstance(variant_metrics, dict):
+                continue
+            for key, value in variant_metrics.items():
+                try:
+                    value_float = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if value_float != value_float:
+                    continue
+                variant_metric_values.setdefault(f"{key}_{variant}", []).append(value_float)
+
+    summary = {key: float(np.mean(values)) for key, values in final_metric_values.items() if values}
+    per_fold = {key: list(values) for key, values in final_metric_values.items() if values}
+    for key, values in variant_metric_values.items():
+        if not values:
+            continue
+        summary[key] = float(np.mean(values))
+        per_fold[key] = list(values)
+    if "brier_recommended_calibrated" in summary:
+        summary["brier_calibrated"] = summary["brier_recommended_calibrated"]
+        per_fold["brier_calibrated"] = list(per_fold.get("brier_recommended_calibrated", []))
+    if "ece_top1_calibrated" in summary:
+        summary["ece_calibrated"] = summary["ece_top1_calibrated"]
+        per_fold["ece_calibrated"] = list(per_fold.get("ece_top1_calibrated", []))
+    if "log_loss_calibrated" in summary:
+        per_fold["log_loss_calibrated"] = list(per_fold.get("log_loss_calibrated", []))
     return summary, per_fold
 
 
@@ -249,14 +328,16 @@ def _calibration_metrics_from_meta_df(
 ) -> Tuple[Dict[str, float], Dict[str, List[float]]]:
     per_fold: Dict[str, List[float]] = {}
     summary: Dict[str, float] = {}
-    for raw_key, target in [
-        ("brier", "brier_calibrated"),
-        ("ece", "ece_calibrated"),
-        ("log_loss", "log_loss_calibrated"),
-    ]:
-        if raw_key not in df.columns:
+    candidates = [
+        (["brier_recommended", "brier"], "brier_calibrated"),
+        (["ece_top1", "ece"], "ece_calibrated"),
+        (["log_loss"], "log_loss_calibrated"),
+    ]
+    for raw_keys, target in candidates:
+        source_key = next((k for k in raw_keys if k in df.columns), None)
+        if source_key is None:
             continue
-        values = df[raw_key].dropna().astype(float).tolist()
+        values = df[source_key].dropna().astype(float).tolist()
         if not values:
             continue
         per_fold[target] = values
@@ -286,12 +367,16 @@ def _calibration_metrics_from_comparison(
         metrics = entry.get(method, {})
         if not metrics or not metrics.get("enabled", False):
             continue
-        for raw_key, target in [
-            ("brier", "brier_calibrated"),
-            ("ece", "ece_calibrated"),
-            ("log_loss", "log_loss_calibrated"),
+        for raw_keys, target in [
+            (["brier_recommended", "brier"], "brier_calibrated"),
+            (["ece_top1", "ece"], "ece_calibrated"),
+            (["log_loss"], "log_loss_calibrated"),
         ]:
-            value = metrics.get(raw_key)
+            value = None
+            for key in raw_keys:
+                if metrics.get(key) is not None:
+                    value = metrics.get(key)
+                    break
             if value is not None:
                 per_fold[target].append(float(value))
 
@@ -300,6 +385,56 @@ def _calibration_metrics_from_comparison(
         if values:
             summary[key] = float(np.mean(values))
     return summary, per_fold
+
+
+def _resolve_probability_quality_check_thresholds(config: ProjectConfig) -> Dict[str, Any]:
+    policy = config.calibration.policy or {}
+    thresholds: Dict[str, Any] = {}
+    pq_cfg = policy.get("probability_quality_checks")
+    if isinstance(pq_cfg, dict):
+        nested = pq_cfg.get("thresholds")
+        if isinstance(nested, dict):
+            thresholds.update(dict(nested))
+        else:
+            # Backward-compatible shape where threshold keys lived directly under probability_quality_checks.
+            thresholds.update(
+                {
+                    key: value
+                    for key, value in pq_cfg.items()
+                    if key not in {"enabled", "apply_to_modes"}
+                }
+            )
+    policy_thresholds = policy.get("thresholds", {})
+    if isinstance(policy_thresholds, dict):
+        if isinstance(policy_thresholds.get("probability_quality_checks"), dict):
+            thresholds.update(dict(policy_thresholds.get("probability_quality_checks", {})))
+    return thresholds
+
+
+def _probability_quality_checks_enabled(config: ProjectConfig) -> bool:
+    policy = config.calibration.policy or {}
+    pq_cfg = policy.get("probability_quality_checks")
+    default_apply = ["binary", "multiclass", "hierarchical", "meta"]
+    apply_modes = default_apply
+    enabled = True
+    if isinstance(pq_cfg, dict):
+        enabled = bool(pq_cfg.get("enabled", True))
+        configured_apply = pq_cfg.get("apply_to_modes")
+        if isinstance(configured_apply, list) and configured_apply:
+            apply_modes = [str(item) for item in configured_apply]
+    elif isinstance(policy.get("apply_to_modes"), list):
+        apply_modes = [str(item) for item in policy.get("apply_to_modes", default_apply)]
+    return enabled and (config.task.mode in set(apply_modes))
+
+
+def _configured_probability_quality_gate_metrics(thresholds: ThresholdsConfig) -> List[str]:
+    metrics = [gate.metric for gate in thresholds.promotion_gates]
+    calibration_cfg = thresholds.promotion.calibration
+    if calibration_cfg.brier_max is not None:
+        metrics.append("brier_calibrated")
+    if calibration_cfg.ece_max is not None:
+        metrics.append("ece_calibrated")
+    return sorted(set(metrics))
 
 
 def run_technical_validation(
@@ -347,9 +482,11 @@ def run_technical_validation(
             inner_splits=config.validation.nested_cv.inner_folds,
             inner_repeats=config.validation.nested_cv.repeats,
             random_state=config.validation.nested_cv.seed,
-            smote_mode="both" if config.imbalance.smote.get("compare") else (
-                "on" if config.imbalance.smote.get("enabled") else "off"
-            ),
+            smote_mode="both"
+            if config.imbalance.smote.get("compare")
+            else ("on" if config.imbalance.smote.get("enabled") else "off"),
+            calibration_bins=config.calibration.bins,
+            calibration_binning=config.calibration.binning,
             backend=config.backend,
             device=config.device,
             model_set=config.model_set,
@@ -371,20 +508,34 @@ def run_technical_validation(
             inner_splits=config.validation.nested_cv.inner_folds,
             inner_repeats=config.validation.nested_cv.repeats,
             random_state=config.validation.nested_cv.seed,
-            smote_mode="both" if config.imbalance.smote.get("compare") else (
-                "on" if config.imbalance.smote.get("enabled") else "off"
-            ),
+            smote_mode="both"
+            if config.imbalance.smote.get("compare")
+            else ("on" if config.imbalance.smote.get("enabled") else "off"),
             backend=config.backend,
             device=config.device,
             model_set=config.model_set,
             torch_num_workers=config.torch_num_workers,
             torch_dtype=config.torch_dtype,
             require_torch_device=config.require_torch_device,
-            calibrate_meta=config.calibration.calibrate_meta,
+            calibrate_meta=config.calibration.enabled != "false",
+            calibration_enabled=config.calibration.enabled,
             calibration_method=config.calibration.method,
             calibration_cv=config.calibration.cv,
             calibration_bins=config.calibration.bins,
+            calibration_binning=config.calibration.binning,
             calibration_isotonic_min_samples=config.calibration.isotonic_min_samples,
+            calibration_policy_apply_to_modes=list(
+                (config.calibration.policy or {}).get(
+                    "apply_to_modes",
+                    ["binary", "multiclass", "hierarchical", "meta"],
+                )
+            ),
+            calibration_policy_force_keep=bool(
+                (config.calibration.policy or {}).get("force_keep", False)
+            ),
+            calibration_policy_thresholds=dict(
+                (config.calibration.policy or {}).get("thresholds", {})
+            ),
             tracker=config.tracker,
             experiment_name=config.experiment_name or f"{config.project.id}/technical",
             run_name=f"technical-{run_id}",
@@ -400,9 +551,9 @@ def run_technical_validation(
             inner_splits=config.validation.nested_cv.inner_folds,
             inner_repeats=config.validation.nested_cv.repeats,
             random_state=config.validation.nested_cv.seed,
-            smote_mode="both" if config.imbalance.smote.get("compare") else (
-                "on" if config.imbalance.smote.get("enabled") else "off"
-            ),
+            smote_mode="both"
+            if config.imbalance.smote.get("compare")
+            else ("on" if config.imbalance.smote.get("enabled") else "off"),
             group_stratify=config.multiclass.group_stratify,
             estimator_mode=config.multiclass.estimator_mode,
             logreg_solver=config.multiclass.logreg.solver,
@@ -413,6 +564,8 @@ def run_technical_validation(
             logreg_C=config.multiclass.logreg.C,
             logreg_class_weight=config.multiclass.logreg.class_weight,
             logreg_n_jobs=config.multiclass.logreg.n_jobs,
+            calibration_bins=config.calibration.bins,
+            calibration_binning=config.calibration.binning,
             device=config.device,
             tracker=config.tracker,
             experiment_name=config.experiment_name or f"{config.project.id}/technical",
@@ -430,6 +583,8 @@ def run_technical_validation(
             inner_splits=config.validation.nested_cv.inner_folds,
             random_state=config.validation.nested_cv.seed,
             use_smote=config.imbalance.smote.get("enabled", False),
+            calibration_bins=config.calibration.bins,
+            calibration_binning=config.calibration.binning,
             output_format="csv",
             tracker=config.tracker,
             experiment_name=config.experiment_name or f"{config.project.id}/technical",
@@ -449,8 +604,11 @@ def run_technical_validation(
     config_path = run_dir / "config.resolved.yaml"
     config.save(config_path)
 
-    summary, per_fold = _technical_metrics_from_run(run_dir, config.task.mode, config.metrics.primary)
+    summary, per_fold = _technical_metrics_from_run(
+        run_dir, config.task.mode, config.metrics.primary
+    )
     notes: List[str] = []
+    calibration_decision: Optional[Dict[str, Any]] = None
     if config.task.mode == "meta":
         meta_metrics_path = run_dir / "metrics_outer_meta_eval.csv"
         if meta_metrics_path.exists():
@@ -474,8 +632,45 @@ def run_technical_validation(
                     notes.append(f"Calibration selection rationale: {reason}")
             except Exception:
                 pass
+        run_manifest_path = run_dir / "run.json"
+        if run_manifest_path.exists():
+            try:
+                run_payload = json.loads(run_manifest_path.read_text(encoding="utf-8"))
+                prob_quality = (
+                    (run_payload.get("artifact_registry", {}) or {}).get("probability_quality", {})
+                )
+                folds = prob_quality.get("folds", {}) if isinstance(prob_quality, dict) else {}
+                if isinstance(folds, dict) and folds:
+                    first_fold = next(iter(folds.values()))
+                    if isinstance(first_fold, dict):
+                        decision = dict(first_fold.get("calibration_decision", {}) or {})
+                        decision["final_variant"] = first_fold.get("final_variant")
+                        decision["pred_alignment_mismatch_rate"] = (
+                            (first_fold.get("uncalibrated", {}) or {}).get(
+                                "pred_alignment_mismatch_rate"
+                            )
+                            if first_fold.get("final_variant") == "uncalibrated"
+                            else (first_fold.get("calibrated", {}) or {}).get(
+                                "pred_alignment_mismatch_rate"
+                            )
+                        )
+                        calibration_decision = decision
+            except Exception:
+                calibration_decision = None
     report_dir = run_dir / "reports"
-    write_technical_report(report_dir, summary, per_fold, notes=notes)
+    thresholds_cfg = ThresholdsConfig.load(paths.thresholds_yaml)
+    pq_checks_enabled = _probability_quality_checks_enabled(config)
+    write_technical_report(
+        report_dir,
+        summary,
+        per_fold,
+        notes=notes,
+        calibration_decision=calibration_decision,
+        run_dir=run_dir if pq_checks_enabled else None,
+        task_mode=config.task.mode if pq_checks_enabled else None,
+        probability_quality_check_thresholds=_resolve_probability_quality_check_thresholds(config),
+        promotion_gate_metrics=_configured_probability_quality_gate_metrics(thresholds_cfg),
+    )
 
     lineage = _lineage_payload(
         phase="TECHNICAL_VALIDATION",
@@ -543,10 +738,12 @@ def run_feasibility(
         "heatmap_topn": heatmap_topn,
         "fig_dpi": fig_dpi,
     }
-    config_hash = _config_hash({
-        "project": config.model_dump(mode="python"),
-        "feasibility": feasibility_options,
-    })
+    config_hash = _config_hash(
+        {
+            "project": config.model_dump(mode="python"),
+            "feasibility": feasibility_options,
+        }
+    )
     run_id = run_id or _run_id("feasibility", config_hash, train_entry.sha256, None)
     run_dir = paths.runs_subdir("feasibility", run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -593,7 +790,9 @@ def run_feasibility(
                 "stats_outputs": {
                     "stats_dir": str(stats_results.get("stats_dir")),
                     "publication_xlsx": str(stats_results.get("publication_xlsx")),
-                    "legacy_xlsx": str(stats_results.get("legacy_xlsx")) if stats_results.get("legacy_xlsx") else None,
+                    "legacy_xlsx": str(stats_results.get("legacy_xlsx"))
+                    if stats_results.get("legacy_xlsx")
+                    else None,
                 },
                 "viz_outputs": {
                     "viz_dir": str(viz_results.get("viz_dir")) if viz_results else None,
@@ -639,7 +838,9 @@ def run_feasibility(
     return run_dir
 
 
-def _select_best_binary_config(metrics_path: Path, selection_metric: str, direction: str) -> Dict[str, str]:
+def _select_best_binary_config(
+    metrics_path: Path, selection_metric: str, direction: str
+) -> Dict[str, str]:
     df = pd.read_csv(metrics_path)
     metric_col = _select_metric_column(df, selection_metric)
     if metric_col is None:
@@ -673,11 +874,15 @@ def _select_best_binary_config(metrics_path: Path, selection_metric: str, direct
     }
 
 
-def _select_best_multiclass_config(metrics_path: Path, selection_metric: str, direction: str) -> Dict[str, str]:
+def _select_best_multiclass_config(
+    metrics_path: Path, selection_metric: str, direction: str
+) -> Dict[str, str]:
     df = pd.read_csv(metrics_path)
     metric_col = _select_metric_column(df, selection_metric)
     if metric_col is None:
-        metric_col = "mean_test_f1_macro" if "mean_test_f1_macro" in df.columns else "mean_test_score"
+        metric_col = (
+            "mean_test_f1_macro" if "mean_test_f1_macro" in df.columns else "mean_test_score"
+        )
     df = df.dropna(subset=[metric_col])
     sort_asc = direction == "min"
     df = df.sort_values(metric_col, ascending=sort_asc)
@@ -758,18 +963,28 @@ def _train_final_binary(
     from sklearn.preprocessing import StandardScaler
     from imblearn.pipeline import Pipeline as ImbPipeline
 
-    pipe = ImbPipeline([
-        ("sampler", sampler),
-        ("scaler", StandardScaler()),
-        ("clf", estimator),
-    ])
+    pipe = ImbPipeline(
+        [
+            ("sampler", sampler),
+            ("scaler", StandardScaler()),
+            ("clf", estimator),
+        ]
+    )
     if params:
         pipe.set_params(**params)
     pipe.fit(X, y)
 
-    fold_dir = outdir / "fold1" / f"binary_{'smote' if best_cfg.get('sampler') == 'smote' else 'none'}"
+    fold_dir = (
+        outdir / "fold1" / f"binary_{'smote' if best_cfg.get('sampler') == 'smote' else 'none'}"
+    )
     fold_dir.mkdir(parents=True, exist_ok=True)
-    joblib.dump({"pipes": {"binary_task__" + best_cfg["model_name"]: pipe}, "best_models": {"binary_task": best_cfg["model_name"]}}, fold_dir / "binary_pipes.joblib")
+    joblib.dump(
+        {
+            "pipes": {"binary_task__" + best_cfg["model_name"]: pipe},
+            "best_models": {"binary_task": best_cfg["model_name"]},
+        },
+        fold_dir / "binary_pipes.joblib",
+    )
     return str(pos_label)
 
 
@@ -829,7 +1044,9 @@ def _train_final_meta(
                     best_pipes = bundle.get("pipes", {})
                     best_models = bundle.get("best_models", {})
                     reused_from_technical = True
-                    logger.info(f"  Loaded {len(best_pipes)} pipelines, {len(best_models)} best models")
+                    logger.info(
+                        f"  Loaded {len(best_pipes)} pipelines, {len(best_models)} best models"
+                    )
 
                     # Validate that pipelines produce meaningful predictions
                     _validate_binary_pipelines(best_pipes, best_models, X_full, y_full, tasks)
@@ -868,7 +1085,7 @@ def _train_final_meta(
         "warnings": [],
         "reused_binary_pipelines_from_technical": reused_from_technical,
     }
-    if not config.calibration.calibrate_meta:
+    if config.calibration.enabled == "false":
         calibration_metadata["warnings"].append("Calibration disabled in configuration.")
     else:
         method = config.calibration.method
@@ -889,26 +1106,34 @@ def _train_final_meta(
             )
             calibrator.fit(X_meta.values, y_full.values)
             meta_model = calibrator
-            calibration_metadata.update({
-                "enabled": True,
-                "method_used": method,
-                "cv": cv,
-            })
+            calibration_metadata.update(
+                {
+                    "enabled": True,
+                    "method_used": method,
+                    "cv": cv,
+                }
+            )
         except Exception as exc:
             calibration_metadata["warnings"].append(f"Calibration failed: {exc}")
-            calibration_metadata.update({
-                "enabled": False,
-                "method_used": method,
-                "cv": cv,
-            })
+            calibration_metadata.update(
+                {
+                    "enabled": False,
+                    "method_used": method,
+                    "cv": cv,
+                }
+            )
 
     fold_dir = outdir / "fold1" / f"binary_{variant}"
     fold_dir.mkdir(parents=True, exist_ok=True)
 
     joblib.dump({"pipes": best_pipes, "best_models": best_models}, fold_dir / "binary_pipes.joblib")
     joblib.dump(meta_model, fold_dir / "meta_model.joblib")
-    pd.Series(list(X_meta.columns)).to_csv(fold_dir / "meta_features.csv", index=False, header=False)
-    pd.Series(list(meta_model.classes_)).to_csv(fold_dir / "meta_classes.csv", index=False, header=False)
+    pd.Series(list(X_meta.columns)).to_csv(
+        fold_dir / "meta_features.csv", index=False, header=False
+    )
+    pd.Series(list(meta_model.classes_)).to_csv(
+        fold_dir / "meta_classes.csv", index=False, header=False
+    )
     with open(fold_dir / "calibration_metadata.json", "w", encoding="utf-8") as handle:
         json.dump(calibration_metadata, handle, indent=2)
 
@@ -925,7 +1150,9 @@ def _validate_binary_pipelines(
 
     Raises ValueError if pipelines appear to be producing near-random outputs.
     """
-    MIN_STD_THRESHOLD = 0.05  # Minimum standard deviation for predictions to be considered meaningful
+    MIN_STD_THRESHOLD = (
+        0.05  # Minimum standard deviation for predictions to be considered meaningful
+    )
     MAX_MEAN_DEVIATION = 0.15  # Maximum deviation from 0.5 for mean to indicate random predictions
 
     for task_name, model_name in best_models.items():
@@ -952,8 +1179,7 @@ def _validate_binary_pipelines(
 
         # Check for near-random predictions
         is_near_random = (
-            std_score < MIN_STD_THRESHOLD and
-            abs(mean_score - 0.5) < MAX_MEAN_DEVIATION
+            std_score < MIN_STD_THRESHOLD and abs(mean_score - 0.5) < MAX_MEAN_DEVIATION
         )
 
         if is_near_random:
@@ -1026,10 +1252,17 @@ def _retrain_binary_pipelines_per_task(
                     "params": {
                         k: best_row[k]
                         for k in best_row.index
-                        if k not in {
-                            "fold", "sampler", "task", "model_name",
-                            "rank_test_score", "mean_test_score", "std_test_score",
-                        } and pd.notna(best_row[k])
+                        if k
+                        not in {
+                            "fold",
+                            "sampler",
+                            "task",
+                            "model_name",
+                            "rank_test_score",
+                            "mean_test_score",
+                            "std_test_score",
+                        }
+                        and pd.notna(best_row[k])
                     },
                 }
             logger.info(f"Loaded per-task configurations for {len(task_configs)} tasks")
@@ -1048,7 +1281,11 @@ def _retrain_binary_pipelines_per_task(
     )
     estimators = model_spec["base_estimators"]
 
-    sampler = AdaptiveSMOTE(k_max=5, random_state=config.validation.nested_cv.seed) if variant == "smote" else "passthrough"
+    sampler = (
+        AdaptiveSMOTE(k_max=5, random_state=config.validation.nested_cv.seed)
+        if variant == "smote"
+        else "passthrough"
+    )
 
     for task_name, task_func in tasks.items():
         y_bin = task_func(y_full).dropna()
@@ -1075,11 +1312,13 @@ def _retrain_binary_pipelines_per_task(
         cleaned = _filter_model_params(estimator, params)
         clf_params = {f"clf__{k}": v for k, v in cleaned.items() if k}
 
-        pipe = ImbPipeline([
-            ("sampler", sampler),
-            ("scaler", StandardScaler()),
-            ("clf", estimator),
-        ])
+        pipe = ImbPipeline(
+            [
+                ("sampler", sampler),
+                ("scaler", StandardScaler()),
+                ("clf", estimator),
+            ]
+        )
         if clf_params:
             pipe.set_params(**clf_params)
 
@@ -1148,11 +1387,13 @@ def _train_final_multiclass(
     from sklearn.preprocessing import StandardScaler
     from imblearn.pipeline import Pipeline as ImbPipeline
 
-    pipe = ImbPipeline([
-        ("sampler", sampler),
-        ("scaler", StandardScaler()),
-        ("clf", estimator),
-    ])
+    pipe = ImbPipeline(
+        [
+            ("sampler", sampler),
+            ("scaler", StandardScaler()),
+            ("clf", estimator),
+        ]
+    )
     if params:
         pipe.set_params(**params)
     pipe.fit(X_full, y_full)
@@ -1192,7 +1433,9 @@ def _train_final_hierarchical(
     le_l1 = LabelEncoder().fit(y_l1_all)
     y_l1_enc = le_l1.transform(y_l1_all)
 
-    split = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=config.validation.nested_cv.seed)
+    split = StratifiedShuffleSplit(
+        n_splits=1, test_size=0.2, random_state=config.validation.nested_cv.seed
+    )
     train_idx, val_idx = next(split.split(X_all, y_l1_enc))
 
     scaler = StandardScaler()
@@ -1209,7 +1452,9 @@ def _train_final_hierarchical(
     best_cfg_l1 = l1_rows.iloc[0]
 
     best_cfg = {
-        "hidden_dims": jsonlib.loads(best_cfg_l1["hidden_dims"]) if isinstance(best_cfg_l1["hidden_dims"], str) else best_cfg_l1["hidden_dims"],
+        "hidden_dims": jsonlib.loads(best_cfg_l1["hidden_dims"])
+        if isinstance(best_cfg_l1["hidden_dims"], str)
+        else best_cfg_l1["hidden_dims"],
         "lr": float(best_cfg_l1["lr"]),
         "epochs": int(best_cfg_l1["epochs"]),
         "dropout": float(best_cfg_l1["dropout"]),
@@ -1262,7 +1507,9 @@ def _train_final_hierarchical(
             l2_rows = l2_rows.sort_values("mean_f1_macro", ascending=False)
             best_cfg_l2 = l2_rows.iloc[0]
             cfg_l2 = {
-                "hidden_dims": jsonlib.loads(best_cfg_l2["hidden_dims"]) if isinstance(best_cfg_l2["hidden_dims"], str) else best_cfg_l2["hidden_dims"],
+                "hidden_dims": jsonlib.loads(best_cfg_l2["hidden_dims"])
+                if isinstance(best_cfg_l2["hidden_dims"], str)
+                else best_cfg_l2["hidden_dims"],
                 "lr": float(best_cfg_l2["lr"]),
                 "epochs": int(best_cfg_l2["epochs"]),
                 "dropout": float(best_cfg_l2["dropout"]),
@@ -1271,7 +1518,9 @@ def _train_final_hierarchical(
             X_branch = scaler.transform(X_all[mask])
             y_branch = le_l2.transform(l2_values)
 
-            split = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=config.validation.nested_cv.seed)
+            split = StratifiedShuffleSplit(
+                n_splits=1, test_size=0.2, random_state=config.validation.nested_cv.seed
+            )
             tr_idx, va_idx = next(split.split(X_branch, y_branch))
             X_tr_b, X_va_b = X_branch[tr_idx], X_branch[va_idx]
             y_tr_b, y_va_b = y_branch[tr_idx], y_branch[va_idx]
@@ -1292,7 +1541,9 @@ def _train_final_hierarchical(
             model_l2.fit(X_tr_b, y_tr_b, X_va_b, y_va_b)
             safe_l1 = l1_value.replace(" ", "_")
             model_l2.save(fold_dir / f"model_level2_{safe_l1}_fold1.pt")
-            with open(fold_dir / f"model_config_l2_{safe_l1}_fold1.json", "w", encoding="utf-8") as handle:
+            with open(
+                fold_dir / f"model_config_l2_{safe_l1}_fold1.json", "w", encoding="utf-8"
+            ) as handle:
                 jsonlib.dump(model_l2.get_config(), handle, indent=2)
             joblib.dump(le_l2, fold_dir / f"label_encoder_l2_{safe_l1}.joblib")
 
@@ -1388,10 +1639,12 @@ def build_final_model(
     logger.info(f"Sampler: {sampler}")
     logger.info(f"Technical run: {technical_run}")
 
-    config_hash = _config_hash({
-        **effective_config.model_dump(mode="python"),
-        "sampler": sampler,
-    })
+    config_hash = _config_hash(
+        {
+            **effective_config.model_dump(mode="python"),
+            "sampler": sampler,
+        }
+    )
     run_id = run_id or _run_id(
         "final_model",
         config_hash,
@@ -1438,7 +1691,7 @@ def build_final_model(
             selected_binary_configs=binary_configs,
             selected_meta_config=meta_config,
             sampler=sampler,
-            calibrate_meta=effective_config.calibration.calibrate_meta,
+            calibrate_meta=effective_config.calibration.enabled != "false",
             calibration_method=effective_config.calibration.method,
             calibration_cv=effective_config.calibration.cv,
             calibration_bins=effective_config.calibration.bins,
@@ -1471,7 +1724,9 @@ def build_final_model(
         # Legacy path for binary mode
         metrics_path = technical_run / "metrics_inner_cv.csv"
         best_cfg = _select_best_binary_config(
-            metrics_path, effective_config.models.selection_metric, effective_config.models.selection_direction
+            metrics_path,
+            effective_config.models.selection_metric,
+            effective_config.models.selection_direction,
         )
         if sampler:
             best_cfg["sampler"] = sampler
@@ -1483,7 +1738,9 @@ def build_final_model(
         logger.info("\n[2/4] Training final multiclass model (from scratch)...")
         metrics_path = technical_run / "metrics_inner_cv.csv"
         best_cfg = _select_best_multiclass_config(
-            metrics_path, effective_config.models.selection_metric, effective_config.models.selection_direction
+            metrics_path,
+            effective_config.models.selection_metric,
+            effective_config.models.selection_direction,
         )
         if sampler:
             best_cfg["sampler"] = sampler
@@ -1640,7 +1897,9 @@ def run_independent_test(
     logger.info(f"Test samples: {test_entry.stats.rows}")
 
     config_hash = _config_hash(config.model_dump(mode="python"))
-    run_id = run_id or _run_id("independent_test", config_hash, train_entry.sha256, test_entry.sha256)
+    run_id = run_id or _run_id(
+        "independent_test", config_hash, train_entry.sha256, test_entry.sha256
+    )
     run_dir = paths.runs_subdir("independent_test", run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
 

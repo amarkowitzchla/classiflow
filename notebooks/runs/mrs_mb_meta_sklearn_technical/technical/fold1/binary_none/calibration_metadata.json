@@ -1,0 +1,18 @@
+{
+  "enabled": false,
+  "enabled_requested": "true",
+  "method_requested": "sigmoid",
+  "method_used": "sigmoid",
+  "cv": 3,
+  "bins": 10,
+  "binning": "uniform",
+  "warnings": [],
+  "enabled_candidate": true,
+  "decision": "disabled_by_metrics",
+  "decision_reasons": [
+    "R4_failed_improvement: brier_recommended delta=+0.003815, required <= -0.002000",
+    "R4_failed_improvement: log_loss delta=+0.034927, allowed <= 0.010000",
+    "R4_failed_improvement: ece_ovr_macro delta=+0.013434, allowed <= 0.010000"
+  ],
+  "final_variant": "uncalibrated"
+}

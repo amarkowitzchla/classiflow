@@ -1,0 +1,147 @@
+{
+  "fold": 1,
+  "variant": "none",
+  "calibration_metadata": {
+    "enabled": true,
+    "enabled_requested": "true",
+    "method_requested": "sigmoid",
+    "method_used": "sigmoid",
+    "cv": 3,
+    "bins": 10,
+    "binning": "quantile",
+    "warnings": [],
+    "enabled_candidate": true,
+    "decision": "retained",
+    "decision_reasons": [
+      "R4_passed: calibration improved probability quality within guardrails."
+    ],
+    "final_variant": "calibrated"
+  },
+  "calibrated": {
+    "brier": 0.027937799880300568,
+    "brier_recommended": 0.027937799880300568,
+    "brier_binary": null,
+    "brier_multiclass_sum": 0.13968899940150284,
+    "brier_multiclass_mean": 0.027937799880300568,
+    "log_loss": 0.3664106963168912,
+    "ece": 0.2534311085901846,
+    "ece_top1": 0.2534311085901846,
+    "ece_binary_pos": null,
+    "ece_ovr_macro": 0.10622907780595267,
+    "mean_confidence_top1": 0.7120861327891258,
+    "accuracy_top1": 0.9655172413793104,
+    "confidence_gap_top1": -0.2534311085901846,
+    "pred_alignment_mismatch_rate": 0.0,
+    "pred_alignment_note": "Using argmax(y_proba) for top1 ECE by definition; y_pred mismatch indicates postprocessing.",
+    "ece_ovr__G3": 0.10349855698108146,
+    "ece_ovr__G4": 0.11933085040130165,
+    "ece_ovr__OTHER": 0.08756378292420719,
+    "ece_ovr__SHH": 0.0986100445705191,
+    "ece_ovr__WNT": 0.12214215415265402
+  },
+  "uncalibrated": {
+    "brier": 0.14939539125806794,
+    "brier_recommended": 0.14939539125806794,
+    "brier_binary": null,
+    "brier_multiclass_sum": 0.7469769562903398,
+    "brier_multiclass_mean": 0.14939539125806794,
+    "log_loss": 1.4834967078533676,
+    "ece": 0.7729066938090524,
+    "ece_top1": 0.7729066938090524,
+    "ece_binary_pos": null,
+    "ece_ovr_macro": 0.2981005719168602,
+    "mean_confidence_top1": 0.22709330619094756,
+    "accuracy_top1": 1.0,
+    "confidence_gap_top1": -0.7729066938090524,
+    "pred_alignment_mismatch_rate": 0.0,
+    "pred_alignment_note": "Using argmax(y_proba) for top1 ECE by definition; y_pred mismatch indicates postprocessing.",
+    "ece_ovr__G3": 0.3073360064356684,
+    "ece_ovr__G4": 0.4225387726843345,
+    "ece_ovr__OTHER": 0.25504059328598977,
+    "ece_ovr__SHH": 0.2484124011919136,
+    "ece_ovr__WNT": 0.2571750859863945
+  },
+  "overall": {
+    "probability_quality": {
+      "uncalibrated": {
+        "brier": 0.14939539125806794,
+        "brier_recommended": 0.14939539125806794,
+        "brier_binary": null,
+        "brier_multiclass_sum": 0.7469769562903398,
+        "brier_multiclass_mean": 0.14939539125806794,
+        "log_loss": 1.4834967078533676,
+        "ece": 0.7729066938090524,
+        "ece_top1": 0.7729066938090524,
+        "ece_binary_pos": null,
+        "ece_ovr_macro": 0.2981005719168602,
+        "mean_confidence_top1": 0.22709330619094756,
+        "accuracy_top1": 1.0,
+        "confidence_gap_top1": -0.7729066938090524,
+        "pred_alignment_mismatch_rate": 0.0,
+        "pred_alignment_note": "Using argmax(y_proba) for top1 ECE by definition; y_pred mismatch indicates postprocessing.",
+        "ece_ovr__G3": 0.3073360064356684,
+        "ece_ovr__G4": 0.4225387726843345,
+        "ece_ovr__OTHER": 0.25504059328598977,
+        "ece_ovr__SHH": 0.2484124011919136,
+        "ece_ovr__WNT": 0.2571750859863945
+      },
+      "calibrated": {
+        "brier": 0.027937799880300568,
+        "brier_recommended": 0.027937799880300568,
+        "brier_binary": null,
+        "brier_multiclass_sum": 0.13968899940150284,
+        "brier_multiclass_mean": 0.027937799880300568,
+        "log_loss": 0.3664106963168912,
+        "ece": 0.2534311085901846,
+        "ece_top1": 0.2534311085901846,
+        "ece_binary_pos": null,
+        "ece_ovr_macro": 0.10622907780595267,
+        "mean_confidence_top1": 0.7120861327891258,
+        "accuracy_top1": 0.9655172413793104,
+        "confidence_gap_top1": -0.2534311085901846,
+        "pred_alignment_mismatch_rate": 0.0,
+        "pred_alignment_note": "Using argmax(y_proba) for top1 ECE by definition; y_pred mismatch indicates postprocessing.",
+        "ece_ovr__G3": 0.10349855698108146,
+        "ece_ovr__G4": 0.11933085040130165,
+        "ece_ovr__OTHER": 0.08756378292420719,
+        "ece_ovr__SHH": 0.0986100445705191,
+        "ece_ovr__WNT": 0.12214215415265402
+      },
+      "final_variant": "calibrated",
+      "calibration_decision": {
+        "enabled_requested": "true",
+        "enabled_final": true,
+        "method_requested": "sigmoid",
+        "method_used": "sigmoid",
+        "decision": "retained",
+        "reasons": [
+          "R4_passed: calibration improved probability quality within guardrails."
+        ],
+        "n_samples": 29,
+        "min_class_n": 3,
+        "metrics_compared": {
+          "brier_recommended": {
+            "uncal": 0.14939539125806794,
+            "cal": 0.027937799880300568,
+            "delta": -0.12145759137776738
+          },
+          "log_loss": {
+            "uncal": 1.4834967078533676,
+            "cal": 0.3664106963168912,
+            "delta": -1.1170860115364765
+          },
+          "ece_top1": {
+            "uncal": 0.7729066938090524,
+            "cal": 0.2534311085901846,
+            "delta": -0.5194755852188678
+          },
+          "ece_ovr_macro": {
+            "uncal": 0.2981005719168602,
+            "cal": 0.10622907780595267,
+            "delta": -0.1918714941109075
+          }
+        }
+      }
+    }
+  }
+}

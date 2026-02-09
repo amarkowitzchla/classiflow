@@ -1,0 +1,147 @@
+{
+  "fold": 1,
+  "variant": "none",
+  "calibration_metadata": {
+    "enabled": false,
+    "enabled_requested": "true",
+    "method_requested": "sigmoid",
+    "method_used": "sigmoid",
+    "cv": 3,
+    "bins": 10,
+    "binning": "uniform",
+    "warnings": [],
+    "enabled_candidate": true,
+    "decision": "disabled_by_metrics",
+    "decision_reasons": [
+      "R4_failed_improvement: brier_recommended delta=+0.003815, required <= -0.002000",
+      "R4_failed_improvement: log_loss delta=+0.034927, allowed <= 0.010000",
+      "R4_failed_improvement: ece_ovr_macro delta=+0.013434, allowed <= 0.010000"
+    ],
+    "final_variant": "uncalibrated"
+  },
+  "calibrated": {
+    "brier": 0.02557462278604558,
+    "brier_recommended": 0.02557462278604558,
+    "brier_binary": null,
+    "brier_multiclass_sum": 0.10229849114418232,
+    "brier_multiclass_mean": 0.02557462278604558,
+    "log_loss": 0.2819557643339716,
+    "ece": 0.22079611640865676,
+    "ece_top1": 0.22079611640865676,
+    "ece_binary_pos": null,
+    "ece_ovr_macro": 0.11507873442367755,
+    "mean_confidence_top1": 0.7746987147936506,
+    "accuracy_top1": 0.96875,
+    "confidence_gap_top1": -0.1940512852063494,
+    "pred_alignment_mismatch_rate": 0.0,
+    "pred_alignment_note": "Using argmax(y_proba) for top1 ECE by definition; y_pred mismatch indicates postprocessing.",
+    "ece_ovr__G3": 0.10426389220409372,
+    "ece_ovr__G4": 0.13100960717007432,
+    "ece_ovr__SHH": 0.12349741560638153,
+    "ece_ovr__WNT": 0.10154402271416063
+  },
+  "uncalibrated": {
+    "brier": 0.021759980993127426,
+    "brier_recommended": 0.021759980993127426,
+    "brier_binary": null,
+    "brier_multiclass_sum": 0.0870399239725097,
+    "brier_multiclass_mean": 0.021759980993127426,
+    "log_loss": 0.24702901904195446,
+    "ece": 0.19255289024163566,
+    "ece_top1": 0.19255289024163566,
+    "ece_binary_pos": null,
+    "ece_ovr_macro": 0.10164484239344998,
+    "mean_confidence_top1": 0.7994082806842413,
+    "accuracy_top1": 0.96875,
+    "confidence_gap_top1": -0.1693417193157587,
+    "pred_alignment_mismatch_rate": 0.0,
+    "pred_alignment_note": "Using argmax(y_proba) for top1 ECE by definition; y_pred mismatch indicates postprocessing.",
+    "ece_ovr__G3": 0.08186487728876915,
+    "ece_ovr__G4": 0.1020966420238163,
+    "ece_ovr__SHH": 0.10107035173180196,
+    "ece_ovr__WNT": 0.12154749852941246
+  },
+  "overall": {
+    "probability_quality": {
+      "uncalibrated": {
+        "brier": 0.021759980993127426,
+        "brier_recommended": 0.021759980993127426,
+        "brier_binary": null,
+        "brier_multiclass_sum": 0.0870399239725097,
+        "brier_multiclass_mean": 0.021759980993127426,
+        "log_loss": 0.24702901904195446,
+        "ece": 0.19255289024163566,
+        "ece_top1": 0.19255289024163566,
+        "ece_binary_pos": null,
+        "ece_ovr_macro": 0.10164484239344998,
+        "mean_confidence_top1": 0.7994082806842413,
+        "accuracy_top1": 0.96875,
+        "confidence_gap_top1": -0.1693417193157587,
+        "pred_alignment_mismatch_rate": 0.0,
+        "pred_alignment_note": "Using argmax(y_proba) for top1 ECE by definition; y_pred mismatch indicates postprocessing.",
+        "ece_ovr__G3": 0.08186487728876915,
+        "ece_ovr__G4": 0.1020966420238163,
+        "ece_ovr__SHH": 0.10107035173180196,
+        "ece_ovr__WNT": 0.12154749852941246
+      },
+      "calibrated": {
+        "brier": 0.02557462278604558,
+        "brier_recommended": 0.02557462278604558,
+        "brier_binary": null,
+        "brier_multiclass_sum": 0.10229849114418232,
+        "brier_multiclass_mean": 0.02557462278604558,
+        "log_loss": 0.2819557643339716,
+        "ece": 0.22079611640865676,
+        "ece_top1": 0.22079611640865676,
+        "ece_binary_pos": null,
+        "ece_ovr_macro": 0.11507873442367755,
+        "mean_confidence_top1": 0.7746987147936506,
+        "accuracy_top1": 0.96875,
+        "confidence_gap_top1": -0.1940512852063494,
+        "pred_alignment_mismatch_rate": 0.0,
+        "pred_alignment_note": "Using argmax(y_proba) for top1 ECE by definition; y_pred mismatch indicates postprocessing.",
+        "ece_ovr__G3": 0.10426389220409372,
+        "ece_ovr__G4": 0.13100960717007432,
+        "ece_ovr__SHH": 0.12349741560638153,
+        "ece_ovr__WNT": 0.10154402271416063
+      },
+      "final_variant": "uncalibrated",
+      "calibration_decision": {
+        "enabled_requested": "true",
+        "enabled_final": false,
+        "method_requested": "sigmoid",
+        "method_used": "sigmoid",
+        "decision": "disabled_by_metrics",
+        "reasons": [
+          "R4_failed_improvement: brier_recommended delta=+0.003815, required <= -0.002000",
+          "R4_failed_improvement: log_loss delta=+0.034927, allowed <= 0.010000",
+          "R4_failed_improvement: ece_ovr_macro delta=+0.013434, allowed <= 0.010000"
+        ],
+        "n_samples": 32,
+        "min_class_n": 4,
+        "metrics_compared": {
+          "brier_recommended": {
+            "uncal": 0.021759980993127426,
+            "cal": 0.02557462278604558,
+            "delta": 0.0038146417929181553
+          },
+          "log_loss": {
+            "uncal": 0.24702901904195446,
+            "cal": 0.2819557643339716,
+            "delta": 0.03492674529201717
+          },
+          "ece_top1": {
+            "uncal": 0.19255289024163566,
+            "cal": 0.22079611640865676,
+            "delta": 0.0282432261670211
+          },
+          "ece_ovr_macro": {
+            "uncal": 0.10164484239344998,
+            "cal": 0.11507873442367755,
+            "delta": 0.013433892030227573
+          }
+        }
+      }
+    }
+  }
+}

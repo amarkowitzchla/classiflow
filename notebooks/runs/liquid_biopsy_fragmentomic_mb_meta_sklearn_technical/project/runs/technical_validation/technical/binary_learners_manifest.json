@@ -1,0 +1,68 @@
+{
+  "classes": [
+    "G3",
+    "G4",
+    "OTHER",
+    "SHH",
+    "WNT"
+  ],
+  "estimator_type_by_class": {
+    "G3": [
+      "LogisticRegression"
+    ],
+    "G4": [
+      "GradientBoostingClassifier",
+      "LogisticRegression",
+      "RandomForestClassifier"
+    ],
+    "OTHER": [
+      "LogisticRegression",
+      "SVC"
+    ],
+    "SHH": [
+      "LogisticRegression",
+      "SVC"
+    ],
+    "WNT": [
+      "LogisticRegression",
+      "RandomForestClassifier"
+    ]
+  },
+  "input_feature_set_summary": {
+    "n_features": 1354,
+    "feature_list_path": "run.json#feature_list"
+  },
+  "per_fold_outputs": [
+    {
+      "fold": 1,
+      "sampler": "none",
+      "base_ovr_proba_path": "fold1/binary_none/base_ovr_proba_fold1.npz",
+      "n_samples": 29
+    },
+    {
+      "fold": 2,
+      "sampler": "none",
+      "base_ovr_proba_path": "fold2/binary_none/base_ovr_proba_fold2.npz",
+      "n_samples": 28
+    },
+    {
+      "fold": 3,
+      "sampler": "none",
+      "base_ovr_proba_path": "fold3/binary_none/base_ovr_proba_fold3.npz",
+      "n_samples": 28
+    }
+  ],
+  "metrics_by_fold_path": "binary_learners_metrics_by_fold.csv",
+  "metrics_summary_path": "binary_learners_metrics_summary.csv",
+  "warnings_path": "binary_learners_warnings.json",
+  "ovo_auc_matrix_path": "ovo_auc_matrix.csv",
+  "ovo_auc_matrix_plot_path": "plots/ovo_auc_matrix.png",
+  "ovr_roc_plot_paths": [
+    "plots/binary_ovr_roc_G3.png",
+    "plots/binary_ovr_roc_G4.png",
+    "plots/binary_ovr_roc_OTHER.png",
+    "plots/binary_ovr_roc_SHH.png",
+    "plots/binary_ovr_roc_WNT.png",
+    "plots/binary_ovr_roc_all_classes.png"
+  ]
+}

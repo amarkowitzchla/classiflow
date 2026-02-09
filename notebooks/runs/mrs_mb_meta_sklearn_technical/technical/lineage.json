@@ -1,0 +1,25 @@
+{
+  "phase": "TECHNICAL_VALIDATION",
+  "run_id": "technical",
+  "timestamp_local": "2026-02-09T12:42:27.872921",
+  "timestamp_utc": "2026-02-09T20:42:27.872930+00:00",
+  "classiflow_version": "0.1.0",
+  "git_hash": "813b91f311739b7591817da6b390d18ff53653c6",
+  "python_version": "3.11.10",
+  "platform": "macOS-15.7.3-x86_64-i386-64bit",
+  "config_hash": "663fe1f93070d40ce49c54914fd25a1168b6262ce37c37903ba71f219fbb1ae4",
+  "dataset_hashes": {
+    "train": "32311d51283f3207a485d3c1975af6ed26e40be8ad23e5d1efa4ff37f10ce243",
+    "test": null
+  },
+  "command": "classiflow project run-technical",
+  "args": {
+    "run_id": "technical"
+  },
+  "outputs": [
+    {
+      "path": "runs/mrs_mb_meta_sklearn_technical/project/runs/technical_validation/technical/config.resolved.yaml",
+      "sha256": "1587268e3160c562343982ffbf020b08f4db2fd0072ed61af032f84e91be0957"
+    }
+  ]
+}

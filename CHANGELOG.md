@@ -60,6 +60,60 @@ Guidelines:
   decision metrics in `metrics_outer_multiclass_eval.csv`:
   `sensitivity`, `specificity`, `ppv`, `npv`, `recall`, `precision`, and `mcc`.
   This prevents template gate failures caused by missing `Sensitivity`/`MCC` in technical summaries.
+- Calibration metrics are now mode-specific across `binary`, `multiclass`, `meta`, and `hierarchical`:
+  - Added explicit keys: `ece_top1`, `ece_binary_pos`, `ece_ovr_macro`,
+    `brier_binary`, `brier_multiclass_sum`, `brier_multiclass_mean`, `brier_recommended`,
+    `pred_alignment_mismatch_rate`, and `pred_alignment_note`.
+  - Added multi-curve calibration exports (`calibration_curve_<name>.csv`) while preserving
+    legacy `calibration_curve.csv` (top1) for compatibility.
+  - `overall` inference metrics now include `probability_quality` namespace with detailed
+    calibration metrics.
+  - Backward-compatible aliases retained for one release: `ece` -> `ece_top1`,
+    `brier` -> `brier_recommended` (with deprecation warnings).
+- Meta calibration now supports policy-driven auto-disable with explicit artifact reporting:
+  - New `calibration.enabled` (`auto|true|false`) and policy thresholds (`R1`-`R4`) for
+    calibration rollback decisions.
+  - Meta fold artifacts now persist both uncalibrated/calibrated probability-quality metrics,
+    final variant selection, and decision reasons in `calibration_summary.json`.
+  - Compatibility `calibration_curve.csv` is preserved and now tracks the final selected variant,
+    with additional variant-tagged diagnostic curves.
+  - `run.json` now includes fold-level probability-quality decision summaries under
+    `artifact_registry.probability_quality`.
+- Technical validation reports now include a standardized
+  `Probability Quality Checks (ECE/Brier)` section:
+  - Rule IDs `PQ-001` to `PQ-007` evaluate occupancy, over/underconfidence, calibration regressions,
+    optional test-shift checks, weak OVR class calibration, and near-perfect/high-ECE reviewer guards.
+  - Each triggered rule includes severity, measured values, thresholds, artifact evidence pointers
+    (`run.json` field paths and calibration curve CSV paths), and actionable recommendations.
+  - Added configurable threshold overrides via
+    `calibration.policy.probability_quality_checks` or
+    `calibration.policy.thresholds.probability_quality_checks`.
+  - Report now warns when promotion gates reference `ece*`/`brier*` metrics and reminds users to
+    use explicit key names (`ece_top1` vs `ece_ovr_macro`) with adequate sample support.
+- Probability-quality checks and calibration diagnostics now run across all task modes
+  (`binary`, `multiclass`, `hierarchical`, `meta`) in technical validation:
+  - `run.json` now carries fold-level probability-quality payloads for non-meta modes too.
+  - Added additive variant-tagged curve artifacts for top1/binary-pos/OVR outputs while preserving
+    `calibration_curve.csv` compatibility.
+  - Binary checks are positive-class calibrated (`ece_binary_pos`, `brier_binary`) and occupancy now
+    prefers `binary_pos` reliability curves.
+  - Hierarchical mode adds `PQ-H001` to interpret argmax probability vs postprocessed final-label mismatch.
+- Meta and hierarchical technical validation outputs now include `mcc` in outer metrics CSVs:
+  - `metrics_outer_meta_eval.csv` now emits `mcc` for train/val rows.
+  - `metrics_outer_eval.csv` (hierarchical) now emits `mcc` for `L1`, `L2_oracle_*`, and `pipeline` rows,
+    and hierarchical `metrics_summary.*` includes additive `mcc_mean`/`mcc_std`.
+  - This fixes `MCC` promotion-gate evaluations resolving to missing/`NaN` in confirmatory workflows.
+- Meta technical validation now publishes under-the-hood binary learner diagnostics:
+  - New artifacts: `binary_learners_manifest.json`, `binary_learners_metrics_by_fold.csv`,
+    `binary_learners_metrics_summary.csv`, `binary_learners_warnings.json`, `ovo_auc_matrix.csv`,
+    `plots/binary_ovr_roc_<class>.png`, `plots/binary_ovr_roc_all_classes.png`,
+    and `plots/ovo_auc_matrix.png`.
+  - Per-fold OVR base learner probabilities are now persisted at
+    `fold{N}/binary_{variant}/base_ovr_proba_fold{N}.npz`.
+  - `run.json` now includes additive pointers under `artifact_registry.binary_learners`.
+  - `technical_validation_report.md` now includes
+    `Binary Learner Health Report (Meta Under-the-Hood)` with class-level summary, BL-001..BL-006
+    warnings, evidence paths, and interpretation impact notes.
 
 ### Deprecated
 
@@ -69,5 +123,8 @@ Guidelines:
 - Prevented hierarchical early stopping from using outer validation data; inner CV now respects patient groups.
 - Removed in-sample fallback for meta OOF features and drop missing OOF rows during meta training.
 - Guarded against label/patient leakage via explicit `feature_cols`.
+- Fixed binary probability calibration quality computation:
+  - `compute_probability_quality` now correctly computes binary Brier score/log-loss/ECE instead of returning `NaN` due to binary `label_binarize` shape mismatch.
+  - probability-quality helpers now reject non-probability score matrices (outside `[0,1]`) to avoid misleading calibration metrics.
 
 ### Security

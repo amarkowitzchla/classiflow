@@ -383,6 +383,7 @@ def train_meta(
         torch_dtype=torch_dtype,
         require_torch_device=require_device,
         calibrate_meta=calibrate_meta,
+        calibration_enabled="true" if calibrate_meta else "false",
         calibration_method=calibration_method,
         calibration_cv=calibration_cv,
         calibration_bins=calibration_bins,

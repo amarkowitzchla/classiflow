@@ -1,0 +1,4 @@
+{
+  "strategy": "argmax",
+  "binary_threshold": null
+}

@@ -12,6 +12,7 @@ from classiflow.config import TrainConfig
 from classiflow.io import load_data, load_data_with_groups, validate_data
 from classiflow.splitting import make_group_labels
 from classiflow.training.nested_cv import NestedCVOrchestrator
+from classiflow.training.probability_quality import attach_probability_quality_to_run_manifest
 from classiflow.backends.registry import get_backend, get_model_set
 from classiflow.artifacts import save_nested_cv_results
 from classiflow.lineage.manifest import create_training_manifest
@@ -168,6 +169,8 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
         random_state=config.random_state,
         smote_mode=config.smote_mode,
         max_iter=config.max_iter,
+        calibration_bins=config.calibration_bins,
+        calibration_binning=config.calibration_binning,
         estimators=model_spec["estimators"],
         param_grids=model_spec["param_grids"],
     )
@@ -183,6 +186,11 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
 
     # Save results
     save_nested_cv_results(results, config.outdir)
+    if isinstance(results.get("fold_probability_quality"), dict) and results["fold_probability_quality"]:
+        attach_probability_quality_to_run_manifest(
+            run_manifest_path=config.outdir / "run.json",
+            fold_probability_quality=results["fold_probability_quality"],
+        )
 
     # Log to experiment tracker
     tracker.log_params(extract_loggable_params(config))

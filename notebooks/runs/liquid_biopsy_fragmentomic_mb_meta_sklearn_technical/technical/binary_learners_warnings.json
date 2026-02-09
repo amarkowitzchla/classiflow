@@ -1,0 +1,194 @@
+{
+  "warnings": [
+    {
+      "severity": "WARN",
+      "rule_id": "BL-004",
+      "class_name": "G4",
+      "folds": [
+        "fold1:none",
+        "fold2:none",
+        "fold3:none"
+      ],
+      "finding": "High AUC variance across folds: range=0.2250, std=0.0957",
+      "measured": {
+        "auc_range": 0.22499999999999998,
+        "auc_std": 0.09566972141175746
+      },
+      "thresholds": {
+        "range_gt": 0.2,
+        "std_gt": 0.1
+      },
+      "evidence_paths": [
+        "binary_learners_metrics_by_fold.csv",
+        "binary_learners_metrics_summary.csv",
+        "run.json#artifact_registry.binary_learners"
+      ],
+      "recommended_action": "Treat as instability; consider stronger regularization, improved stratification, or more data."
+    },
+    {
+      "severity": "WARN",
+      "rule_id": "BL-004",
+      "class_name": "OTHER",
+      "folds": [
+        "fold1:none",
+        "fold2:none",
+        "fold3:none"
+      ],
+      "finding": "High AUC variance across folds: range=0.2372, std=0.1051",
+      "measured": {
+        "auc_range": 0.23717948717948723,
+        "auc_std": 0.1050708619926859
+      },
+      "thresholds": {
+        "range_gt": 0.2,
+        "std_gt": 0.1
+      },
+      "evidence_paths": [
+        "binary_learners_metrics_by_fold.csv",
+        "binary_learners_metrics_summary.csv",
+        "run.json#artifact_registry.binary_learners"
+      ],
+      "recommended_action": "Treat as instability; consider stronger regularization, improved stratification, or more data."
+    },
+    {
+      "severity": "INFO",
+      "rule_id": "BL-006",
+      "class_name": "G3",
+      "folds": [
+        "fold1:none",
+        "fold2:none",
+        "fold3:none"
+      ],
+      "finding": "Low class power detected: mean n_pos=6.33, folds_below_25=3",
+      "measured": {
+        "mean_n_pos": 6.333333333333333,
+        "low_support_folds": [
+          "fold1:none",
+          "fold2:none",
+          "fold3:none"
+        ]
+      },
+      "thresholds": {
+        "n_pos_lt": 25
+      },
+      "evidence_paths": [
+        "binary_learners_metrics_by_fold.csv",
+        "binary_learners_metrics_summary.csv",
+        "run.json#artifact_registry.binary_learners"
+      ],
+      "recommended_action": "Interpret this class's base-learner diagnostics qualitatively; avoid over-weighting warnings."
+    },
+    {
+      "severity": "INFO",
+      "rule_id": "BL-006",
+      "class_name": "G4",
+      "folds": [
+        "fold1:none",
+        "fold2:none",
+        "fold3:none"
+      ],
+      "finding": "Low class power detected: mean n_pos=13.00, folds_below_25=3",
+      "measured": {
+        "mean_n_pos": 13.0,
+        "low_support_folds": [
+          "fold1:none",
+          "fold2:none",
+          "fold3:none"
+        ]
+      },
+      "thresholds": {
+        "n_pos_lt": 25
+      },
+      "evidence_paths": [
+        "binary_learners_metrics_by_fold.csv",
+        "binary_learners_metrics_summary.csv",
+        "run.json#artifact_registry.binary_learners"
+      ],
+      "recommended_action": "Interpret this class's base-learner diagnostics qualitatively; avoid over-weighting warnings."
+    },
+    {
+      "severity": "INFO",
+      "rule_id": "BL-006",
+      "class_name": "OTHER",
+      "folds": [
+        "fold1:none",
+        "fold2:none",
+        "fold3:none"
+      ],
+      "finding": "Low class power detected: mean n_pos=2.67, folds_below_25=3",
+      "measured": {
+        "mean_n_pos": 2.6666666666666665,
+        "low_support_folds": [
+          "fold1:none",
+          "fold2:none",
+          "fold3:none"
+        ]
+      },
+      "thresholds": {
+        "n_pos_lt": 25
+      },
+      "evidence_paths": [
+        "binary_learners_metrics_by_fold.csv",
+        "binary_learners_metrics_summary.csv",
+        "run.json#artifact_registry.binary_learners"
+      ],
+      "recommended_action": "Interpret this class's base-learner diagnostics qualitatively; avoid over-weighting warnings."
+    },
+    {
+      "severity": "INFO",
+      "rule_id": "BL-006",
+      "class_name": "SHH",
+      "folds": [
+        "fold1:none",
+        "fold2:none",
+        "fold3:none"
+      ],
+      "finding": "Low class power detected: mean n_pos=3.33, folds_below_25=3",
+      "measured": {
+        "mean_n_pos": 3.3333333333333335,
+        "low_support_folds": [
+          "fold1:none",
+          "fold2:none",
+          "fold3:none"
+        ]
+      },
+      "thresholds": {
+        "n_pos_lt": 25
+      },
+      "evidence_paths": [
+        "binary_learners_metrics_by_fold.csv",
+        "binary_learners_metrics_summary.csv",
+        "run.json#artifact_registry.binary_learners"
+      ],
+      "recommended_action": "Interpret this class's base-learner diagnostics qualitatively; avoid over-weighting warnings."
+    },
+    {
+      "severity": "INFO",
+      "rule_id": "BL-006",
+      "class_name": "WNT",
+      "folds": [
+        "fold1:none",
+        "fold2:none",
+        "fold3:none"
+      ],
+      "finding": "Low class power detected: mean n_pos=3.00, folds_below_25=3",
+      "measured": {
+        "mean_n_pos": 3.0,
+        "low_support_folds": [
+          "fold1:none",
+          "fold2:none",
+          "fold3:none"
+        ]
+      },
+      "thresholds": {
+        "n_pos_lt": 25
+      },
+      "evidence_paths": [
+        "binary_learners_metrics_by_fold.csv",
+        "binary_learners_metrics_summary.csv",
+        "run.json#artifact_registry.binary_learners"
+      ],
+      "recommended_action": "Interpret this class's base-learner diagnostics qualitatively; avoid over-weighting warnings."
+    }
+  ]
+}

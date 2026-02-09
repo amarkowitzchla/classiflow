@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "enabled_requested": "true",
+  "method_requested": "sigmoid",
+  "method_used": "sigmoid",
+  "cv": 3,
+  "bins": 10,
+  "binning": "quantile",
+  "warnings": [],
+  "enabled_candidate": true,
+  "decision": "retained",
+  "decision_reasons": [
+    "R4_passed: calibration improved probability quality within guardrails."
+  ],
+  "final_variant": "calibrated"
+}

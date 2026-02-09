@@ -50,11 +50,35 @@ metrics:
   averaging: macro
   include_confidence_intervals: false
 calibration:
-  calibrate_meta: true
+  enabled: 'true'
   method: sigmoid
   cv: 3
   bins: 10
+  binning: quantile
   isotonic_min_samples: 100
+  policy:
+    apply_to_modes:
+    - binary
+    - multiclass
+    - hierarchical
+    - meta
+    force_keep: false
+    probability_quality_checks:
+      enabled: true
+      apply_to_modes:
+      - binary
+      - multiclass
+      - hierarchical
+      - meta
+    thresholds:
+      underconfidence_gap: -0.1
+      high_accuracy: 0.9
+      near_perfect_accuracy: 0.97
+      min_calibration_n: 200
+      min_class_n: 25
+      min_brier_improvement: 0.002
+      max_log_loss_regression: 0.01
+      max_ece_ovr_regression: 0.01
 final_model:
   sampler: none
   sanity_min_std: 0.02

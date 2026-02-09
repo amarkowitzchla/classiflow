@@ -206,7 +206,9 @@ def _merge_lineage(path: Path, manifest: RunManifestNormalized) -> RunManifestNo
     return manifest
 
 
-def _discover_metrics_paths(run_dir: Path, manifest: RunManifestNormalized) -> RunManifestNormalized:
+def _discover_metrics_paths(
+    run_dir: Path, manifest: RunManifestNormalized
+) -> RunManifestNormalized:
     """Discover metrics file paths."""
     paths = []
 
@@ -300,8 +302,12 @@ def _parse_outer_cv_metrics_csv(run_dir: Path) -> dict[str, Any]:
 
         # Collect metrics per fold
         metric_columns = [
-            "accuracy", "balanced_accuracy", "f1_macro", "f1_weighted",
-            "roc_auc_ovr_macro", "mcc"
+            "accuracy",
+            "balanced_accuracy",
+            "f1_macro",
+            "f1_weighted",
+            "roc_auc_ovr_macro",
+            "mcc",
         ]
 
         per_fold: dict[str, list[float]] = {}
@@ -397,9 +403,17 @@ def parse_metrics(run_dir: Path, phase: str) -> dict[str, Any]:
                 "mcc",
                 "log_loss",
                 "brier",
+                "brier_recommended",
+                "brier_binary",
+                "brier_multiclass_sum",
+                "brier_multiclass_mean",
                 "brier_calibrated",
                 "ece",
+                "ece_top1",
+                "ece_binary_pos",
+                "ece_ovr_macro",
                 "ece_calibrated",
+                "pred_alignment_mismatch_rate",
                 "roc_auc_ovr_macro",
                 "roc_auc_ovr_micro",
             ]:
@@ -471,7 +485,9 @@ def parse_metrics(run_dir: Path, phase: str) -> dict[str, Any]:
     return result
 
 
-def infer_manifest_from_directory(run_dir: Path, project_id: str, phase: str) -> RunManifestNormalized:
+def infer_manifest_from_directory(
+    run_dir: Path, project_id: str, phase: str
+) -> RunManifestNormalized:
     """
     Infer minimal manifest when no explicit manifest file exists.
 

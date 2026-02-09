@@ -3,7 +3,6 @@
 from types import SimpleNamespace
 
 import pandas as pd
-import pytest
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
 
@@ -31,7 +30,9 @@ def _build_dummy_meta():
 def test_sigmoid_calibration_enabled():
     X, y, model = _build_dummy_meta()
     config = _make_config("sigmoid")
-    calibrated, metadata = _calibrate_meta_classifier(model, X, y, config)
+    calibrated, metadata = _calibrate_meta_classifier(
+        model, X, y, config, enabled_requested="true"
+    )
 
     assert isinstance(calibrated, CalibratedClassifierCV)
     assert metadata["enabled"]
@@ -41,7 +42,7 @@ def test_sigmoid_calibration_enabled():
 def test_isotonic_calibration_fallback():
     X, y, model = _build_dummy_meta()
     config = _make_config("isotonic", min_samples=100)
-    _, metadata = _calibrate_meta_classifier(model, X, y, config)
+    _, metadata = _calibrate_meta_classifier(model, X, y, config, enabled_requested="true")
 
     assert metadata["method_used"] == "sigmoid"
     assert any("Isotonic" in warning for warning in metadata["warnings"])
@@ -51,7 +52,7 @@ def test_calibration_disabled():
     X, y, model = _build_dummy_meta()
     config = _make_config("sigmoid")
     config.calibrate_meta = False
-    _, metadata = _calibrate_meta_classifier(model, X, y, config)
+    _, metadata = _calibrate_meta_classifier(model, X, y, config, enabled_requested="false")
 
     assert not metadata["enabled"]
     assert any("disabled" in warning.lower() for warning in metadata["warnings"])

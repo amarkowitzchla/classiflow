@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from datetime import datetime
 import pandas as pd
 import numpy as np
@@ -66,9 +66,9 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
     >>> print(results["metrics"]["overall"]["accuracy"])
     0.8523
     """
-    logger.info("="*60)
+    logger.info("=" * 60)
     logger.info("Starting inference pipeline")
-    logger.info("="*60)
+    logger.info("=" * 60)
     data_path = config.resolved_data_path
     logger.info(f"  Run directory: {config.run_dir}")
     logger.info(f"  Data file: {data_path}")
@@ -105,6 +105,7 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
     # Load input data (supports CSV, Parquet, and Parquet dataset directories)
     logger.info("\n[2/7] Loading and preprocessing data...")
     from classiflow.data import load_table
+
     df_raw = load_table(data_path)
     logger.info(f"  Loaded {len(df_raw)} samples, {len(df_raw.columns)} columns")
 
@@ -186,18 +187,20 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
 
     # Compute metrics (if labels provided)
     metrics = None
-    calibration_curve_df = None
+    calibration_curves: Dict[str, pd.DataFrame] = {}
     if config.label_col and config.label_col in metadata.columns:
         logger.info("\n[4/7] Computing metrics...")
-        metrics, calibration_curve_df = _compute_metrics(
+        metrics, calibration_curves = _compute_metrics(
             final_predictions,
             label_col=config.label_col,
             run_type=run_type,
             positive_class=positive_class,
         )
         results["metrics"] = metrics
-        if calibration_curve_df is not None:
-            results["calibration_curve_df"] = calibration_curve_df
+        if calibration_curves:
+            results["calibration_curves"] = calibration_curves
+            if "top1" in calibration_curves:
+                results["calibration_curve_df"] = calibration_curves["top1"]
 
         # Log headline metrics
         if "overall" in metrics:
@@ -231,10 +234,18 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
     pred_path = writer.write_predictions(final_predictions, "predictions.csv")
     output_files["predictions_csv"] = pred_path
 
-    if calibration_curve_df is not None:
-        curve_path = writer.write_calibration_curve(calibration_curve_df, "calibration_curve.csv")
-        if curve_path:
-            output_files["calibration_curve_csv"] = curve_path
+    if calibration_curves:
+        written_curves = writer.write_calibration_curves(calibration_curves)
+        if "top1" in calibration_curves:
+            legacy_curve_path = writer.write_calibration_curve(
+                calibration_curves["top1"], "calibration_curve.csv"
+            )
+            if legacy_curve_path is not None:
+                output_files["calibration_curve_csv"] = legacy_curve_path
+        if "top1" in written_curves:
+            output_files["calibration_curve_top1_csv"] = written_curves["top1"]
+        for name, path in written_curves.items():
+            output_files[f"calibration_curve_{name}_csv"] = path
 
     # Metrics workbook (if applicable)
     if config.include_excel and metrics is not None:
@@ -259,9 +270,9 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
 
     # Summary
     logger.info("\n[7/7] Inference complete!")
-    logger.info("="*60)
+    logger.info("=" * 60)
     logger.info("SUMMARY")
-    logger.info("="*60)
+    logger.info("=" * 60)
     logger.info(f"  Samples processed: {len(final_predictions)}")
     logger.info(f"  Output directory: {config.output_dir}")
     logger.info(f"  Files generated: {len(output_files)}")
@@ -273,7 +284,7 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
         if len(warnings) > 5:
             logger.info(f"    ... and {len(warnings) - 5} more")
 
-    logger.info("="*60)
+    logger.info("=" * 60)
 
     return results
 
@@ -306,9 +317,19 @@ def _run_predictions(
 
         # Then run meta-classifier
         try:
-            meta_model, meta_features, meta_classes, calibration_metadata = loader.load_meta_artifacts(variant="smote")
+            (
+                meta_model,
+                meta_features,
+                meta_classes,
+                calibration_metadata,
+            ) = loader.load_meta_artifacts(variant="smote")
         except FileNotFoundError:
-            meta_model, meta_features, meta_classes, calibration_metadata = loader.load_meta_artifacts(variant="none")
+            (
+                meta_model,
+                meta_features,
+                meta_classes,
+                calibration_metadata,
+            ) = loader.load_meta_artifacts(variant="none")
 
         meta_predictor = MetaPredictor(
             meta_model,
@@ -351,7 +372,12 @@ def _run_predictions(
 
         # Check if meta-classifier exists (for legacy runs that might have meta)
         try:
-            meta_model, meta_features, meta_classes, calibration_metadata = loader.load_meta_artifacts(variant="smote")
+            (
+                meta_model,
+                meta_features,
+                meta_classes,
+                calibration_metadata,
+            ) = loader.load_meta_artifacts(variant="smote")
             logger.info("  Found meta-classifier, applying...")
             meta_predictor = MetaPredictor(
                 meta_model,
@@ -376,10 +402,10 @@ def _compute_metrics(
     label_col: str,
     run_type: str,
     positive_class: Optional[str] = None,
-) -> Tuple[Dict[str, Any], Optional[pd.DataFrame]]:
+) -> Tuple[Dict[str, Any], Dict[str, pd.DataFrame]]:
     """Compute metrics based on available predictions."""
     metrics: Dict[str, Any] = {}
-    calibration_curve_df: Optional[pd.DataFrame] = None
+    calibration_curves: Dict[str, pd.DataFrame] = {}
 
     y_true = predictions[label_col].values
 
@@ -388,7 +414,11 @@ def _compute_metrics(
         y_pred = predictions["predicted_label"].values
 
         # Get probability columns
-        proba_cols = [c for c in predictions.columns if c.startswith("predicted_proba_") and c != "predicted_proba"]
+        proba_cols = [
+            c
+            for c in predictions.columns
+            if c.startswith("predicted_proba_") and c != "predicted_proba"
+        ]
 
         if proba_cols:
             class_names = [c.replace("predicted_proba_", "") for c in proba_cols]
@@ -397,9 +427,7 @@ def _compute_metrics(
             class_names = sorted(list(set(y_true) | set(y_pred)))
             y_proba = None
 
-        overall_metrics = compute_classification_metrics(
-            y_true, y_pred, y_proba, class_names
-        )
+        overall_metrics = compute_classification_metrics(y_true, y_pred, y_proba, class_names)
         if y_proba is not None:
             prob_metrics, cal_curve = compute_probability_quality(
                 y_true.tolist(),
@@ -407,16 +435,31 @@ def _compute_metrics(
                 y_proba,
                 class_names,
                 bins=10,
+                mode=run_type
+                if run_type in {"binary", "multiclass", "meta", "hierarchical"}
+                else "multiclass",
             )
+            overall_metrics["probability_quality"] = prob_metrics
             overall_metrics["brier"] = prob_metrics.get("brier")
-            overall_metrics["brier_calibrated"] = prob_metrics.get("brier")
+            overall_metrics["brier_calibrated"] = prob_metrics.get("brier_recommended")
             overall_metrics["log_loss"] = prob_metrics.get("log_loss")
             overall_metrics["log_loss_calibrated"] = prob_metrics.get("log_loss")
-            overall_metrics["ece"] = prob_metrics.get("ece")
-            overall_metrics["ece_calibrated"] = prob_metrics.get("ece")
+            overall_metrics["ece"] = prob_metrics.get("ece_top1")
+            overall_metrics["ece_calibrated"] = prob_metrics.get("ece_top1")
+            overall_metrics["ece_top1"] = prob_metrics.get("ece_top1")
+            overall_metrics["ece_binary_pos"] = prob_metrics.get("ece_binary_pos")
+            overall_metrics["ece_ovr_macro"] = prob_metrics.get("ece_ovr_macro")
+            overall_metrics["pred_alignment_mismatch_rate"] = prob_metrics.get(
+                "pred_alignment_mismatch_rate"
+            )
+            overall_metrics["pred_alignment_note"] = prob_metrics.get("pred_alignment_note")
             overall_metrics["calibration_bins"] = 10
-            metrics["calibration_curve"] = cal_curve.to_dict("records")
-            calibration_curve_df = cal_curve
+            if "top1" in cal_curve:
+                metrics["calibration_curve"] = cal_curve["top1"].to_dict("records")
+            metrics["calibration_curves"] = {
+                name: df.to_dict("records") for name, df in cal_curve.items()
+            }
+            calibration_curves = cal_curve
         if "calibration_method" in predictions.columns:
             methods = predictions["calibration_method"].dropna().unique()
             if len(methods):
@@ -441,10 +484,8 @@ def _compute_metrics(
             if len(class_names) == 2:
                 pos_label = positive_class if positive_class in class_names else None
                 if not pos_label:
-                    logger.warning(
-                        "Positive class not found in manifest; skipping binary metrics."
-                    )
-                    return metrics, calibration_curve_df
+                    logger.warning("Positive class not found in manifest; skipping binary metrics.")
+                    return metrics, calibration_curves
                 neg_label = class_names[0] if class_names[1] == pos_label else class_names[1]
                 if pd.api.types.is_numeric_dtype(predictions[pred_col]):
                     y_pred = np.where(y_pred_raw == 1, pos_label, neg_label)
@@ -468,16 +509,28 @@ def _compute_metrics(
                         y_proba,
                         class_order,
                         bins=10,
+                        mode="binary",
                     )
+                    overall_metrics["probability_quality"] = prob_metrics
                     overall_metrics["brier"] = prob_metrics.get("brier")
-                    overall_metrics["brier_calibrated"] = prob_metrics.get("brier")
+                    overall_metrics["brier_calibrated"] = prob_metrics.get("brier_recommended")
                     overall_metrics["log_loss"] = prob_metrics.get("log_loss")
                     overall_metrics["log_loss_calibrated"] = prob_metrics.get("log_loss")
-                    overall_metrics["ece"] = prob_metrics.get("ece")
-                    overall_metrics["ece_calibrated"] = prob_metrics.get("ece")
+                    overall_metrics["ece"] = prob_metrics.get("ece_top1")
+                    overall_metrics["ece_calibrated"] = prob_metrics.get("ece_top1")
+                    overall_metrics["ece_top1"] = prob_metrics.get("ece_top1")
+                    overall_metrics["ece_binary_pos"] = prob_metrics.get("ece_binary_pos")
+                    overall_metrics["pred_alignment_mismatch_rate"] = prob_metrics.get(
+                        "pred_alignment_mismatch_rate"
+                    )
+                    overall_metrics["pred_alignment_note"] = prob_metrics.get("pred_alignment_note")
                     overall_metrics["calibration_bins"] = 10
-                    metrics["calibration_curve"] = cal_curve.to_dict("records")
-                    calibration_curve_df = cal_curve
+                    if "top1" in cal_curve:
+                        metrics["calibration_curve"] = cal_curve["top1"].to_dict("records")
+                    metrics["calibration_curves"] = {
+                        name: df.to_dict("records") for name, df in cal_curve.items()
+                    }
+                    calibration_curves = cal_curve
                 metrics["overall"] = overall_metrics
 
     # Task-level metrics (if binary task scores exist)
@@ -520,7 +573,7 @@ def _compute_metrics(
         if hier_metrics:
             metrics["hierarchical"] = hier_metrics
 
-    return metrics, calibration_curve_df
+    return metrics, calibration_curves
 
 
 def _generate_plots(
@@ -537,7 +590,11 @@ def _generate_plots(
         y_pred = predictions["predicted_label"].values
 
         # Get probabilities
-        proba_cols = [c for c in predictions.columns if c.startswith("predicted_proba_") and c != "predicted_proba"]
+        proba_cols = [
+            c
+            for c in predictions.columns
+            if c.startswith("predicted_proba_") and c != "predicted_proba"
+        ]
 
         if proba_cols:
             class_names = [c.replace("predicted_proba_", "") for c in proba_cols]

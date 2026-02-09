@@ -1,0 +1,25 @@
+{
+  "phase": "TECHNICAL_VALIDATION",
+  "run_id": "technical",
+  "timestamp_local": "2026-02-09T15:53:04.530225",
+  "timestamp_utc": "2026-02-09T23:53:04.530232+00:00",
+  "classiflow_version": "0.1.0",
+  "git_hash": "813b91f311739b7591817da6b390d18ff53653c6",
+  "python_version": "3.11.10",
+  "platform": "macOS-15.7.3-x86_64-i386-64bit",
+  "config_hash": "2d6634aa222a2528fee6df44184aa7a273de317534644e52f2f6702093ae529b",
+  "dataset_hashes": {
+    "train": "1ee2ef281a2008126fba5e4850351022c5291f3f16cf9815256b129ccf11b52f",
+    "test": null
+  },
+  "command": "classiflow project run-technical",
+  "args": {
+    "run_id": "technical"
+  },
+  "outputs": [
+    {
+      "path": "runs/liquid_biopsy_fragmentomic_mb_meta_sklearn_technical/project/runs/technical_validation/technical/config.resolved.yaml",
+      "sha256": "42810cda1d885bd05459cf7b983c3dede76c69b44928979bd596efdfaafce189"
+    }
+  ]
+}

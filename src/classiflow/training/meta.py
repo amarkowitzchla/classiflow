@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, Callable, Optional, Tuple
+from typing import Dict, Any, Callable, Optional, Tuple, List
 from collections import defaultdict
 
 import numpy as np
@@ -18,6 +18,7 @@ from sklearn.metrics import (
     accuracy_score,
     balanced_accuracy_score,
     f1_score,
+    matthews_corrcoef,
     confusion_matrix,
     roc_auc_score,
     roc_curve,
@@ -36,7 +37,17 @@ from classiflow.backends.registry import get_backend, get_model_set
 from classiflow.metrics.scorers import get_scorers, SCORER_ORDER
 from classiflow.metrics.binary import compute_binary_metrics
 from classiflow.metrics.calibration import compute_probability_quality
+from classiflow.metrics.calibration_policy import decide_calibration
 from classiflow.metrics.decision import compute_decision_metrics
+from classiflow.metrics.binary_learners import (
+    evaluate_binary_learner_health,
+    persist_binary_ovr_fold_outputs,
+)
+from classiflow.training.probability_quality import (
+    attach_probability_quality_to_run_manifest,
+    serialize_probability_quality_metrics,
+    write_probability_quality_curve_artifacts,
+)
 from classiflow.plots import (
     plot_roc_curve,
     plot_pr_curve,
@@ -200,14 +211,19 @@ def train_meta_classifier(config: MetaConfig) -> Dict[str, Any]:
             raise ValueError(f"Torch backend requested but torch is unavailable: {exc}") from exc
         if config.require_torch_device:
             if config.device == "mps" and not torch.backends.mps.is_available():
-                raise ValueError("MPS device requested but not available; set --device cpu or fix MPS setup.")
+                raise ValueError(
+                    "MPS device requested but not available; set --device cpu or fix MPS setup."
+                )
             if config.device == "cuda" and not torch.cuda.is_available():
-                raise ValueError("CUDA device requested but not available; set --device cpu or fix CUDA setup.")
+                raise ValueError(
+                    "CUDA device requested but not available; set --device cpu or fix CUDA setup."
+                )
 
     # Run nested CV with meta-classifier
     results = _run_meta_nested_cv(
         X_full=X_full,
         y_full=y_full,
+        classes=[str(c) for c in classes],
         tasks=tasks,
         config=config,
         groups=groups,
@@ -215,13 +231,15 @@ def train_meta_classifier(config: MetaConfig) -> Dict[str, Any]:
 
     # Log to experiment tracker
     tracker.log_params(extract_loggable_params(config))
-    tracker.set_tags({
-        "task_type": "meta",
-        "backend": config.backend,
-        "smote_mode": config.smote_mode,
-        "run_id": manifest.run_id,
-        "num_classes": str(len(config.classes)) if config.classes else "auto",
-    })
+    tracker.set_tags(
+        {
+            "task_type": "meta",
+            "backend": config.backend,
+            "smote_mode": config.smote_mode,
+            "run_id": manifest.run_id,
+            "num_classes": str(len(config.classes)) if config.classes else "auto",
+        }
+    )
 
     # Log summary metrics if available
     if "summary" in results:
@@ -243,6 +261,7 @@ def train_meta_classifier(config: MetaConfig) -> Dict[str, Any]:
 def _run_meta_nested_cv(
     X_full: pd.DataFrame,
     y_full: pd.Series,
+    classes: List[str],
     tasks: Dict[str, Callable],
     config: MetaConfig,
     groups: Optional[pd.Series] = None,
@@ -272,7 +291,9 @@ def _run_meta_nested_cv(
     df_groups = None
     groups_series = None
     if config.patient_col and groups is not None:
-        groups_series = groups if isinstance(groups, pd.Series) else pd.Series(groups, index=X_full.index)
+        groups_series = (
+            groups if isinstance(groups, pd.Series) else pd.Series(groups, index=X_full.index)
+        )
         df_groups = pd.DataFrame({config.patient_col: groups_series}, index=X_full.index)
         outer_splits = iter_outer_splits(
             df=df_groups,
@@ -295,6 +316,8 @@ def _run_meta_nested_cv(
     outer_bin_rows = []
     outer_meta_rows = []
     calibration_comparison: Dict[str, Any] = {"folds": {}}
+    fold_probability_quality: Dict[str, Any] = {}
+    binary_health_payloads: List[Dict[str, Any]] = []
 
     # Collectors for averaged plots across folds
     all_roc_data = {"fpr": [], "tpr": [], "auc": []}
@@ -321,14 +344,16 @@ def _run_meta_nested_cv(
         # Inner CV (per fold for meta classifier)
         if config.patient_col and groups_tr is not None:
             df_groups_tr = pd.DataFrame({config.patient_col: groups_tr}, index=X_tr.index)
-            inner_splits = list(iter_inner_splits(
-                df_tr=df_groups_tr,
-                y_tr=y_tr,
-                patient_col=config.patient_col,
-                n_splits=config.inner_splits,
-                n_repeats=config.inner_repeats,
-                random_state=config.random_state,
-            ))
+            inner_splits = list(
+                iter_inner_splits(
+                    df_tr=df_groups_tr,
+                    y_tr=y_tr,
+                    patient_col=config.patient_col,
+                    n_splits=config.inner_splits,
+                    n_repeats=config.inner_repeats,
+                    random_state=config.random_state,
+                )
+            )
             for split_idx, (inner_tr_idx, inner_va_idx) in enumerate(inner_splits, 1):
                 assert_no_patient_leakage(
                     df_groups_tr,
@@ -377,10 +402,18 @@ def _run_meta_nested_cv(
             # Save binary artifacts
             var_dir = fold_root / f"binary_{variant}"
             var_dir.mkdir(exist_ok=True)
-            joblib.dump({"pipes": best_pipes, "best_models": best_models}, var_dir / "binary_pipes.joblib")
+            joblib.dump(
+                {"pipes": best_pipes, "best_models": best_models}, var_dir / "binary_pipes.joblib"
+            )
 
             # Build meta-features and train meta-classifier
-            roc_data, pr_data, fold_calibration, fold_confusion = _train_meta_model(
+            (
+                roc_data,
+                pr_data,
+                fold_calibration,
+                fold_confusion,
+                fold_probability_payload,
+            ) = _train_meta_model(
                 X_tr=X_tr,
                 y_tr=y_tr,
                 X_va=X_va,
@@ -397,9 +430,10 @@ def _run_meta_nested_cv(
                 groups_tr=groups_tr,
                 meta_estimators=meta_estimators,
                 meta_param_grids=meta_param_grids,
+                binary_health_payloads=binary_health_payloads,
             )
+            key = f"fold_{fold}_{variant}"
             if fold_calibration:
-                key = f"fold_{fold}_{variant}"
                 fold_calibration["fold"] = fold
                 fold_calibration["variant"] = variant
                 calibration_comparison["folds"][key] = fold_calibration
@@ -414,6 +448,8 @@ def _run_meta_nested_cv(
                     "variant": variant,
                     "fold": fold,
                 }
+            if fold_probability_payload:
+                fold_probability_quality[key] = fold_probability_payload
 
             # Collect ROC/PR data for averaged plots (use first variant only)
             if variant == variants[0] and roc_data is not None:
@@ -427,15 +463,21 @@ def _run_meta_nested_cv(
 
     # Save metrics
     pd.DataFrame(inner_cv_rows).to_csv(config.outdir / "metrics_inner_cv.csv", index=False)
-    pd.DataFrame(outer_bin_rows).to_csv(config.outdir / "metrics_outer_binary_eval.csv", index=False)
+    pd.DataFrame(outer_bin_rows).to_csv(
+        config.outdir / "metrics_outer_binary_eval.csv", index=False
+    )
     pd.DataFrame(outer_meta_rows).to_csv(config.outdir / "metrics_outer_meta_eval.csv", index=False)
 
     # Inner CV splits
-    inner_split_df = pd.DataFrame(inner_cv_split_rows, columns=["task_model", "outer_fold", "inner_split"] + SCORER_ORDER)
+    inner_split_df = pd.DataFrame(
+        inner_cv_split_rows, columns=["task_model", "outer_fold", "inner_split"] + SCORER_ORDER
+    )
     inner_split_df.to_csv(config.outdir / "metrics_inner_cv_splits.csv", index=False)
 
     try:
-        with pd.ExcelWriter(config.outdir / "metrics_inner_cv_splits.xlsx", engine="xlsxwriter") as writer:
+        with pd.ExcelWriter(
+            config.outdir / "metrics_inner_cv_splits.xlsx", engine="xlsxwriter"
+        ) as writer:
             inner_split_df.to_excel(writer, index=False, sheet_name="InnerCV_Splits")
     except Exception as e:
         logger.warning(f"Could not write Excel file: {e}")
@@ -465,7 +507,9 @@ def _run_meta_nested_cv(
     logger.info(f"Saved metrics to {config.outdir}")
 
     if calibration_comparison["folds"]:
-        calibration_comparison["selection"] = _select_calibration_method(calibration_comparison["folds"])
+        calibration_comparison["selection"] = _select_calibration_method(
+            calibration_comparison["folds"]
+        )
         conf = calibration_comparison.get("confusion_matrices")
         if conf and conf.get("folds"):
             aggregate = None
@@ -475,6 +519,19 @@ def _run_meta_nested_cv(
             if aggregate is not None:
                 conf["aggregate"] = aggregate.tolist()
         _write_json(config.outdir / "calibration_comparison.json", calibration_comparison)
+
+    if fold_probability_quality:
+        attach_probability_quality_to_run_manifest(
+            run_manifest_path=config.outdir / "run.json",
+            fold_probability_quality=fold_probability_quality,
+        )
+    evaluate_binary_learner_health(
+        run_dir=config.outdir,
+        fold_payloads=binary_health_payloads,
+        classes=[str(c) for c in classes],
+        feature_names=X_full.columns.astype(str).tolist(),
+        preferred_variant=variants[0],
+    )
 
     return {
         "outdir": config.outdir,
@@ -510,7 +567,9 @@ def _train_binary_tasks(
     best_pipes = {}
     best_models = {}
 
-    sampler = AdaptiveSMOTE(k_max=5, random_state=random_state) if variant == "smote" else "passthrough"
+    sampler = (
+        AdaptiveSMOTE(k_max=5, random_state=random_state) if variant == "smote" else "passthrough"
+    )
 
     for task_name, labeler in tasks.items():
         y_bin = labeler(y_tr).dropna()
@@ -524,14 +583,16 @@ def _train_binary_tasks(
         if patient_col and groups_tr is not None:
             groups_task = groups_tr.loc[y_bin.index]
             df_groups_task = pd.DataFrame({patient_col: groups_task}, index=X_bin.index)
-            inner_splits_task = list(iter_inner_splits(
-                df_tr=df_groups_task,
-                y_tr=y_bin,
-                patient_col=patient_col,
-                n_splits=inner_splits,
-                n_repeats=inner_repeats,
-                random_state=random_state,
-            ))
+            inner_splits_task = list(
+                iter_inner_splits(
+                    df_tr=df_groups_task,
+                    y_tr=y_bin,
+                    patient_col=patient_col,
+                    n_splits=inner_splits,
+                    n_repeats=inner_repeats,
+                    random_state=random_state,
+                )
+            )
             for split_idx, (inner_tr_idx, inner_va_idx) in enumerate(inner_splits_task, 1):
                 assert_no_patient_leakage(
                     df_groups_task,
@@ -548,11 +609,13 @@ def _train_binary_tasks(
         for model_name, est in estimators.items():
             # Build pipeline without VarianceThreshold to avoid removing all features
             # in small CV splits (especially problematic with scaled data)
-            pipe = ImbPipeline([
-                ("sampler", sampler),
-                ("scaler", StandardScaler()),
-                ("clf", est),
-            ])
+            pipe = ImbPipeline(
+                [
+                    ("sampler", sampler),
+                    ("scaler", StandardScaler()),
+                    ("clf", est),
+                ]
+            )
 
             grid = GridSearchCV(
                 pipe,
@@ -580,9 +643,15 @@ def _train_binary_tasks(
                     "sampler": variant,
                     "task": task_name,
                     "model_name": model_name,
-                    "rank_test_score": int(cvres.get("rank_test_F1 Score", [np.nan]*len(cvres["params"]))[i]),
-                    "mean_test_score": float(cvres.get("mean_test_F1 Score", [np.nan]*len(cvres["params"]))[i]),
-                    "std_test_score": float(cvres.get("std_test_F1 Score", [np.nan]*len(cvres["params"]))[i]),
+                    "rank_test_score": int(
+                        cvres.get("rank_test_F1 Score", [np.nan] * len(cvres["params"]))[i]
+                    ),
+                    "mean_test_score": float(
+                        cvres.get("mean_test_F1 Score", [np.nan] * len(cvres["params"]))[i]
+                    ),
+                    "std_test_score": float(
+                        cvres.get("std_test_F1 Score", [np.nan] * len(cvres["params"]))[i]
+                    ),
                 }
                 for k, v in cvres["params"][i].items():
                     row[k.replace("clf__", "")] = v
@@ -630,14 +699,26 @@ def _train_binary_tasks(
             else:
                 val_metrics = {k: np.nan for k in train_metrics.keys()}
 
-            outer_bin_rows.append({
-                "fold": fold, "sampler": variant, "phase": "train",
-                "task": task_name, "model_name": best_name, **train_metrics
-            })
-            outer_bin_rows.append({
-                "fold": fold, "sampler": variant, "phase": "val",
-                "task": task_name, "model_name": best_name, **val_metrics
-            })
+            outer_bin_rows.append(
+                {
+                    "fold": fold,
+                    "sampler": variant,
+                    "phase": "train",
+                    "task": task_name,
+                    "model_name": best_name,
+                    **train_metrics,
+                }
+            )
+            outer_bin_rows.append(
+                {
+                    "fold": fold,
+                    "sampler": variant,
+                    "phase": "val",
+                    "task": task_name,
+                    "model_name": best_name,
+                    **val_metrics,
+                }
+            )
 
     return best_pipes, best_models
 
@@ -659,6 +740,7 @@ def _train_meta_model(
     groups_tr: Optional[pd.Series],
     meta_estimators,
     meta_param_grids,
+    binary_health_payloads: Optional[List[Dict[str, Any]]] = None,
 ):
     """Train meta-classifier on binary scores."""
     X_meta_tr = _build_meta_features(
@@ -695,14 +777,16 @@ def _train_meta_model(
     cv_inner_meta = cv_inner
     if config.patient_col and groups_tr_meta is not None:
         df_groups_meta = pd.DataFrame({config.patient_col: groups_tr_meta}, index=X_meta_tr.index)
-        cv_inner_meta = list(iter_inner_splits(
-            df_tr=df_groups_meta,
-            y_tr=y_tr_meta,
-            patient_col=config.patient_col,
-            n_splits=config.inner_splits,
-            n_repeats=config.inner_repeats,
-            random_state=config.random_state,
-        ))
+        cv_inner_meta = list(
+            iter_inner_splits(
+                df_tr=df_groups_meta,
+                y_tr=y_tr_meta,
+                patient_col=config.patient_col,
+                n_splits=config.inner_splits,
+                n_repeats=config.inner_repeats,
+                random_state=config.random_state,
+            )
+        )
 
     best_meta = None
     best_grid = None
@@ -728,55 +812,129 @@ def _train_meta_model(
     if best_meta is None:
         raise ValueError("No meta estimator fit successfully.")
 
-    calibrated_meta, calibration_metadata = _calibrate_meta_classifier(
-        best_meta, X_meta_tr, y_tr_meta, config
+    enabled_requested = _resolve_calibration_enabled_requested(config)
+    calibrated_candidate, calibration_metadata = _calibrate_meta_classifier(
+        best_meta,
+        X_meta_tr,
+        y_tr_meta,
+        config,
+        enabled_requested=enabled_requested,
     )
 
-    joblib.dump(calibrated_meta, var_dir / "meta_model.joblib")
-    pd.Series(list(X_meta_tr.columns)).to_csv(var_dir / "meta_features.csv", index=False, header=False)
-    pd.Series(calibrated_meta.classes_).to_csv(var_dir / "meta_classes.csv", index=False, header=False)
+    y_pred_va_uncal = best_meta.predict(X_meta_va)
+    y_prob_va_uncal = _safe_predict_proba(best_meta, X_meta_va)
+    classes = [str(c) for c in best_meta.classes_]
+
+    uncal_metrics: Dict[str, Any] = {}
+    uncal_curves: Dict[str, pd.DataFrame] = {}
+    if y_prob_va_uncal is not None:
+        uncal_metrics, uncal_curves = compute_probability_quality(
+            y_true=y_va.tolist(),
+            y_pred=y_pred_va_uncal.tolist(),
+            y_proba=y_prob_va_uncal,
+            classes=classes,
+            bins=config.calibration_bins,
+            mode="meta",
+            binning=config.calibration_binning,
+        )
+
+    y_pred_va_cal = None
+    y_prob_va_cal = None
+    cal_metrics: Optional[Dict[str, Any]] = None
+    cal_curves: Dict[str, pd.DataFrame] = {}
+    if calibration_metadata.get("enabled"):
+        y_pred_va_cal = calibrated_candidate.predict(X_meta_va)
+        y_prob_va_cal = _safe_predict_proba(calibrated_candidate, X_meta_va)
+        if y_prob_va_cal is not None:
+            cal_metrics_raw, cal_curves = compute_probability_quality(
+                y_true=y_va.tolist(),
+                y_pred=y_pred_va_cal.tolist(),
+                y_proba=y_prob_va_cal,
+                classes=classes,
+                bins=config.calibration_bins,
+                mode="meta",
+                binning=config.calibration_binning,
+            )
+            cal_metrics = dict(cal_metrics_raw)
+
+    class_counts = {str(k): int(v) for k, v in y_va.value_counts().to_dict().items()}
+    decision = decide_calibration(
+        mode="meta",
+        enabled_requested=enabled_requested,
+        force_keep=bool(getattr(config, "calibration_policy_force_keep", False)),
+        apply_to_modes=list(getattr(config, "calibration_policy_apply_to_modes", ["meta"])),
+        thresholds=dict(getattr(config, "calibration_policy_thresholds", {})),
+        uncal_metrics=uncal_metrics,
+        cal_metrics=cal_metrics,
+        n_samples=int(len(y_va)),
+        class_counts=class_counts,
+    )
+    final_variant = "calibrated" if decision.enabled_final else "uncalibrated"
+
+    final_model = calibrated_candidate if final_variant == "calibrated" else best_meta
+    y_pred_va = y_pred_va_cal if final_variant == "calibrated" else y_pred_va_uncal
+    y_prob_va = y_prob_va_cal if final_variant == "calibrated" else y_prob_va_uncal
+    final_metrics = cal_metrics if final_variant == "calibrated" else uncal_metrics
+    final_curves = cal_curves if final_variant == "calibrated" else uncal_curves
+
+    calibration_metadata["enabled_requested"] = enabled_requested
+    calibration_metadata["enabled_candidate"] = bool(calibration_metadata.get("enabled"))
+    calibration_metadata["enabled"] = decision.enabled_final
+    calibration_metadata["decision"] = decision.decision
+    calibration_metadata["decision_reasons"] = list(decision.reasons)
+    calibration_metadata["final_variant"] = final_variant
+
+    joblib.dump(final_model, var_dir / "meta_model.joblib")
+    pd.Series(list(X_meta_tr.columns)).to_csv(
+        var_dir / "meta_features.csv", index=False, header=False
+    )
+    pd.Series(final_model.classes_).to_csv(var_dir / "meta_classes.csv", index=False, header=False)
 
     _write_json(var_dir / "calibration_metadata.json", calibration_metadata)
 
     threshold_config = {
         "strategy": "argmax",
-        "binary_threshold": 0.5 if len(calibrated_meta.classes_) == 2 else None,
+        "binary_threshold": 0.5 if len(final_model.classes_) == 2 else None,
     }
     _write_json(var_dir / "threshold_config.json", threshold_config)
 
-    y_pred_tr = calibrated_meta.predict(X_meta_tr)
-    y_pred_va = calibrated_meta.predict(X_meta_va)
-    y_prob_va = _safe_predict_proba(calibrated_meta, X_meta_va)
-
-    y_pred_va_uncal = best_meta.predict(X_meta_va)
-    y_prob_va_uncal = _safe_predict_proba(best_meta, X_meta_va)
-
-    classes = [str(c) for c in calibrated_meta.classes_]
-
-    cal_metrics, cal_curve = compute_probability_quality(
-        y_true=y_va.tolist(),
-        y_pred=y_pred_va.tolist(),
-        y_proba=y_prob_va,
-        classes=classes,
-        bins=config.calibration_bins,
-    )
-    uncal_metrics, _ = compute_probability_quality(
-        y_true=y_va.tolist(),
-        y_pred=y_pred_va_uncal.tolist(),
-        y_proba=y_prob_va_uncal,
-        classes=classes,
-        bins=config.calibration_bins,
-    )
+    decision_block = {
+        "enabled_requested": enabled_requested,
+        "enabled_final": decision.enabled_final,
+        "method_requested": calibration_metadata.get("method_requested"),
+        "method_used": calibration_metadata.get("method_used"),
+        "decision": decision.decision,
+        "reasons": list(decision.reasons),
+        "n_samples": int(len(y_va)),
+        "min_class_n": int(min(class_counts.values())) if class_counts else None,
+        "metrics_compared": decision.comparisons,
+    }
 
     calibration_summary = {
         "fold": fold,
         "variant": variant,
         "calibration_metadata": calibration_metadata,
-        "calibrated": _serialize_metrics(cal_metrics),
-        "uncalibrated": _serialize_metrics(uncal_metrics),
+        "calibrated": serialize_probability_quality_metrics(cal_metrics or {}),
+        "uncalibrated": serialize_probability_quality_metrics(uncal_metrics),
+        "overall": {
+            "probability_quality": {
+                "uncalibrated": serialize_probability_quality_metrics(uncal_metrics),
+                "calibrated": serialize_probability_quality_metrics(cal_metrics or {}),
+                "final_variant": final_variant,
+                "calibration_decision": decision_block,
+            }
+        },
     }
     _write_json(var_dir / "calibration_summary.json", calibration_summary)
-    cal_curve.to_csv(var_dir / "calibration_curve.csv", index=False)
+    write_probability_quality_curve_artifacts(
+        var_dir=var_dir,
+        final_variant=final_variant,
+        final_curves=final_curves,
+        uncal_curves=uncal_curves,
+        cal_curves=cal_curves,
+    )
+
+    y_pred_tr = final_model.predict(X_meta_tr)
 
     meta_train = {
         "fold": fold,
@@ -787,8 +945,12 @@ def _train_meta_model(
         "balanced_accuracy": balanced_accuracy_score(y_tr_meta, y_pred_tr),
         "f1_macro": f1_score(y_tr_meta, y_pred_tr, average="macro"),
         "f1_weighted": f1_score(y_tr_meta, y_pred_tr, average="weighted"),
+        "mcc": float(matthews_corrcoef(y_tr_meta, y_pred_tr)),
         "calibration_method": calibration_metadata.get("method_used"),
-        "calibration_enabled": calibration_metadata.get("enabled", False),
+        "calibration_enabled": decision.enabled_final,
+        "calibration_enabled_requested": enabled_requested,
+        "calibration_final_variant": final_variant,
+        "calibration_decision": decision.decision,
         "calibration_cv": calibration_metadata.get("cv"),
         "calibration_bins": config.calibration_bins,
     }
@@ -802,6 +964,7 @@ def _train_meta_model(
         "model_name": best_name or "MetaModel",
         "accuracy": accuracy_score(y_va, y_pred_va),
         "balanced_accuracy": balanced_accuracy_score(y_va, y_pred_va),
+        "mcc": float(matthews_corrcoef(y_va, y_pred_va)),
         "sensitivity": decision_metrics.get("sensitivity"),
         "specificity": decision_metrics.get("specificity"),
         "ppv": decision_metrics.get("ppv"),
@@ -811,17 +974,32 @@ def _train_meta_model(
         "f1_macro": f1_score(y_va, y_pred_va, average="macro"),
         "f1_weighted": f1_score(y_va, y_pred_va, average="weighted"),
         "meta_C": best_grid.best_params_.get("C") if best_grid else None,
-        "brier": cal_metrics.get("brier"),
-        "brier_calibrated": cal_metrics.get("brier"),
-        "log_loss": cal_metrics.get("log_loss"),
-        "log_loss_calibrated": cal_metrics.get("log_loss"),
-        "ece": cal_metrics.get("ece"),
-        "ece_calibrated": cal_metrics.get("ece"),
+        "brier": final_metrics.get("brier") if final_metrics else np.nan,
+        "brier_calibrated": (cal_metrics or {}).get("brier_recommended"),
+        "log_loss": final_metrics.get("log_loss") if final_metrics else np.nan,
+        "log_loss_calibrated": (cal_metrics or {}).get("log_loss"),
+        "ece": final_metrics.get("ece_top1") if final_metrics else np.nan,
+        "ece_calibrated": (cal_metrics or {}).get("ece_top1"),
+        "ece_top1": final_metrics.get("ece_top1") if final_metrics else np.nan,
+        "ece_binary_pos": final_metrics.get("ece_binary_pos") if final_metrics else np.nan,
+        "ece_ovr_macro": final_metrics.get("ece_ovr_macro") if final_metrics else np.nan,
         "brier_uncalibrated": uncal_metrics.get("brier"),
+        "brier_recommended_uncalibrated": uncal_metrics.get("brier_recommended"),
+        "brier_recommended_calibrated": (cal_metrics or {}).get("brier_recommended"),
         "log_loss_uncalibrated": uncal_metrics.get("log_loss"),
-        "ece_uncalibrated": uncal_metrics.get("ece"),
+        "ece_uncalibrated": uncal_metrics.get("ece_top1"),
+        "ece_ovr_macro_uncalibrated": uncal_metrics.get("ece_ovr_macro"),
+        "ece_ovr_macro_calibrated": (cal_metrics or {}).get("ece_ovr_macro"),
+        "pred_alignment_mismatch_rate": (
+            final_metrics.get("pred_alignment_mismatch_rate") if final_metrics else np.nan
+        ),
+        "pred_alignment_note": final_metrics.get("pred_alignment_note") if final_metrics else "",
         "calibration_method": calibration_metadata.get("method_used"),
-        "calibration_enabled": calibration_metadata.get("enabled", False),
+        "calibration_enabled": decision.enabled_final,
+        "calibration_enabled_requested": enabled_requested,
+        "calibration_final_variant": final_variant,
+        "calibration_decision": decision.decision,
+        "calibration_reasons": "; ".join(decision.reasons),
         "calibration_cv": calibration_metadata.get("cv"),
         "calibration_bins": config.calibration_bins,
         "calibration_warnings": "; ".join(calibration_metadata.get("warnings", [])),
@@ -839,12 +1017,13 @@ def _train_meta_model(
     fold_preds["fold_id"] = fold
     fold_preds["variant"] = variant
     fold_preds["calibration_method"] = calibration_metadata.get("method_used")
-    fold_preds["calibration_enabled"] = calibration_metadata.get("enabled", False)
+    fold_preds["calibration_enabled"] = decision.enabled_final
+    fold_preds["calibration_enabled_requested"] = enabled_requested
+    fold_preds["calibration_final_variant"] = final_variant
+    fold_preds["calibration_decision"] = decision.decision
     fold_preds["calibration_bins"] = config.calibration_bins
     fold_preds["calibration_cv"] = calibration_metadata.get("cv")
-    fold_preds["y_prob"] = (
-        np.max(y_prob_va, axis=1) if y_prob_va is not None else np.nan
-    )
+    fold_preds["y_prob"] = np.max(y_prob_va, axis=1) if y_prob_va is not None else np.nan
     fold_preds["y_score_raw"] = (
         np.max(y_prob_va_uncal, axis=1) if y_prob_va_uncal is not None else np.nan
     )
@@ -855,6 +1034,49 @@ def _train_meta_model(
         for i, cls in enumerate(classes):
             fold_preds[f"y_score_raw_{cls}"] = y_prob_va_uncal[:, i]
     fold_preds.to_csv(var_dir / "predictions_outer_test.csv", index=False)
+
+    base_ovr_scores: Dict[str, np.ndarray] = {}
+    estimator_type_by_class: Dict[str, str] = {}
+    for cls in classes:
+        task_name = f"{cls}_vs_Rest"
+        score_col = f"{task_name}_score"
+        if score_col in X_meta_va.columns:
+            base_ovr_scores[str(cls)] = (
+                pd.to_numeric(X_meta_va[score_col], errors="coerce").astype(float).to_numpy()
+            )
+        model_name = best_models.get(task_name)
+        key = f"{task_name}__{model_name}" if model_name else ""
+        pipe = best_pipes.get(key)
+        estimator_name = None
+        if pipe is not None:
+            try:
+                estimator_name = type(pipe.named_steps["clf"]).__name__
+            except Exception:
+                estimator_name = type(pipe).__name__
+        estimator_type_by_class[str(cls)] = estimator_name or ""
+
+    base_scores_path = persist_binary_ovr_fold_outputs(
+        var_dir=var_dir,
+        fold=fold,
+        sample_ids=fold_preds["sample_id"].astype(str).to_numpy(),
+        y_true=y_va.astype(str).to_numpy(),
+        classes=[str(c) for c in classes],
+        base_ovr_scores=base_ovr_scores,
+    )
+    if binary_health_payloads is not None:
+        binary_health_payloads.append(
+            {
+                "fold": fold,
+                "sampler": variant,
+                "sample_id": fold_preds["sample_id"].astype(str).to_numpy(),
+                "y_true": y_va.astype(str).to_numpy(),
+                "base_ovr_scores": base_ovr_scores,
+                "base_scores_path": base_scores_path,
+                "final_proba": y_prob_va,
+                "final_classes": [str(c) for c in classes],
+                "estimator_type_by_class": estimator_type_by_class,
+            }
+        )
 
     calibration_comparison = _compare_calibration_methods(
         model=best_meta,
@@ -933,7 +1155,13 @@ def _train_meta_model(
         "matrix": cm.tolist(),
     }
 
-    return roc_data, pr_data, calibration_comparison, confusion_payload
+    return (
+        roc_data,
+        pr_data,
+        calibration_comparison,
+        confusion_payload,
+        calibration_summary.get("overall", {}).get("probability_quality", {}),
+    )
 
 
 def _compare_calibration_methods(
@@ -953,6 +1181,7 @@ def _compare_calibration_methods(
             X_meta=X_meta_tr,
             y=y_tr,
             config=config,
+            enabled_requested="true",
             method=method,
             allow_isotonic_fallback=False,
         )
@@ -970,8 +1199,10 @@ def _compare_calibration_methods(
                     y_proba=y_proba,
                     classes=classes,
                     bins=config.calibration_bins,
+                    mode="meta",
+                    binning=getattr(config, "calibration_binning", "uniform"),
                 )
-                entry.update(_serialize_metrics(metrics))
+                entry.update(serialize_probability_quality_metrics(metrics))
             else:
                 entry.update({"brier": None, "ece": None, "log_loss": None})
         else:
@@ -983,15 +1214,15 @@ def _compare_calibration_methods(
 def _select_calibration_method(folds: Dict[str, Any]) -> Dict[str, Any]:
     """Select calibration method based on mean Brier and ECE."""
     metrics: Dict[str, Dict[str, list[float]]] = {
-        "sigmoid": {"brier": [], "ece": [], "log_loss": []},
-        "isotonic": {"brier": [], "ece": [], "log_loss": []},
+        "sigmoid": {"brier_recommended": [], "ece_top1": [], "log_loss": []},
+        "isotonic": {"brier_recommended": [], "ece_top1": [], "log_loss": []},
     }
     for entry in folds.values():
         for method in ("sigmoid", "isotonic"):
             data = entry.get(method, {})
             if not data or not data.get("enabled"):
                 continue
-            for key in ("brier", "ece", "log_loss"):
+            for key in ("brier_recommended", "ece_top1", "log_loss"):
                 value = data.get(key)
                 if value is not None:
                     metrics[method][key].append(float(value))
@@ -999,9 +1230,11 @@ def _select_calibration_method(folds: Dict[str, Any]) -> Dict[str, Any]:
     summary: Dict[str, Any] = {}
     for method, values in metrics.items():
         summary[method] = {
-            "n": len(values["brier"]),
-            "brier_mean": float(np.mean(values["brier"])) if values["brier"] else None,
-            "ece_mean": float(np.mean(values["ece"])) if values["ece"] else None,
+            "n": len(values["brier_recommended"]),
+            "brier_mean": (
+                float(np.mean(values["brier_recommended"])) if values["brier_recommended"] else None
+            ),
+            "ece_mean": float(np.mean(values["ece_top1"])) if values["ece_top1"] else None,
             "log_loss_mean": float(np.mean(values["log_loss"])) if values["log_loss"] else None,
         }
 
@@ -1013,7 +1246,12 @@ def _select_calibration_method(folds: Dict[str, Any]) -> Dict[str, Any]:
     iso_ece = summary["isotonic"]["ece_mean"]
     if sig_brier is not None and iso_brier is not None and sig_brier > 0:
         improvement = (sig_brier - iso_brier) / sig_brier
-        if sig_ece is not None and iso_ece is not None and improvement >= 0.05 and iso_ece <= sig_ece:
+        if (
+            sig_ece is not None
+            and iso_ece is not None
+            and improvement >= 0.05
+            and iso_ece <= sig_ece
+        ):
             selected = "isotonic"
             reason = "Isotonic selected (>=5% mean Brier improvement without worse ECE)."
 
@@ -1025,13 +1263,20 @@ def _select_calibration_method(folds: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _calibrate_meta_classifier(model, X_meta: pd.DataFrame, y: pd.Series, config: MetaConfig):
+def _calibrate_meta_classifier(
+    model,
+    X_meta: pd.DataFrame,
+    y: pd.Series,
+    config: MetaConfig,
+    enabled_requested: str,
+):
     """Apply optional probability calibration to the meta-classifier."""
     calibrator, metadata = _fit_meta_calibrator(
         model=model,
         X_meta=X_meta,
         y=y,
         config=config,
+        enabled_requested=enabled_requested,
         method=config.calibration_method,
         allow_isotonic_fallback=True,
     )
@@ -1043,20 +1288,23 @@ def _fit_meta_calibrator(
     X_meta: pd.DataFrame,
     y: pd.Series,
     config: MetaConfig,
+    enabled_requested: str,
     method: str,
     allow_isotonic_fallback: bool,
 ) -> Tuple[Any, Dict[str, Any]]:
     """Fit a calibrated classifier with explicit method controls."""
     metadata = {
         "enabled": False,
+        "enabled_requested": enabled_requested,
         "method_requested": method,
         "method_used": None,
         "cv": None,
         "bins": config.calibration_bins,
+        "binning": getattr(config, "calibration_binning", "uniform"),
         "warnings": [],
     }
 
-    if not config.calibrate_meta:
+    if enabled_requested == "false":
         metadata["warnings"].append("Calibration disabled in configuration.")
         return model, metadata
 
@@ -1089,20 +1337,36 @@ def _fit_meta_calibrator(
             cv=cv,
         )
         calibrator.fit(X_meta, y)
-        metadata.update({
-            "enabled": True,
-            "method_used": effective_method,
-            "cv": cv,
-        })
+        metadata.update(
+            {
+                "enabled": True,
+                "method_used": effective_method,
+                "cv": cv,
+            }
+        )
         return calibrator, metadata
     except Exception as exc:
         metadata["warnings"].append(f"Calibration failed: {exc}")
-        metadata.update({
-            "enabled": False,
-            "method_used": effective_method,
-            "cv": cv,
-        })
+        metadata.update(
+            {
+                "enabled": False,
+                "method_used": effective_method,
+                "cv": cv,
+            }
+        )
         return model, metadata
+
+
+def _resolve_calibration_enabled_requested(config: MetaConfig) -> str:
+    """Resolve requested calibration mode with legacy bool compatibility."""
+    value = getattr(config, "calibration_enabled", None)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"false", "true", "auto"}:
+            return normalized
+    if bool(getattr(config, "calibrate_meta", True)):
+        return "true"
+    return "false"
 
 
 def _build_meta_features(
@@ -1201,14 +1465,16 @@ def _inner_cv_splits_for_task(
 
     if config.patient_col and groups is not None and not groups.empty:
         df_groups_task = pd.DataFrame({config.patient_col: groups.values}, index=X_task.index)
-        return list(iter_inner_splits(
-            df_tr=df_groups_task,
-            y_tr=y_bin,
-            patient_col=config.patient_col,
-            n_splits=n_splits,
-            n_repeats=config.inner_repeats,
-            random_state=config.random_state,
-        ))
+        return list(
+            iter_inner_splits(
+                df_tr=df_groups_task,
+                y_tr=y_bin,
+                patient_col=config.patient_col,
+                n_splits=n_splits,
+                n_repeats=config.inner_repeats,
+                random_state=config.random_state,
+            )
+        )
 
     splitter = RepeatedStratifiedKFold(
         n_splits=n_splits,
@@ -1247,23 +1513,6 @@ def _safe_predict_proba(model, X):
         except Exception as exc:
             logger.warning(f"predict_proba failed: {exc}")
     return None
-
-
-def _serialize_metrics(metrics):
-    """Convert NaN floats to None for JSON serialization."""
-    serialized: Dict[str, Optional[float]] = {}
-    for key, value in metrics.items():
-        if value is None:
-            serialized[key] = None
-            continue
-        try:
-            if isinstance(value, float) and np.isnan(value):
-                serialized[key] = None
-            else:
-                serialized[key] = float(value)
-        except Exception:
-            serialized[key] = value
-    return serialized
 
 
 def _write_json(path: Path, payload: Dict[str, Any]) -> None:

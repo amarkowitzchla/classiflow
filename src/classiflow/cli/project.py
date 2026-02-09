@@ -64,7 +64,9 @@ def _write_readme(paths: ProjectPaths, project_id: str, name: str) -> None:
     template_path = Path(__file__).resolve().parent.parent / "projects" / "templates" / "README.md"
     if template_path.exists():
         template = template_path.read_text(encoding="utf-8")
-        paths.readme.write_text(template.format(project_id=project_id, project_name=name), encoding="utf-8")
+        paths.readme.write_text(
+            template.format(project_id=project_id, project_name=name), encoding="utf-8"
+        )
     else:
         paths.readme.write_text(f"# {name}\n\nTest ID: `{project_id}`\n", encoding="utf-8")
 
@@ -76,7 +78,9 @@ def _print_bootstrap_options() -> None:
     typer.echo(f"  modes: {', '.join(options['task.mode'])}")
     typer.echo(f"  engines: {', '.join(options['execution.engine'])}")
     typer.echo(f"  devices: {', '.join(options['execution.device'])}")
-    typer.echo(f"  multiclass backend (sklearn): {', '.join(options['multiclass.backend[sklearn]'])}")
+    typer.echo(
+        f"  multiclass backend (sklearn): {', '.join(options['multiclass.backend[sklearn]'])}"
+    )
     typer.echo(f"  multiclass backend (torch): {', '.join(options['multiclass.backend[torch]'])}")
     typer.echo(f"  multiclass backend (hybrid): {', '.join(options['multiclass.backend[hybrid]'])}")
 
@@ -91,6 +95,7 @@ def _append_project_yaml_hints(project_yaml: Path, mode: str, engine: str) -> No
         "# - validation.nested_cv.outer_folds / inner_folds / repeats",
     ]
     if mode == "meta":
+        hint_lines.append("# - calibration.enabled (auto|true|false)")
         hint_lines.append("# - calibration.method (sigmoid|isotonic)")
     if mode == "multiclass":
         hint_lines.append("# - multiclass.backend and multiclass.sklearn.logreg.*")
@@ -137,7 +142,9 @@ def _default_gate_thresholds(task_mode: str, gate_profile: str) -> dict:
         }
 
     return {
-        "technical_required": {tech_f1_metric if k == default_f1_metric else k: v for k, v in required.items()},
+        "technical_required": {
+            tech_f1_metric if k == default_f1_metric else k: v for k, v in required.items()
+        },
         "test_required": required,
         "technical_stability_std_max": stability_std,
         "technical_stability_pass_rate_min": 0.8,
@@ -162,7 +169,8 @@ def _infer_key_columns(train_manifest: Path) -> dict:
     return {
         "sample_id": _pick_column(columns, ["sample_id", "sample", "id"]),
         "patient_id": _pick_column(columns, ["patient_id", "patient", "subject_id"]),
-        "label": _pick_column(columns, ["label", "diagnosis", "target", "class", "subtype", "y"]) or "label",
+        "label": _pick_column(columns, ["label", "diagnosis", "target", "class", "subtype", "y"])
+        or "label",
         "slide_id": _pick_column(columns, ["slide_id", "slide"]),
         "specimen_id": _pick_column(columns, ["specimen_id", "specimen"]),
     }
@@ -207,12 +215,20 @@ def init_project(
 
 @project_app.command("bootstrap")
 def bootstrap_project(
-    train_manifest: Optional[Path] = typer.Option(None, "--train-manifest", help="Training manifest path"),
-    test_manifest: Optional[Path] = typer.Option(None, "--test-manifest", help="Test manifest path"),
+    train_manifest: Optional[Path] = typer.Option(
+        None, "--train-manifest", help="Training manifest path"
+    ),
+    test_manifest: Optional[Path] = typer.Option(
+        None, "--test-manifest", help="Test manifest path"
+    ),
     name: Optional[str] = typer.Option(None, "--name", help="Project short name"),
     out_dir: Path = typer.Option(Path("projects"), "--out", help="Base projects directory"),
-    mode: str = typer.Option("auto", "--mode", help="Task mode: auto|binary|meta|multiclass|hierarchical"),
-    engine: str = typer.Option("sklearn", "--engine", help="Execution engine: sklearn|torch|hybrid"),
+    mode: str = typer.Option(
+        "auto", "--mode", help="Task mode: auto|binary|meta|multiclass|hierarchical"
+    ),
+    engine: str = typer.Option(
+        "sklearn", "--engine", help="Execution engine: sklearn|torch|hybrid"
+    ),
     device: Optional[str] = typer.Option(
         None,
         "--device",
@@ -225,15 +241,21 @@ def bootstrap_project(
     ),
     hierarchy: Optional[str] = typer.Option(None, "--hierarchy", help="Hierarchy column/path"),
     label_col: Optional[str] = typer.Option(None, "--label-col", help="Label column name"),
-    sample_id_col: Optional[str] = typer.Option(None, "--sample-id-col", help="Sample ID column name"),
+    sample_id_col: Optional[str] = typer.Option(
+        None, "--sample-id-col", help="Sample ID column name"
+    ),
     patient_id_col: Optional[str] = typer.Option(
         None,
         "--patient-id-col",
         "--patient-col",
         help="Patient ID column name",
     ),
-    no_patient_stratified: bool = typer.Option(False, "--no-patient-stratified", help="Disable patient stratification"),
-    thresholds: List[str] = typer.Option([], "--threshold", help="Metric threshold overrides (metric:value)"),
+    no_patient_stratified: bool = typer.Option(
+        False, "--no-patient-stratified", help="Disable patient stratification"
+    ),
+    thresholds: List[str] = typer.Option(
+        [], "--threshold", help="Metric threshold overrides (metric:value)"
+    ),
     gate_profile: str = typer.Option(
         "balanced",
         "--gate-profile",
@@ -445,15 +467,21 @@ def run_feasibility_cmd(
     classes: Optional[List[str]] = typer.Option(None, "--classes", help="Subset/order of classes"),
     alpha: float = typer.Option(0.05, "--alpha", help="Significance threshold"),
     min_n: int = typer.Option(3, "--min-n", help="Minimum n per class for Shapiro-Wilk"),
-    dunn_adjust: str = typer.Option("holm", "--dunn-adjust", help="P-value adjustment for Dunn test"),
+    dunn_adjust: str = typer.Option(
+        "holm", "--dunn-adjust", help="P-value adjustment for Dunn test"
+    ),
     top_n: int = typer.Option(30, "--top-n", help="Number of top features in summary"),
     no_legacy_csv: bool = typer.Option(False, "--no-legacy-csv", help="Skip legacy CSV outputs"),
     no_legacy_xlsx: bool = typer.Option(False, "--no-legacy-xlsx", help="Skip legacy xlsx output"),
     no_viz: bool = typer.Option(False, "--no-viz", help="Skip visualization outputs"),
     fc_thresh: float = typer.Option(1.0, "--fc-thresh", help="|log2FC| threshold for volcano"),
-    fc_center: str = typer.Option("median", "--fc-center", help="Center for fold-change (mean/median)"),
+    fc_center: str = typer.Option(
+        "median", "--fc-center", help="Center for fold-change (mean/median)"
+    ),
     label_topk: int = typer.Option(12, "--label-topk", help="Top features to annotate on volcano"),
-    heatmap_topn: int = typer.Option(30, "--heatmap-topn", help="Top features for heatmap (0=skip)"),
+    heatmap_topn: int = typer.Option(
+        30, "--heatmap-topn", help="Top features for heatmap (0=skip)"
+    ),
     fig_dpi: int = typer.Option(160, "--fig-dpi", help="Figure DPI"),
 ):
     """Run feasibility stats + visualizations."""
@@ -483,7 +511,9 @@ def run_feasibility_cmd(
 @project_app.command("build-bundle")
 def build_bundle_cmd(
     project_dir: Path = typer.Argument(..., help="Project root directory"),
-    technical_run_id: Optional[str] = typer.Option(None, "--technical-run", help="Technical run id"),
+    technical_run_id: Optional[str] = typer.Option(
+        None, "--technical-run", help="Technical run id"
+    ),
     run_id: Optional[str] = typer.Option(None, "--run-id", help="Override run id"),
     sampler: Optional[str] = typer.Option(
         None,
@@ -512,7 +542,9 @@ def build_bundle_cmd(
     config = _load_config(paths)
 
     technical_root = paths.runs_dir / "technical_validation"
-    technical_run = technical_root / technical_run_id if technical_run_id else _latest_run(technical_root)
+    technical_run = (
+        technical_root / technical_run_id if technical_run_id else _latest_run(technical_root)
+    )
     if not technical_run:
         raise typer.BadParameter("No technical validation runs found")
 
@@ -548,7 +580,9 @@ def run_test_cmd(
 @project_app.command("recommend")
 def recommend_cmd(
     project_dir: Path = typer.Argument(..., help="Project root directory"),
-    technical_run_id: Optional[str] = typer.Option(None, "--technical-run", help="Technical run id"),
+    technical_run_id: Optional[str] = typer.Option(
+        None, "--technical-run", help="Technical run id"
+    ),
     test_run_id: Optional[str] = typer.Option(None, "--test-run", help="Independent test run id"),
     override: bool = typer.Option(False, "--override", help="Override failed gates"),
     comment: Optional[str] = typer.Option(None, "--comment", help="Override comment"),
@@ -578,7 +612,9 @@ def recommend_cmd(
     technical_root = paths.runs_dir / "technical_validation"
     test_root = paths.runs_dir / "independent_test"
 
-    technical_run = technical_root / technical_run_id if technical_run_id else _latest_run(technical_root)
+    technical_run = (
+        technical_root / technical_run_id if technical_run_id else _latest_run(technical_root)
+    )
     test_run = test_root / test_run_id if test_run_id else _latest_run(test_root)
 
     if not technical_run or not test_run:
@@ -637,21 +673,31 @@ def recommend_cmd(
             "accuracy",
             "log_loss",
             "brier",
+            "brier_recommended",
+            "brier_binary",
+            "brier_multiclass_sum",
+            "brier_multiclass_mean",
             "ece",
+            "ece_top1",
+            "ece_binary_pos",
+            "ece_ovr_macro",
             "log_loss_uncalibrated",
             "brier_uncalibrated",
             "ece_uncalibrated",
+            "pred_alignment_mismatch_rate",
             "calibration_method",
             "calibration_enabled",
             "calibration_bins",
         }
         for key, value in metrics.items():
             if key in report_only_keys:
-                report_only_rows.append({
-                    "phase": phase,
-                    "metric": key,
-                    "value": value,
-                })
+                report_only_rows.append(
+                    {
+                        "phase": phase,
+                        "metric": key,
+                        "value": value,
+                    }
+                )
 
     calibration_selection = {}
     comparison_path = technical_run / "calibration_comparison.json"
@@ -725,7 +771,9 @@ def ship_cmd(
     out_dir: Path = typer.Option(..., "--out", help="Output directory for deployment bundle"),
     bundle: Optional[Path] = typer.Option(None, "--bundle", help="Bundle ZIP path override"),
     final_run_id: Optional[str] = typer.Option(None, "--final-run", help="Final model run id"),
-    include_promotion: bool = typer.Option(True, "--include-promotion/--no-promotion", help="Copy promotion decision"),
+    include_promotion: bool = typer.Option(
+        True, "--include-promotion/--no-promotion", help="Copy promotion decision"
+    ),
 ):
     """Copy the exact model bundle + metadata for deployment."""
     paths = ProjectPaths(project_dir)

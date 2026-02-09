@@ -31,12 +31,18 @@ from classiflow.lineage.hashing import get_file_metadata
 from classiflow.lineage.manifest import create_training_manifest
 from classiflow.models import AdaptiveSMOTE, get_estimators, get_param_grids, resolve_device
 from classiflow.metrics.decision import compute_decision_metrics
+from classiflow.metrics.calibration import compute_probability_quality
 from classiflow.plots import (
     plot_roc_curve,
     plot_pr_curve,
     plot_confusion_matrix,
     plot_averaged_roc_curves,
     plot_averaged_pr_curves,
+)
+from classiflow.training.probability_quality import (
+    attach_probability_quality_to_run_manifest,
+    serialize_probability_quality_metrics,
+    write_probability_quality_curve_artifacts,
 )
 from classiflow.splitting import (
     iter_outer_splits,
@@ -238,6 +244,7 @@ def _run_multiclass_nested_cv(
     inner_cv_rows: List[Dict[str, Any]] = []
     inner_cv_split_rows: List[Dict[str, Any]] = []
     outer_rows: List[Dict[str, Any]] = []
+    fold_probability_quality: Dict[str, Any] = {}
 
     all_roc_data = {"fpr": [], "tpr": [], "auc": []}
     all_pr_data = {"recall": [], "precision": [], "ap": []}
@@ -274,7 +281,13 @@ def _run_multiclass_nested_cv(
             var_dir = fold_root / f"multiclass_{variant}"
             var_dir.mkdir(exist_ok=True)
 
-            best_model_name, best_estimator, roc_data, pr_data = _run_multiclass_variant(
+            (
+                best_model_name,
+                best_estimator,
+                roc_data,
+                pr_data,
+                probability_quality_payload,
+            ) = _run_multiclass_variant(
                 X_tr=X_tr,
                 y_tr=y_tr,
                 X_va=X_va,
@@ -293,6 +306,8 @@ def _run_multiclass_nested_cv(
                 var_dir=var_dir,
                 groups_tr=groups_tr,
             )
+            if probability_quality_payload:
+                fold_probability_quality[f"fold_{fold}_{variant}"] = probability_quality_payload
 
             _save_multiclass_artifacts(
                 var_dir=var_dir,
@@ -338,6 +353,12 @@ def _run_multiclass_nested_cv(
             show_individual=(config.outer_folds <= 5),
         )
 
+    if fold_probability_quality:
+        attach_probability_quality_to_run_manifest(
+            run_manifest_path=config.outdir / "run.json",
+            fold_probability_quality=fold_probability_quality,
+        )
+
     return {
         "outdir": config.outdir,
         "n_folds": config.outer_folds,
@@ -363,7 +384,13 @@ def _run_multiclass_variant(
     outer_rows: List[Dict[str, Any]],
     var_dir: Path,
     groups_tr: Optional[pd.Series] = None,
-) -> Tuple[Optional[str], Optional[Any], Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+) -> Tuple[
+    Optional[str],
+    Optional[Any],
+    Optional[Dict[str, Any]],
+    Optional[Dict[str, Any]],
+    Optional[Dict[str, Any]],
+]:
     """Run inner CV and evaluation for one SMOTE variant."""
     if config.patient_col and groups_tr is not None:
         patient_df = pd.DataFrame(
@@ -501,7 +528,7 @@ def _run_multiclass_variant(
 
     if best_estimator is None:
         logger.warning(f"No model succeeded for fold {fold} variant {variant}")
-        return None, None, None, None
+        return None, None, None, None, None
 
     logger.info(f"    Best model: {best_model_name} (F1={best_score:.3f})")
 
@@ -523,7 +550,42 @@ def _run_multiclass_variant(
         var_dir=var_dir,
     )
 
-    return best_model_name, best_estimator, roc_data, pr_data
+    probability_quality_payload: Optional[Dict[str, Any]] = None
+    if y_va_proba is not None:
+        y_true_labels = [str(classes[int(v)]) for v in y_va.values.tolist()]
+        y_pred_labels = [str(classes[int(v)]) for v in y_va_pred.tolist()]
+        prob_metrics, prob_curves = compute_probability_quality(
+            y_true=y_true_labels,
+            y_pred=y_pred_labels,
+            y_proba=y_va_proba,
+            classes=[str(c) for c in classes],
+            bins=config.calibration_bins,
+            mode="multiclass",
+            binning=config.calibration_binning,
+        )
+        class_counts = {
+            str(k): int(v) for k, v in pd.Series(y_true_labels).value_counts().to_dict().items()
+        }
+        probability_quality_payload = {
+            "uncalibrated": serialize_probability_quality_metrics(prob_metrics),
+            "calibrated": {},
+            "final_variant": "uncalibrated",
+            "calibration_decision": {
+                "decision": "not_applicable",
+                "n_samples": int(len(y_true_labels)),
+                "metrics_compared": {},
+            },
+            "class_counts": class_counts,
+        }
+        write_probability_quality_curve_artifacts(
+            var_dir=var_dir,
+            final_variant="uncalibrated",
+            final_curves=prob_curves,
+            uncal_curves=prob_curves,
+            cal_curves={},
+        )
+
+    return best_model_name, best_estimator, roc_data, pr_data, probability_quality_payload
 
 
 def _compute_multiclass_metrics(

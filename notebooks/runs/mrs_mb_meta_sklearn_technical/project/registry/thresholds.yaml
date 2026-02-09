@@ -1,0 +1,19 @@
+technical_validation:
+  required: {}
+  stability: null
+  safety: {}
+independent_test:
+  required: {}
+  stability: null
+  safety: {}
+promotion_logic: ALL_REQUIRED_AND_STABILITY
+promotion_gate_template: research_exploratory
+promotion_gates: []
+promotion:
+  calibration:
+    brier_max: null
+    ece_max: null
+override:
+  allow_override: true
+  require_comment: true
+  require_approver: true

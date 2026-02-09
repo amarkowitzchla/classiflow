@@ -74,6 +74,8 @@ class TrainConfig:
     # SMOTE
     smote_mode: Literal["off", "on", "both"] = "off"
     smote_k_neighbors: int = 5
+    calibration_bins: int = 10
+    calibration_binning: Literal["uniform", "quantile"] = "quantile"
 
     # Models
     max_iter: int = 10000
@@ -140,17 +142,40 @@ class MetaConfig(TrainConfig):
 
     # Meta-classifier
     meta_C_grid: List[float] = field(default_factory=lambda: [0.01, 0.1, 1, 10])
-    calibrate_meta: bool = True
+    calibrate_meta: bool = True  # Legacy toggle; mapped to calibration_enabled when used.
+    calibration_enabled: Literal["false", "true", "auto"] = "auto"
     calibration_method: Literal["sigmoid", "isotonic"] = "sigmoid"
     calibration_cv: int = 3
     calibration_bins: int = 10
+    calibration_binning: Literal["uniform", "quantile"] = "quantile"
     calibration_isotonic_min_samples: int = 100
+    calibration_policy_apply_to_modes: List[str] = field(
+        default_factory=lambda: ["binary", "multiclass", "hierarchical", "meta"]
+    )
+    calibration_policy_force_keep: bool = False
+    calibration_policy_thresholds: Dict[str, float] = field(
+        default_factory=lambda: {
+            "underconfidence_gap": -0.10,
+            "high_accuracy": 0.90,
+            "near_perfect_accuracy": 0.97,
+            "min_calibration_n": 200,
+            "min_class_n": 25,
+            "min_brier_improvement": 0.002,
+            "max_log_loss_regression": 0.01,
+            "max_ece_ovr_regression": 0.01,
+        }
+    )
 
     def __post_init__(self):
         """Convert string paths to Path objects."""
         super().__post_init__()
         if self.tasks_json is not None:
             self.tasks_json = Path(self.tasks_json)
+        # Legacy boolean flag remains supported as an override.
+        if self.calibrate_meta is False:
+            self.calibration_enabled = "false"
+        elif self.calibrate_meta is True and self.calibration_enabled == "false":
+            self.calibration_enabled = "true"
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dict with Path objects as strings."""
@@ -159,10 +184,15 @@ class MetaConfig(TrainConfig):
             d["tasks_json"] = str(self.tasks_json)
         d.update(
             calibrate_meta=self.calibrate_meta,
+            calibration_enabled=self.calibration_enabled,
             calibration_method=self.calibration_method,
             calibration_cv=self.calibration_cv,
             calibration_bins=self.calibration_bins,
+            calibration_binning=self.calibration_binning,
             calibration_isotonic_min_samples=self.calibration_isotonic_min_samples,
+            calibration_policy_apply_to_modes=self.calibration_policy_apply_to_modes,
+            calibration_policy_force_keep=self.calibration_policy_force_keep,
+            calibration_policy_thresholds=self.calibration_policy_thresholds,
         )
         return d
 
@@ -233,6 +263,8 @@ class HierarchicalConfig:
     # SMOTE
     use_smote: bool = False
     smote_k_neighbors: int = 5
+    calibration_bins: int = 10
+    calibration_binning: Literal["uniform", "quantile"] = "quantile"
 
     # Logging
     verbose: int = 1  # 0=minimal, 1=standard, 2=detailed

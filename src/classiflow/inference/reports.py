@@ -77,6 +77,21 @@ class InferenceReportWriter:
         logger.info(f"Wrote calibration curve data to {output_path}")
         return output_path
 
+    def write_calibration_curves(
+        self,
+        curves: Dict[str, pd.DataFrame],
+    ) -> Dict[str, Path]:
+        """Write all available calibration curves."""
+        written: Dict[str, Path] = {}
+        for name, curve_df in (curves or {}).items():
+            if curve_df is None or curve_df.empty:
+                continue
+            filename = f"calibration_curve_{name}.csv"
+            path = self.write_calibration_curve(curve_df, filename=filename)
+            if path is not None:
+                written[name] = path
+        return written
+
     def write_metrics_workbook(
         self,
         run_info: Dict[str, Any],
@@ -122,7 +137,9 @@ class InferenceReportWriter:
 
                 # Sheet 4: Confusion Matrix
                 if "overall" in metrics and "confusion_matrix" in metrics["overall"]:
-                    self._write_confusion_matrix_sheet(writer, metrics["overall"]["confusion_matrix"])
+                    self._write_confusion_matrix_sheet(
+                        writer, metrics["overall"]["confusion_matrix"]
+                    )
 
                 # Sheet 5: ROC AUC Summary
                 if "overall" in metrics and "roc_auc" in metrics["overall"]:
@@ -227,16 +244,20 @@ class InferenceReportWriter:
             roc = metrics["roc_auc"]
             if "macro" in roc:
                 val = roc["macro"]
-                rows.append({
-                    "Metric": "ROC AUC (Macro)",
-                    "Value": f"{val:.4f}" if not np.isnan(val) else "N/A",
-                })
+                rows.append(
+                    {
+                        "Metric": "ROC AUC (Macro)",
+                        "Value": f"{val:.4f}" if not np.isnan(val) else "N/A",
+                    }
+                )
             if "micro" in roc:
                 val = roc["micro"]
-                rows.append({
-                    "Metric": "ROC AUC (Micro)",
-                    "Value": f"{val:.4f}" if not np.isnan(val) else "N/A",
-                })
+                rows.append(
+                    {
+                        "Metric": "ROC AUC (Micro)",
+                        "Value": f"{val:.4f}" if not np.isnan(val) else "N/A",
+                    }
+                )
 
         df = pd.DataFrame(rows)
         df.to_excel(writer, sheet_name="Overall_Metrics", index=False)
@@ -286,28 +307,34 @@ class InferenceReportWriter:
         if "per_class" in roc_data:
             for item in roc_data["per_class"]:
                 auc_val = item.get("auc", np.nan)
-                rows.append({
-                    "Class": item["class"],
-                    "AUC": f"{auc_val:.4f}" if not np.isnan(auc_val) else "N/A",
-                    "Note": item.get("note", ""),
-                })
+                rows.append(
+                    {
+                        "Class": item["class"],
+                        "AUC": f"{auc_val:.4f}" if not np.isnan(auc_val) else "N/A",
+                        "Note": item.get("note", ""),
+                    }
+                )
 
         # Macro/micro averages
         if "macro" in roc_data:
             val = roc_data["macro"]
-            rows.append({
-                "Class": "MACRO-AVERAGE",
-                "AUC": f"{val:.4f}" if not np.isnan(val) else "N/A",
-                "Note": "Average of per-class AUCs",
-            })
+            rows.append(
+                {
+                    "Class": "MACRO-AVERAGE",
+                    "AUC": f"{val:.4f}" if not np.isnan(val) else "N/A",
+                    "Note": "Average of per-class AUCs",
+                }
+            )
 
         if "micro" in roc_data:
             val = roc_data["micro"]
-            rows.append({
-                "Class": "MICRO-AVERAGE",
-                "AUC": f"{val:.4f}" if not np.isnan(val) else "N/A",
-                "Note": "AUC of aggregated predictions",
-            })
+            rows.append(
+                {
+                    "Class": "MICRO-AVERAGE",
+                    "AUC": f"{val:.4f}" if not np.isnan(val) else "N/A",
+                    "Note": "AUC of aggregated predictions",
+                }
+            )
 
         df = pd.DataFrame(rows)
         df.to_excel(writer, sheet_name="ROC_AUC_Summary", index=False)
