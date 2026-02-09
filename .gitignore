@@ -94,3 +94,5 @@ mlflow.db
 .classflow/ui.db
 dist/
 AGENTS.md
+
+!notebooks/*.ipynb
