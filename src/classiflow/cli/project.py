@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-import shutil
 import json
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
@@ -20,8 +20,13 @@ from classiflow.projects.orchestrator import (
     build_final_model,
     run_independent_test,
 )
-from classiflow.projects.project_fs import ProjectPaths, project_root, choose_project_id
-from classiflow.projects.project_models import ProjectConfig, ThresholdsConfig, StabilityGate
+from classiflow.projects.project_fs import ProjectPaths, choose_project_id, project_root
+from classiflow.projects.project_models import (
+    ProjectConfig,
+    StabilityGate,
+    ThresholdsConfig,
+    available_project_options,
+)
 from classiflow.projects.reporting import write_promotion_report
 from classiflow.projects.promotion import evaluate_promotion, per_gate_rows, promotion_decision
 from classiflow.projects.promotion_templates import list_promotion_gate_templates
@@ -64,25 +69,38 @@ def _write_readme(paths: ProjectPaths, project_id: str, name: str) -> None:
         paths.readme.write_text(f"# {name}\n\nTest ID: `{project_id}`\n", encoding="utf-8")
 
 
-def _append_torch_backend_hint(project_yaml: Path) -> None:
-    """Append commented torch backend example to project.yaml."""
-    hint = (
-        "\n# Torch backend example (binary/meta)\n"
-        "# backend: torch\n"
-        "# device: mps\n"
-        "# model_set: torch_basic\n"
-        "# torch_dtype: float32\n"
-        "# torch_num_workers: 0\n"
-        "# require_torch_device: false\n"
-        "#\n"
-        "# Multiclass torch estimators (keep backend: sklearn)\n"
-        "# device: mps\n"
-        "# multiclass:\n"
-        "#   estimator_mode: torch_only\n"
-    )
+def _print_bootstrap_options() -> None:
+    """Print discoverable mode/engine options for bootstrap."""
+    options = available_project_options()
+    typer.echo("Available options:")
+    typer.echo(f"  modes: {', '.join(options['task.mode'])}")
+    typer.echo(f"  engines: {', '.join(options['execution.engine'])}")
+    typer.echo(f"  devices: {', '.join(options['execution.device'])}")
+    typer.echo(f"  multiclass backend (sklearn): {', '.join(options['multiclass.backend[sklearn]'])}")
+    typer.echo(f"  multiclass backend (torch): {', '.join(options['multiclass.backend[torch]'])}")
+    typer.echo(f"  multiclass backend (hybrid): {', '.join(options['multiclass.backend[hybrid]'])}")
+
+
+def _append_project_yaml_hints(project_yaml: Path, mode: str, engine: str) -> None:
+    """Append short UX guidance comments to generated project.yaml."""
+    hint_lines = [
+        "",
+        "# Common knobs to edit:",
+        "# - key_columns.label / key_columns.patient_id",
+        "# - models.candidates, models.selection_metric",
+        "# - validation.nested_cv.outer_folds / inner_folds / repeats",
+    ]
+    if mode == "meta":
+        hint_lines.append("# - calibration.method (sigmoid|isotonic)")
+    if mode == "multiclass":
+        hint_lines.append("# - multiclass.backend and multiclass.sklearn.logreg.*")
+    if engine in {"torch", "hybrid"}:
+        hint_lines.append("# - execution.device and execution.torch.*")
+        hint_lines.append("# Advanced knobs: execution.model_set, execution.torch.num_workers")
+
     try:
         with open(project_yaml, "a", encoding="utf-8") as handle:
-            handle.write(hint)
+            handle.write("\n".join(hint_lines) + "\n")
     except OSError:
         return
 
@@ -165,16 +183,16 @@ def init_project(
     if paths.project_yaml.exists():
         raise typer.BadParameter(f"Project already exists: {paths.project_yaml}")
 
-    config = ProjectConfig(
-        project={"id": project_id, "name": name, "description": "", "owner": ""},
-        data={
-            "train": {"manifest": "data/train/manifest.csv"},
-            "test": {"manifest": "data/test/manifest.csv"},
-        },
+    config = ProjectConfig.scaffold(
+        project_id=project_id,
+        name=name,
+        mode="meta",
+        engine="sklearn",
+        train_manifest="data/train/manifest.csv",
+        test_manifest="data/test/manifest.csv",
     )
-    config.save(paths.project_yaml)
-    _append_torch_backend_hint(paths.project_yaml)
-    _append_torch_backend_hint(paths.project_yaml)
+    config.save(paths.project_yaml, minimal=True)
+    _append_project_yaml_hints(paths.project_yaml, mode="meta", engine="sklearn")
 
     thresholds = ThresholdsConfig()
     thresholds.save(paths.thresholds_yaml)
@@ -189,11 +207,22 @@ def init_project(
 
 @project_app.command("bootstrap")
 def bootstrap_project(
-    train_manifest: Path = typer.Option(..., "--train-manifest", help="Training manifest path"),
+    train_manifest: Optional[Path] = typer.Option(None, "--train-manifest", help="Training manifest path"),
     test_manifest: Optional[Path] = typer.Option(None, "--test-manifest", help="Test manifest path"),
-    name: str = typer.Option(..., "--name", help="Project short name"),
+    name: Optional[str] = typer.Option(None, "--name", help="Project short name"),
     out_dir: Path = typer.Option(Path("projects"), "--out", help="Base projects directory"),
     mode: str = typer.Option("auto", "--mode", help="Task mode: auto|binary|meta|multiclass|hierarchical"),
+    engine: str = typer.Option("sklearn", "--engine", help="Execution engine: sklearn|torch|hybrid"),
+    device: Optional[str] = typer.Option(
+        None,
+        "--device",
+        help="Device for torch/hybrid engine: auto|cpu|cuda|mps",
+    ),
+    show_options: bool = typer.Option(
+        False,
+        "--show-options",
+        help="Print mode/engine/device options and exit",
+    ),
     hierarchy: Optional[str] = typer.Option(None, "--hierarchy", help="Hierarchy column/path"),
     label_col: Optional[str] = typer.Option(None, "--label-col", help="Label column name"),
     sample_id_col: Optional[str] = typer.Option(None, "--sample-id-col", help="Sample ID column name"),
@@ -224,9 +253,17 @@ def bootstrap_project(
     test_id: Optional[str] = typer.Option(None, "--test-id", help="Project/test identifier"),
 ):
     """Bootstrap a project with dataset registration."""
+    if show_options:
+        _print_bootstrap_options()
+        return
+
     if list_promotion_gate_templates_flag:
         _print_promotion_templates()
         return
+    if train_manifest is None:
+        raise typer.BadParameter("--train-manifest is required unless --show-options is used")
+    if name is None:
+        raise typer.BadParameter("--name is required unless --show-options is used")
 
     project_id = choose_project_id(name, test_id)
     root = project_root(out_dir, project_id, name)
@@ -276,23 +313,37 @@ def bootstrap_project(
             inferred_mode = "binary" if n_labels <= 2 else "meta"
         except Exception:
             inferred_mode = "meta"
-    data_config = {
-        "train": {"manifest": str(train_dest)},
-        "test": {"manifest": str(test_dest)} if test_dest is not None else None,
-    }
-    config = ProjectConfig(
-        project={"id": project_id, "name": name, "description": "", "owner": ""},
-        data=data_config,
-        key_columns=key_columns,
-        task={
-            "mode": inferred_mode if mode == "auto" else mode,
-            "patient_stratified": not no_patient_stratified,
-            "hierarchy_path": hierarchy,
-        },
-    )
+    selected_mode = inferred_mode if mode == "auto" else mode.lower()
+    selected_engine = engine.lower()
 
-    config.save(paths.project_yaml)
-    _append_torch_backend_hint(paths.project_yaml)
+    if selected_engine not in {"sklearn", "torch", "hybrid"}:
+        raise typer.BadParameter("engine must be one of: sklearn, torch, hybrid")
+
+    if selected_engine == "sklearn" and device is not None:
+        raise typer.BadParameter(
+            "--device is not allowed when --engine sklearn. "
+            "Use --engine torch or --engine hybrid to enable device selection."
+        )
+
+    config = ProjectConfig.scaffold(
+        project_id=project_id,
+        name=name,
+        mode=selected_mode,  # type: ignore[arg-type]
+        engine=selected_engine,  # type: ignore[arg-type]
+        device=device,  # type: ignore[arg-type]
+        train_manifest=str(train_dest),
+        test_manifest=str(test_dest) if test_dest is not None else None,
+        label_col=key_columns["label"],
+        patient_id=key_columns["patient_id"],
+        sample_id=key_columns["sample_id"],
+        hierarchy_path=hierarchy,
+    )
+    config.task.patient_stratified = not no_patient_stratified
+    config.key_columns.slide_id = key_columns["slide_id"]
+    config.key_columns.specimen_id = key_columns["specimen_id"]
+
+    config.save(paths.project_yaml, minimal=True)
+    _append_project_yaml_hints(paths.project_yaml, mode=selected_mode, engine=selected_engine)
 
     thresholds_cfg = ThresholdsConfig()
     if promotion_gate_template:

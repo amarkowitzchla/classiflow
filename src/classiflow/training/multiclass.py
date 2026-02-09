@@ -14,6 +14,7 @@ from sklearn.metrics import (
     accuracy_score,
     f1_score,
     confusion_matrix,
+    matthews_corrcoef,
     roc_auc_score,
     roc_curve,
     auc,
@@ -29,6 +30,7 @@ from classiflow.io import load_data, load_data_with_groups, validate_data
 from classiflow.lineage.hashing import get_file_metadata
 from classiflow.lineage.manifest import create_training_manifest
 from classiflow.models import AdaptiveSMOTE, get_estimators, get_param_grids, resolve_device
+from classiflow.metrics.decision import compute_decision_metrics
 from classiflow.plots import (
     plot_roc_curve,
     plot_pr_curve,
@@ -541,6 +543,18 @@ def _compute_multiclass_metrics(
         "f1_macro": f1_score(y_true, y_pred, average="macro", labels=label_ids, zero_division=0),
         "f1_weighted": f1_score(y_true, y_pred, average="weighted", labels=label_ids, zero_division=0),
     }
+    decision_metrics = compute_decision_metrics(
+        y_true=np.asarray(y_true),
+        y_pred=np.asarray(y_pred),
+        class_names=label_ids,
+    )
+    metrics.update(decision_metrics)
+    metrics["recall"] = decision_metrics.get("sensitivity")
+    metrics["precision"] = decision_metrics.get("ppv")
+    try:
+        metrics["mcc"] = float(matthews_corrcoef(y_true, y_pred))
+    except Exception:
+        metrics["mcc"] = np.nan
 
     if y_proba is not None:
         try:

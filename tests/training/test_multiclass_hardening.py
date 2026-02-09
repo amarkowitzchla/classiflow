@@ -103,6 +103,41 @@ def test_multiclass_metrics_no_label_warnings():
     assert aligned_proba.shape == (len(y_true), 3)
 
 
+def test_multiclass_metrics_include_decision_keys():
+    class DummyEstimator:
+        def __init__(self, y_pred, proba):
+            self.classes_ = [0, 1]
+            self._y_pred = y_pred
+            self._proba = proba
+
+        def predict(self, X):
+            return self._y_pred
+
+        def predict_proba(self, X):
+            return self._proba
+
+    X = pd.DataFrame(np.zeros((8, 2)))
+    y_true = pd.Series([0, 0, 0, 0, 1, 1, 1, 1])
+    y_pred = np.array([0, 0, 0, 1, 1, 1, 0, 1])
+    proba = np.array(
+        [
+            [0.9, 0.1],
+            [0.8, 0.2],
+            [0.7, 0.3],
+            [0.4, 0.6],
+            [0.2, 0.8],
+            [0.1, 0.9],
+            [0.6, 0.4],
+            [0.3, 0.7],
+        ]
+    )
+    estimator = DummyEstimator(y_pred=y_pred, proba=proba)
+
+    metrics = _compute_multiclass_metrics(estimator, X, y_true, [0, 1])
+    for key in ["sensitivity", "specificity", "ppv", "npv", "recall", "precision", "mcc"]:
+        assert key in metrics, f"missing expected metric: {key}"
+
+
 def test_multiclass_logreg_convergence_warning_free():
     X, y, _, _ = _make_grouped_multiclass_dataset()
     logreg_params = {

@@ -5,12 +5,136 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 import re
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
+import warnings
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from classiflow import __version__
-from classiflow.projects.yaml_utils import load_yaml, dump_yaml
+from classiflow.projects.yaml_utils import dump_yaml, load_yaml
+
+TaskMode = Literal["binary", "meta", "hierarchical", "multiclass"]
+ExecutionEngine = Literal["sklearn", "torch", "hybrid"]
+ExecutionDevice = Literal["auto", "cpu", "cuda", "mps"]
+
+SKLEARN_CANDIDATES = {
+    "logistic_regression",
+    "svm",
+    "random_forest",
+    "gradient_boost",
+}
+TORCH_CANDIDATES = {
+    "torch_logistic_regression",
+    "torch_mlp",
+    "torch_linear",
+}
+
+
+def available_project_options() -> Dict[str, List[str]]:
+    """Return discoverable option enums for project config UX."""
+    return {
+        "task.mode": ["binary", "meta", "multiclass", "hierarchical"],
+        "execution.engine": ["sklearn", "torch", "hybrid"],
+        "execution.device": ["auto", "cpu", "cuda", "mps"],
+        "multiclass.backend[sklearn]": ["sklearn_cpu"],
+        "multiclass.backend[torch]": ["torch_auto", "torch_cpu", "torch_cuda", "torch_mps"],
+        "multiclass.backend[hybrid]": ["hybrid_sklearn_meta_torch_base"],
+        "models.selection_direction": ["max", "min"],
+        "calibration.method": ["sigmoid", "isotonic"],
+        "execution.torch.dtype": ["float32", "float16"],
+    }
+
+
+def _map_legacy_multiclass_backend(
+    estimator_mode: str,
+    engine: str,
+    device: str,
+) -> str:
+    mode = estimator_mode.lower()
+    eng = engine.lower()
+    dev = device.lower()
+
+    if mode == "cpu_only":
+        return "sklearn_cpu"
+    if mode == "torch_only":
+        return f"torch_{dev}"
+    if mode == "all":
+        return "hybrid_sklearn_meta_torch_base" if eng != "torch" else f"torch_{dev}"
+    return "sklearn_cpu"
+
+
+def normalize_project_payload(payload: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+    """Normalize legacy project config keys into current schema."""
+    data = dict(payload)
+    warnings_out: List[str] = []
+
+    execution = data.get("execution") if isinstance(data.get("execution"), dict) else None
+
+    legacy_keys = {
+        "backend",
+        "device",
+        "model_set",
+        "torch_dtype",
+        "torch_num_workers",
+        "require_torch_device",
+    }
+    has_legacy_execution = any(k in data for k in legacy_keys)
+
+    if execution is None and has_legacy_execution:
+        backend = str(data.pop("backend", "sklearn")).lower()
+        device = str(data.pop("device", "auto")).lower()
+        model_set = data.pop("model_set", None)
+        torch_dtype = str(data.pop("torch_dtype", "float32")).lower()
+        torch_num_workers = int(data.pop("torch_num_workers", 0) or 0)
+        require_torch_device = bool(data.pop("require_torch_device", False))
+
+        normalized_execution: Dict[str, Any] = {"engine": backend}
+        if backend in {"torch", "hybrid"}:
+            normalized_execution["device"] = device
+            normalized_execution["torch"] = {
+                "dtype": torch_dtype,
+                "num_workers": torch_num_workers,
+                "require_device": require_torch_device,
+            }
+        elif model_set is not None:
+            normalized_execution["model_set"] = model_set
+
+        if model_set is not None and backend in {"torch", "hybrid"}:
+            normalized_execution["model_set"] = model_set
+
+        data["execution"] = normalized_execution
+        warnings_out.append(
+            "Legacy execution keys (backend/device/torch_*) were normalized into execution.*. "
+            "Please run `classiflow config normalize` to persist the new format."
+        )
+    elif execution is not None:
+        for key in legacy_keys:
+            if key in data:
+                data.pop(key, None)
+                warnings_out.append(
+                    f"Dropped legacy key '{key}' because execution.* is present."
+                )
+
+    if isinstance(data.get("multiclass"), dict):
+        mc = dict(data["multiclass"])
+
+        if "logreg" in mc and "sklearn" not in mc:
+            mc["sklearn"] = {"logreg": mc.pop("logreg")}
+            warnings_out.append("Legacy multiclass.logreg moved to multiclass.sklearn.logreg.")
+
+        if "estimator_mode" in mc and "backend" not in mc:
+            est_mode = str(mc.pop("estimator_mode"))
+            execution_block = data.get("execution", {}) if isinstance(data.get("execution"), dict) else {}
+            engine = str(execution_block.get("engine", "sklearn"))
+            device = str(execution_block.get("device", "auto"))
+            mc["backend"] = _map_legacy_multiclass_backend(est_mode, engine, device)
+            warnings_out.append(
+                "Legacy multiclass.estimator_mode was normalized to multiclass.backend."
+            )
+
+        data["multiclass"] = mc
+
+    return data, warnings_out
 
 
 class ProjectInfo(BaseModel):
@@ -48,7 +172,7 @@ class KeyColumns(BaseModel):
 class TaskConfig(BaseModel):
     """Modeling task settings."""
 
-    mode: Literal["binary", "meta", "hierarchical", "multiclass"] = "meta"
+    mode: TaskMode = "meta"
     patient_stratified: bool = True
     hierarchy_path: Optional[str] = None
 
@@ -109,12 +233,49 @@ class LogisticRegressionConfig(BaseModel):
     n_jobs: int = -1
 
 
+class MulticlassSklearnConfig(BaseModel):
+    """Sklearn-specific multiclass settings."""
+
+    logreg: LogisticRegressionConfig = Field(default_factory=LogisticRegressionConfig)
+
+
+class MulticlassTorchConfig(BaseModel):
+    """Torch-specific multiclass settings."""
+
+    model_set: Literal["torch_basic", "torch_fast"] = "torch_basic"
+
+    model_config = {"protected_namespaces": ()}
+
+
 class MulticlassTrainingConfig(BaseModel):
-    """Multiclass-specific training defaults."""
+    """Multiclass-specific training defaults and runtime selection."""
 
     group_stratify: bool = True
-    estimator_mode: Literal["all", "torch_only", "cpu_only"] = "all"
-    logreg: LogisticRegressionConfig = Field(default_factory=LogisticRegressionConfig)
+    backend: Optional[str] = Field(
+        default=None,
+        description=(
+            "Explicit multiclass runtime backend. "
+            "sklearn_cpu for engine=sklearn, torch_<device> for engine=torch, "
+            "hybrid_sklearn_meta_torch_base for engine=hybrid."
+        ),
+    )
+    sklearn: MulticlassSklearnConfig = Field(default_factory=MulticlassSklearnConfig)
+    torch: Optional[MulticlassTorchConfig] = None
+
+    @property
+    def estimator_mode(self) -> Literal["all", "torch_only", "cpu_only"]:
+        """Legacy adapter for training.multiclass config contract."""
+        backend = (self.backend or "sklearn_cpu").lower()
+        if backend.startswith("torch_"):
+            return "torch_only"
+        if backend.startswith("hybrid_"):
+            return "all"
+        return "cpu_only"
+
+    @property
+    def logreg(self) -> LogisticRegressionConfig:
+        """Legacy adapter for old multiclass.logreg access."""
+        return self.sklearn.logreg
 
 
 class MetricsConfig(BaseModel):
@@ -138,15 +299,10 @@ class CalibrationConfig(BaseModel):
 class FinalModelConfig(BaseModel):
     """Final model training configuration."""
 
-    # Sampler option for final training
-    sampler: Optional[str] = None  # "none", "smote", or None for auto-select
-
-    # Sanity check thresholds
+    sampler: Optional[str] = None
     sanity_min_std: float = 0.02
     sanity_max_mean_deviation: float = 0.15
-
-    # Training options
-    train_from_scratch: bool = True  # Always true in new workflow
+    train_from_scratch: bool = True
     verify_dataset_hash: bool = True
 
 
@@ -158,10 +314,48 @@ class BundleConfig(BaseModel):
     format: str = "zip"
 
 
+class ExecutionTorchSettings(BaseModel):
+    """Torch execution options used when engine is torch or hybrid."""
+
+    dtype: Literal["float32", "float16"] = Field(default="float32", description="Torch tensor dtype")
+    num_workers: int = Field(default=0, description="DataLoader worker count")
+    require_device: bool = Field(
+        default=False,
+        description="Fail instead of falling back if requested torch device is unavailable",
+    )
+
+
+class ExecutionConfig(BaseModel):
+    """Execution engine/runtime settings."""
+
+    engine: ExecutionEngine = Field(
+        default="sklearn",
+        description="Execution engine for estimators/orchestration",
+    )
+    device: Optional[ExecutionDevice] = Field(
+        default=None,
+        description="Compute device; required for torch/hybrid engines",
+    )
+    model_set: Optional[str] = Field(
+        default=None,
+        description="Optional backend model set key (for torch/hybrid)",
+    )
+    torch: Optional[ExecutionTorchSettings] = Field(
+        default=None,
+        description="Torch runtime tuning (required for torch/hybrid engines)",
+    )
+
+    model_config = {"protected_namespaces": ()}
+
+
 class ProjectConfig(BaseModel):
     """Top-level project configuration."""
 
-    model_config = {"protected_namespaces": ()}
+    model_config = {
+        "protected_namespaces": (),
+        "extra": "forbid",
+        "populate_by_name": True,
+    }
 
     project: ProjectInfo
     data: DataConfig
@@ -175,26 +369,298 @@ class ProjectConfig(BaseModel):
     calibration: CalibrationConfig = Field(default_factory=CalibrationConfig)
     final_model: FinalModelConfig = Field(default_factory=FinalModelConfig)
     bundle: BundleConfig = Field(default_factory=BundleConfig)
-    backend: Literal["sklearn", "torch"] = "sklearn"
-    device: Literal["auto", "cpu", "cuda", "mps"] = "auto"
-    model_set: Optional[str] = None
-    torch_dtype: Literal["float32", "float16"] = "float32"
-    torch_num_workers: int = 0
-    require_torch_device: bool = False
+    execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
 
     # Experiment tracking (optional)
     tracker: Optional[Literal["mlflow", "wandb"]] = None
     experiment_name: Optional[str] = None
 
+    # Internal migration notes to surface in CLI normalization flows.
+    migration_notes: List[str] = Field(default_factory=list, alias="_migration_warnings", exclude=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_legacy(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        normalized, migration_warnings = normalize_project_payload(value)
+        if migration_warnings:
+            normalized["_migration_warnings"] = migration_warnings
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_execution_and_mode(self) -> "ProjectConfig":
+        engine = self.execution.engine
+        mode = self.task.mode
+
+        if engine == "sklearn":
+            if self.execution.device is not None:
+                raise ValueError(
+                    "execution.device is not allowed when execution.engine=sklearn. "
+                    "Suggestion: remove execution.device or use --engine torch/hybrid."
+                )
+            if self.execution.torch is not None:
+                raise ValueError(
+                    "execution.torch is not allowed when execution.engine=sklearn. "
+                    "Suggestion: use --engine torch to enable torch settings."
+                )
+        else:
+            if self.execution.device is None:
+                raise ValueError(
+                    "execution.device is required when execution.engine is torch or hybrid. "
+                    "Allowed: auto|cpu|cuda|mps."
+                )
+            if self.execution.torch is None:
+                raise ValueError(
+                    "execution.torch is required when execution.engine is torch or hybrid."
+                )
+
+        if mode in {"binary", "meta", "hierarchical"} and engine == "hybrid":
+            raise ValueError(
+                f"execution.engine=hybrid is not supported for task.mode={mode}. "
+                "Suggestion: use --engine sklearn or --engine torch."
+            )
+
+        if mode == "hierarchical" and engine == "torch":
+            raise ValueError(
+                "task.mode=hierarchical currently uses dedicated hierarchical training and does not support "
+                "execution.engine=torch. Suggestion: use --engine sklearn."
+            )
+
+        if mode == "multiclass":
+            device = self.execution.device or "auto"
+            if self.multiclass.backend is None:
+                if engine == "sklearn":
+                    self.multiclass.backend = "sklearn_cpu"
+                elif engine == "torch":
+                    self.multiclass.backend = f"torch_{device}"
+                else:
+                    self.multiclass.backend = "hybrid_sklearn_meta_torch_base"
+
+            backend = self.multiclass.backend
+            assert backend is not None
+
+            if engine == "sklearn":
+                if backend != "sklearn_cpu":
+                    raise ValueError(
+                        "multiclass.backend must be 'sklearn_cpu' when execution.engine=sklearn. "
+                        "Suggestion: set execution.engine=torch/hybrid for torch multiclass backends."
+                    )
+                if self.multiclass.torch is not None:
+                    raise ValueError(
+                        "multiclass.torch is not allowed when execution.engine=sklearn."
+                    )
+            elif engine == "torch":
+                allowed = {"torch_auto", "torch_cpu", "torch_cuda", "torch_mps"}
+                if backend not in allowed:
+                    raise ValueError(
+                        "multiclass.backend must be one of torch_auto|torch_cpu|torch_cuda|torch_mps "
+                        "when execution.engine=torch."
+                    )
+                if self.multiclass.torch is None:
+                    self.multiclass.torch = MulticlassTorchConfig()
+            else:  # hybrid
+                if backend != "hybrid_sklearn_meta_torch_base":
+                    raise ValueError(
+                        "multiclass.backend must be 'hybrid_sklearn_meta_torch_base' when execution.engine=hybrid."
+                    )
+                if self.multiclass.torch is None:
+                    self.multiclass.torch = MulticlassTorchConfig()
+
+        candidates = [c.lower() for c in self.models.candidates]
+        if engine == "torch":
+            unsupported = sorted(set(candidates) & SKLEARN_CANDIDATES)
+            if unsupported and set(candidates) != SKLEARN_CANDIDATES:
+                raise ValueError(
+                    "models.candidates contains sklearn-only entries for execution.engine=torch: "
+                    f"{', '.join(unsupported)}. Suggestion: use torch_* candidates or switch --engine sklearn."
+                )
+        if engine == "sklearn":
+            unsupported = sorted(set(candidates) & TORCH_CANDIDATES)
+            if unsupported:
+                raise ValueError(
+                    "models.candidates contains torch-only entries for execution.engine=sklearn: "
+                    f"{', '.join(unsupported)}. Suggestion: use --engine torch/hybrid for torch candidates."
+                )
+
+        return self
+
+    @property
+    def backend(self) -> str:
+        """Backward-compatible backend view for existing orchestration code."""
+        if self.execution.engine == "torch":
+            return "torch"
+        return "sklearn"
+
+    @property
+    def device(self) -> str:
+        """Backward-compatible device view for existing orchestration code."""
+        return self.execution.device or "auto"
+
+    @property
+    def model_set(self) -> Optional[str]:
+        """Backward-compatible model_set view for existing orchestration code."""
+        if self.task.mode == "multiclass" and self.multiclass.torch is not None:
+            return self.multiclass.torch.model_set
+        return self.execution.model_set
+
+    @property
+    def torch_dtype(self) -> str:
+        """Backward-compatible torch dtype view for existing orchestration code."""
+        if self.execution.torch is None:
+            return "float32"
+        return self.execution.torch.dtype
+
+    @property
+    def torch_num_workers(self) -> int:
+        """Backward-compatible torch worker view for existing orchestration code."""
+        if self.execution.torch is None:
+            return 0
+        return self.execution.torch.num_workers
+
+    @property
+    def require_torch_device(self) -> bool:
+        """Backward-compatible torch device strictness view."""
+        if self.execution.torch is None:
+            return False
+        return self.execution.torch.require_device
+
+    @property
+    def migration_warnings(self) -> List[str]:
+        """Legacy-to-current normalization notes."""
+        return list(self.__dict__.get("migration_notes", []))
+
     @classmethod
     def load(cls, path: Path) -> "ProjectConfig":
         """Load project configuration from YAML."""
-        data = load_yaml(path)
-        return cls.model_validate(data)
+        config, migration_warnings = cls.load_with_warnings(path)
+        for warning_msg in migration_warnings:
+            warnings.warn(warning_msg, stacklevel=2)
+        return config
 
-    def save(self, path: Path) -> None:
+    @classmethod
+    def load_with_warnings(cls, path: Path) -> Tuple["ProjectConfig", List[str]]:
+        """Load config and return migration warnings, if any."""
+        data = load_yaml(path)
+        normalized, migration_warnings = normalize_project_payload(data)
+        config = cls.model_validate(normalized)
+        return config, migration_warnings
+
+    def to_yaml_dict(self, *, minimal: bool = False) -> Dict[str, Any]:
+        """Serialize config for YAML output."""
+        dump = self.model_dump(mode="python", exclude_none=True, exclude={"migration_notes"})
+        if not minimal:
+            return dump
+
+        result: Dict[str, Any] = {
+            "project": dump["project"],
+            "data": dump["data"],
+            "key_columns": dump["key_columns"],
+            "task": dump["task"],
+            "validation": dump["validation"],
+            "models": dump["models"],
+            "imbalance": dump["imbalance"],
+            "metrics": dump["metrics"],
+            "final_model": dump["final_model"],
+            "bundle": dump["bundle"],
+            "execution": dump["execution"],
+        }
+
+        if self.task.mode == "meta":
+            result["calibration"] = dump["calibration"]
+        if self.task.mode == "multiclass":
+            result["multiclass"] = dump["multiclass"]
+
+        if self.tracker is not None:
+            result["tracker"] = self.tracker
+        if self.experiment_name is not None:
+            result["experiment_name"] = self.experiment_name
+
+        return result
+
+    def save(self, path: Path, *, minimal: bool = False) -> None:
         """Write project configuration to YAML."""
-        dump_yaml(self.model_dump(mode="python"), path)
+        dump_yaml(self.to_yaml_dict(minimal=minimal), path)
+
+    @classmethod
+    def scaffold(
+        cls,
+        *,
+        project_id: str,
+        name: str,
+        mode: TaskMode,
+        engine: ExecutionEngine,
+        train_manifest: str,
+        test_manifest: Optional[str] = None,
+        label_col: str = "label",
+        patient_id: Optional[str] = None,
+        sample_id: Optional[str] = None,
+        hierarchy_path: Optional[str] = None,
+        device: Optional[ExecutionDevice] = None,
+    ) -> "ProjectConfig":
+        """Create a mode/engine-aware scaffold configuration."""
+        execution: Dict[str, Any] = {"engine": engine}
+        if engine in {"torch", "hybrid"}:
+            execution["device"] = device or "auto"
+            execution["torch"] = {
+                "dtype": "float32",
+                "num_workers": 0,
+                "require_device": False,
+            }
+            if engine == "torch" and mode in {"binary", "meta"}:
+                execution["model_set"] = "torch_basic"
+
+        multiclass: Dict[str, Any] = {"group_stratify": True}
+        if mode == "multiclass":
+            if engine == "sklearn":
+                multiclass["backend"] = "sklearn_cpu"
+            elif engine == "torch":
+                resolved_device = device or "auto"
+                multiclass["backend"] = f"torch_{resolved_device}"
+                multiclass["torch"] = {"model_set": "torch_basic"}
+            else:
+                multiclass["backend"] = "hybrid_sklearn_meta_torch_base"
+                multiclass["torch"] = {"model_set": "torch_basic"}
+
+        payload: Dict[str, Any] = {
+            "project": {
+                "id": project_id,
+                "name": name,
+                "description": "",
+                "owner": "",
+            },
+            "data": {
+                "train": {"manifest": train_manifest},
+                "test": {"manifest": test_manifest} if test_manifest else None,
+            },
+            "key_columns": {
+                "sample_id": sample_id,
+                "patient_id": patient_id,
+                "label": label_col,
+                "slide_id": None,
+                "specimen_id": None,
+            },
+            "task": {
+                "mode": mode,
+                "patient_stratified": True,
+                "hierarchy_path": hierarchy_path,
+            },
+            "execution": execution,
+            "multiclass": multiclass,
+        }
+        if engine == "torch":
+            payload["models"] = {
+                "candidates": ["torch_logistic_regression", "torch_mlp"],
+                "selection_metric": "f1",
+                "selection_direction": "max",
+            }
+        elif engine == "hybrid":
+            payload["models"] = {
+                "candidates": ["logistic_regression", "random_forest", "torch_mlp"],
+                "selection_metric": "f1",
+                "selection_direction": "max",
+            }
+        return cls.model_validate(payload)
 
 
 class DatasetSchema(BaseModel):
@@ -361,3 +827,18 @@ class ThresholdsConfig(BaseModel):
 
     def save(self, path: Path) -> None:
         dump_yaml(self.model_dump(mode="python"), path)
+
+
+def validate_project_payload(payload: Dict[str, Any]) -> Tuple[Optional[ProjectConfig], List[str], List[str]]:
+    """Validate a project payload and return config, migration warnings, and errors."""
+    normalized, migration_warnings = normalize_project_payload(payload)
+    try:
+        config = ProjectConfig.model_validate(normalized)
+    except ValidationError as exc:
+        errors: List[str] = []
+        for item in exc.errors():
+            path = ".".join(str(part) for part in item.get("loc", ()))
+            msg = item.get("msg", "validation error")
+            errors.append(f"{path}: {msg}")
+        return None, migration_warnings, errors
+    return config, migration_warnings, []

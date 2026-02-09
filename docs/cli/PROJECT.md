@@ -17,44 +17,41 @@ Provide `--patient-col` (or `--patient-id-col`) with `--no-patient-stratified` u
 
 For end-to-end examples with all options per training mode, see `docs/PROJECT_FULL_CYCLE.md`.
 
-## Backend Options
+## Engine and Runtime Options
 
-Project YAML supports backend settings for `train-binary` and `train-meta`:
-
-```yaml
-backend: sklearn
-device: auto
-model_set: default
-torch_dtype: float32
-torch_num_workers: 0
-require_torch_device: false
-```
-
-Example torch configuration:
+Project YAML now uses an explicit `execution` block:
 
 ```yaml
-backend: torch
-device: mps
-model_set: torch_basic
-require_torch_device: true
+execution:
+  engine: sklearn  # sklearn|torch|hybrid
 ```
 
-For binary/meta GPU acceleration, set `backend: torch` and a GPU device
-(`mps` on Apple Silicon). `backend: sklearn` always runs CPU estimators.
-
-For multiclass training, keep `backend: sklearn` and set `device: mps` (or `cuda`) to
-enable the torch-backed multiclass estimators added to the nested CV search:
+Torch example:
 
 ```yaml
-backend: sklearn
-device: mps
+execution:
+  engine: torch
+  device: mps
+  model_set: torch_basic
+  torch:
+    dtype: float32
+    num_workers: 0
+    require_device: true
 ```
 
-To force multiclass runs to use only torch models:
+Multiclass runtime selection is explicit:
 
 ```yaml
 multiclass:
-  estimator_mode: torch_only
+  backend: sklearn_cpu  # or torch_mps / torch_cuda / hybrid_sklearn_meta_torch_base
+```
+
+Discover options from CLI:
+
+```bash
+classiflow project bootstrap --show-options
+classiflow config show --mode multiclass --engine sklearn
+classiflow config explain execution.engine
 ```
 
 ## Multiclass Technical Validation
@@ -65,15 +62,16 @@ You can tune the default logistic regression baseline in `project.yaml`:
 ```yaml
 multiclass:
   group_stratify: true  # set false to use group-only (non-stratified) splits
-  logreg:
-    solver: saga
-    multi_class: auto
-    penalty: l2
-    max_iter: 5000
-    tol: 1.0e-3
-    C: 1.0
-    class_weight: balanced
-    n_jobs: -1
+  sklearn:
+    logreg:
+      solver: saga
+      multi_class: auto
+      penalty: l2
+      max_iter: 5000
+      tol: 1.0e-3
+      C: 1.0
+      class_weight: balanced
+      n_jobs: -1
 ```
 
 `multi_class: auto` selects multinomial for multiclass problems with saga. If you still hit convergence issues, increase `logreg.max_iter` or relax `logreg.tol`.

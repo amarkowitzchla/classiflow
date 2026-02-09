@@ -23,8 +23,21 @@ Guidelines:
   - Optional dependencies: `pip install classiflow[mlflow]` or `pip install classiflow[wandb]`
   - See `docs/TRACKING_GUIDE.md` for full documentation
 - **Stats binary mode**: 2-class datasets now dispatch to Welch's t-test or Mann–Whitney U with per-feature p-value adjustment.
+- **Project config UX commands**:
+  - `classiflow config show --mode ... --engine ...`
+  - `classiflow config explain path.to.field`
+  - `classiflow config validate project.yaml`
+  - `classiflow config normalize project.yaml --out ...`
 
 ### Changed
+- Project YAML runtime settings now use `execution.*` (`engine`, `device`, `torch`) instead of top-level
+  `backend/device/torch_*` keys for new configs.
+- `project bootstrap` now supports explicit runtime selection with `--engine`, `--device`, and
+  `--show-options`, and emits mode/engine-aware minimal YAML.
+- Multiclass project runtime selection is explicit via `multiclass.backend`
+  (`sklearn_cpu`, `torch_*`, `hybrid_sklearn_meta_torch_base`).
+- Legacy project configs are normalized to the new schema with warnings; use
+  `classiflow config normalize` to persist normalized YAML.
 - Binary inference now emits `predicted_label` and `predicted_proba_*` columns when labels
   are present and scores are probabilities, enabling plots for binary `project run-test`.
 - `project recommend` now enforces calibration gates only when explicitly configured in
@@ -43,6 +56,10 @@ Guidelines:
     on `project bootstrap` and `project recommend`
   - Promotion artifacts now include template metadata, layman explanation, resolved gate rows,
     and per-gate pass/fail details for technical validation and independent test.
+- Multiclass technical validation (including torch estimators) now exports promotion-critical
+  decision metrics in `metrics_outer_multiclass_eval.csv`:
+  `sensitivity`, `specificity`, `ppv`, `npv`, `recall`, `precision`, and `mcc`.
+  This prevents template gate failures caused by missing `Sensitivity`/`MCC` in technical summaries.
 
 ### Deprecated
 

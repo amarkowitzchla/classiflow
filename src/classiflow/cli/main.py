@@ -20,6 +20,7 @@ from classiflow.cli.stats import stats_app
 from classiflow.cli.bundle import bundle_app
 from classiflow.cli.migrate import migrate_app
 from classiflow.cli.project import project_app
+from classiflow.cli.config import config_app
 from classiflow.cli.ui import ui_app
 from classiflow.cli.backfill import backfill_app
 
@@ -34,6 +35,7 @@ app.add_typer(stats_app, name="stats")
 app.add_typer(bundle_app, name="bundle")
 app.add_typer(migrate_app, name="migrate")
 app.add_typer(project_app, name="project")
+app.add_typer(config_app, name="config")
 app.add_typer(ui_app, name="ui")
 app.add_typer(backfill_app, name="backfill")
 

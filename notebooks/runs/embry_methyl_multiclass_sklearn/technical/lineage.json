@@ -1,0 +1,25 @@
+{
+  "phase": "TECHNICAL_VALIDATION",
+  "run_id": "technical",
+  "timestamp_local": "2026-02-09T10:20:27.958682",
+  "timestamp_utc": "2026-02-09T18:20:27.958691+00:00",
+  "classiflow_version": "0.1.0",
+  "git_hash": "674acbda214db1111961560ce20a1b1965463959",
+  "python_version": "3.11.10",
+  "platform": "macOS-15.7.3-x86_64-i386-64bit",
+  "config_hash": "902088f56efde0b50ff48218f7d9748c73fb7022ec26cd62d62801303f528d8d",
+  "dataset_hashes": {
+    "train": "dbc1799b3e2430c5f6e8c2e88037d853e5dc6fbae2c7f924f8e67c450bf7a47e",
+    "test": "38beac68b1760227319720c58271b74dad96ec89aef550c5ae1d3062f07ed8bd"
+  },
+  "command": "classiflow project run-technical",
+  "args": {
+    "run_id": "technical"
+  },
+  "outputs": [
+    {
+      "path": "runs/embry_methyl_multiclass_sklearn/project/runs/technical_validation/technical/config.resolved.yaml",
+      "sha256": "e5787c18b7279ed0d55c0f7c2494ea49fd7a82f55503608196a4ef511b936e83"
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+project:
+  id: EMBRY_METHYL_MC
+  name: Embryonal Methylation Multiclass
+  description: Reviewer notebook reproducible run
+  owner: local
+data:
+  train:
+    manifest: /Users/alex/Documents/project-MLSubtype/data/embry_methyl_train_50.csv
+  test:
+    manifest: /Users/alex/Documents/project-MLSubtype/data/embry_methyl_test_50.csv
+key_columns:
+  label: class
+task:
+  mode: multiclass
+  patient_stratified: false
+validation:
+  nested_cv:
+    outer_folds: 3
+    inner_folds: 3
+    repeats: 1
+    seed: 42
+models:
+  candidates:
+  - logistic_regression
+  - random_forest
+  - gradient_boost
+  selection_metric: f1
+  selection_direction: max
+imbalance:
+  smote:
+    enabled: false
+    compare: false
+multiclass:
+  group_stratify: false
+  backend: sklearn_cpu
+  sklearn:
+    logreg:
+      solver: saga
+      multi_class: auto
+      penalty: l2
+      max_iter: 5000
+      tol: 0.001
+      C: 1.0
+      class_weight: balanced
+      n_jobs: -1
+metrics:
+  primary:
+  - f1
+  - balanced_accuracy
+  averaging: macro
+  include_confidence_intervals: false
+calibration:
+  calibrate_meta: true
+  method: sigmoid
+  cv: 3
+  bins: 10
+  isotonic_min_samples: 100
+final_model:
+  sampler: none
+  sanity_min_std: 0.02
+  sanity_max_mean_deviation: 0.15
+  train_from_scratch: true
+  verify_dataset_hash: true
+bundle:
+  name: model_bundle
+  include_preprocessing: true
+  format: zip
+execution:
+  engine: sklearn

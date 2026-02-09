@@ -78,6 +78,13 @@ def test_train_multiclass_outputs(tmp_path):
         "balanced_accuracy",
         "f1_macro",
         "f1_weighted",
+        "sensitivity",
+        "specificity",
+        "ppv",
+        "npv",
+        "recall",
+        "precision",
+        "mcc",
         "roc_auc_ovr_macro",
     ]:
         assert col in outer_df.columns

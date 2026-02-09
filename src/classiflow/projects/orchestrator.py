@@ -198,7 +198,7 @@ def _technical_metrics_from_run(
             df,
             summary,
             per_fold,
-            ["sensitivity", "specificity", "ppv", "npv", "recall", "precision"],
+            ["sensitivity", "specificity", "ppv", "npv", "recall", "precision", "mcc"],
         )
         return summary, per_fold
     if mode == "meta":
@@ -210,7 +210,7 @@ def _technical_metrics_from_run(
             df,
             summary,
             per_fold,
-            ["sensitivity", "specificity", "ppv", "npv", "recall", "precision"],
+            ["sensitivity", "specificity", "ppv", "npv", "recall", "precision", "mcc"],
         )
         cal_summary, cal_per_fold = _calibration_metrics_from_comparison(run_dir)
         if not cal_summary:
@@ -227,7 +227,7 @@ def _technical_metrics_from_run(
             df,
             summary,
             per_fold,
-            ["sensitivity", "specificity", "ppv", "npv", "recall", "precision"],
+            ["sensitivity", "specificity", "ppv", "npv", "recall", "precision", "mcc"],
         )
         return summary, per_fold
 
@@ -239,7 +239,7 @@ def _technical_metrics_from_run(
         df,
         summary,
         per_fold,
-        ["sensitivity", "specificity", "ppv", "npv", "recall", "precision"],
+        ["sensitivity", "specificity", "ppv", "npv", "recall", "precision", "mcc"],
     )
     return summary, per_fold
 
