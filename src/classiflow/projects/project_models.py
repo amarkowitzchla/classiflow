@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import re
 from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -270,8 +271,60 @@ class PhaseThresholds(BaseModel):
 class CalibrationThresholds(BaseModel):
     """Calibration-specific promotion thresholds."""
 
-    brier_max: float = 0.20
-    ece_max: float = 0.25
+    brier_max: Optional[float] = None
+    ece_max: Optional[float] = None
+
+
+_ALLOWED_GATE_METRICS = {
+    "accuracy",
+    "precision",
+    "f1_score",
+    "f1",
+    "f1_macro",
+    "f1_weighted",
+    "mcc",
+    "sensitivity",
+    "recall",
+    "tpr",
+    "specificity",
+    "roc_auc",
+    "roc_auc_ovr_macro",
+    "roc_auc_macro",
+    "balanced_accuracy",
+    "balanced_acc",
+}
+
+
+class PromotionGateSpec(BaseModel):
+    """Single promotion gate rule."""
+
+    metric: str
+    op: Literal[">=", ">", "<=", "<"] = ">="
+    threshold: float
+    scope: Literal["outer", "independent", "both"] = "both"
+    aggregation: str = "mean"
+    notes: Optional[str] = None
+
+    @field_validator("metric")
+    @classmethod
+    def _validate_metric(cls, value: str) -> str:
+        normalized = value.strip().lower().replace(" ", "_").replace("-", "_")
+        if normalized not in _ALLOWED_GATE_METRICS:
+            allowed = ", ".join(sorted(_ALLOWED_GATE_METRICS))
+            raise ValueError(f"Unsupported promotion gate metric '{value}'. Allowed: {allowed}")
+        return value
+
+    @field_validator("aggregation")
+    @classmethod
+    def _validate_aggregation(cls, value: str) -> str:
+        aggregation = value.strip().lower()
+        if aggregation in {"mean", "median", "min"}:
+            return aggregation
+        if re.fullmatch(r"p\d{1,3}", aggregation):
+            percentile = int(aggregation[1:])
+            if 0 <= percentile <= 100:
+                return aggregation
+        raise ValueError("aggregation must be one of: mean, median, min, or pXX (0-100)")
 
 
 class PromotionConfig(BaseModel):
@@ -294,6 +347,8 @@ class ThresholdsConfig(BaseModel):
     technical_validation: PhaseThresholds = Field(default_factory=PhaseThresholds)
     independent_test: PhaseThresholds = Field(default_factory=PhaseThresholds)
     promotion_logic: Literal["ALL_REQUIRED_AND_STABILITY"] = "ALL_REQUIRED_AND_STABILITY"
+    promotion_gate_template: Optional[str] = None
+    promotion_gates: List[PromotionGateSpec] = Field(default_factory=list)
     promotion: PromotionConfig = Field(default_factory=PromotionConfig)
     override: OverridePolicy = Field(default_factory=OverridePolicy)
 

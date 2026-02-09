@@ -640,12 +640,14 @@ class LocalFilesystemScanner:
 
             # Calibration metrics
             if cal_config:
-                brier_max = cal_config.get("brier_max", 0.20) if isinstance(cal_config, dict) else cal_config.brier_max
-                ece_max = cal_config.get("ece_max", 0.25) if isinstance(cal_config, dict) else cal_config.ece_max
-                for metric_name, threshold, direction in [
-                    ("brier_calibrated", brier_max, "<="),
-                    ("ece_calibrated", ece_max, "<="),
-                ]:
+                brier_max = cal_config.get("brier_max") if isinstance(cal_config, dict) else cal_config.brier_max
+                ece_max = cal_config.get("ece_max") if isinstance(cal_config, dict) else cal_config.ece_max
+                calibration_checks = []
+                if brier_max is not None:
+                    calibration_checks.append(("brier_calibrated", brier_max, "<="))
+                if ece_max is not None:
+                    calibration_checks.append(("ece_calibrated", ece_max, "<="))
+                for metric_name, threshold, direction in calibration_checks:
                     actual = tech_metrics.get(metric_name)
                     passed = actual is not None and actual <= threshold
                     checks.append(GateCheck(
@@ -745,12 +747,14 @@ class LocalFilesystemScanner:
                     all_passed = False
 
             if cal_config:
-                brier_max = cal_config.get("brier_max", 0.20) if isinstance(cal_config, dict) else cal_config.brier_max
-                ece_max = cal_config.get("ece_max", 0.25) if isinstance(cal_config, dict) else cal_config.ece_max
-                for metric_name, threshold, direction in [
-                    ("brier_calibrated", brier_max, "<="),
-                    ("ece_calibrated", ece_max, "<="),
-                ]:
+                brier_max = cal_config.get("brier_max") if isinstance(cal_config, dict) else cal_config.brier_max
+                ece_max = cal_config.get("ece_max") if isinstance(cal_config, dict) else cal_config.ece_max
+                calibration_checks = []
+                if brier_max is not None:
+                    calibration_checks.append(("brier_calibrated", brier_max, "<="))
+                if ece_max is not None:
+                    calibration_checks.append(("ece_calibrated", ece_max, "<="))
+                for metric_name, threshold, direction in calibration_checks:
                     actual = test_metrics.get(metric_name)
                     passed = actual is not None and actual <= threshold
                     checks.append(GateCheck(

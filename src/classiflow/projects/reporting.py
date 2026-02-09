@@ -121,6 +121,7 @@ def write_promotion_report(
     gate_table: pd.DataFrame,
     gating_metrics: pd.DataFrame,
     report_only_metrics: pd.DataFrame,
+    promotion_template: Dict[str, object] | None = None,
     calibration_selection: Dict[str, str] | None = None,
 ) -> Path:
     """Write a markdown promotion report."""
@@ -131,6 +132,29 @@ def write_promotion_report(
         "",
         f"**Decision:** {status}",
         "",
+        "## Promotion Gate",
+    ]
+    if promotion_template:
+        md_lines.extend(
+            [
+                f"- Template: {promotion_template.get('display_name', 'n/a')} (`{promotion_template.get('template_id', 'n/a')}`)",
+                f"- Version: {promotion_template.get('version', 'n/a')}",
+                f"- Source: {promotion_template.get('source', 'n/a')}",
+                f"- Layman explanation: {promotion_template.get('layman_explanation', '')}",
+                "",
+            ]
+        )
+    promotion_gate_cols = ["phase", "metric", "op", "threshold", "observed_value", "passed", "scope", "aggregation"]
+    if not gating_metrics.empty:
+        available = [col for col in promotion_gate_cols if col in gating_metrics.columns]
+        md_lines.extend(
+            [
+                "### Gate Table",
+                _write_markdown_table(gating_metrics[available]),
+                "",
+            ]
+        )
+    md_lines.extend([
         "## Metrics Used for Promotion Decision",
         _write_markdown_table(gating_metrics),
         "",
@@ -138,7 +162,7 @@ def write_promotion_report(
         _write_markdown_table(report_only_metrics),
         "",
         "## Calibration Summary",
-    ]
+    ])
     cal_table = pd.DataFrame([])
     if not gating_metrics.empty:
         cal_table = gating_metrics[gating_metrics["metric"].isin(["brier_calibrated", "ece_calibrated"])]

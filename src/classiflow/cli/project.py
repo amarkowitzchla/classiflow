@@ -23,7 +23,8 @@ from classiflow.projects.orchestrator import (
 from classiflow.projects.project_fs import ProjectPaths, project_root, choose_project_id
 from classiflow.projects.project_models import ProjectConfig, ThresholdsConfig, StabilityGate
 from classiflow.projects.reporting import write_promotion_report
-from classiflow.projects.promotion import evaluate_promotion, promotion_decision, normalize_metric_name
+from classiflow.projects.promotion import evaluate_promotion, per_gate_rows, promotion_decision
+from classiflow.projects.promotion_templates import list_promotion_gate_templates
 from classiflow.projects.yaml_utils import dump_yaml
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,50 @@ def _pick_column(columns: List[str], candidates: List[str]) -> Optional[str]:
     return None
 
 
+def _default_gate_thresholds(task_mode: str, gate_profile: str) -> dict:
+    normalized_mode = task_mode.lower()
+    normalized_profile = gate_profile.lower()
+
+    if normalized_profile not in {"balanced", "f1", "sensitivity"}:
+        raise typer.BadParameter("gate-profile must be balanced, f1, or sensitivity")
+
+    is_multiclass_like = normalized_mode in {"meta", "multiclass", "hierarchical"}
+    default_f1_metric = "f1_macro" if is_multiclass_like else "f1"
+    tech_f1_metric = "f1" if normalized_mode == "binary" else default_f1_metric
+
+    if normalized_profile == "sensitivity":
+        required = {"sensitivity": 0.8}
+        stability_std = {"sensitivity": 0.1}
+    elif normalized_profile == "f1":
+        required = {default_f1_metric: 0.7}
+        stability_std = {tech_f1_metric: 0.1}
+    else:
+        required = {default_f1_metric: 0.7, "balanced_accuracy": 0.7}
+        stability_std = {
+            tech_f1_metric: 0.1,
+            "balanced_accuracy": 0.1,
+        }
+
+    return {
+        "technical_required": {tech_f1_metric if k == default_f1_metric else k: v for k, v in required.items()},
+        "test_required": required,
+        "technical_stability_std_max": stability_std,
+        "technical_stability_pass_rate_min": 0.8,
+    }
+
+
+def _print_promotion_templates() -> None:
+    templates = list_promotion_gate_templates()
+    for template in templates:
+        gate_parts = [
+            f"{gate.metric} {gate.op} {gate.threshold} [{gate.scope}/{gate.aggregation}]"
+            for gate in template.gates
+        ]
+        typer.echo(f"{template.template_id}: {template.display_name}")
+        typer.echo(f"  layman: {template.layman_explanation}")
+        typer.echo(f"  gates: {', '.join(gate_parts)}")
+
+
 def _infer_key_columns(train_manifest: Path) -> dict:
     df = pd.read_csv(train_manifest, nrows=5)
     columns = df.columns.tolist()
@@ -160,10 +205,29 @@ def bootstrap_project(
     ),
     no_patient_stratified: bool = typer.Option(False, "--no-patient-stratified", help="Disable patient stratification"),
     thresholds: List[str] = typer.Option([], "--threshold", help="Metric threshold overrides (metric:value)"),
+    gate_profile: str = typer.Option(
+        "balanced",
+        "--gate-profile",
+        help="Promotion gate profile: balanced|f1|sensitivity",
+    ),
+    promotion_gate_template: Optional[str] = typer.Option(
+        None,
+        "--promotion-gate-template",
+        help="Built-in promotion gate template id",
+    ),
+    list_promotion_gate_templates_flag: bool = typer.Option(
+        False,
+        "--list-promotion-gate-templates",
+        help="List available promotion gate templates and exit",
+    ),
     copy_data: str = typer.Option("pointer", "--copy-data", help="copy|symlink|pointer"),
     test_id: Optional[str] = typer.Option(None, "--test-id", help="Project/test identifier"),
 ):
     """Bootstrap a project with dataset registration."""
+    if list_promotion_gate_templates_flag:
+        _print_promotion_templates()
+        return
+
     project_id = choose_project_id(name, test_id)
     root = project_root(out_dir, project_id, name)
     paths = ProjectPaths(root)
@@ -231,26 +295,32 @@ def bootstrap_project(
     _append_torch_backend_hint(paths.project_yaml)
 
     thresholds_cfg = ThresholdsConfig()
-    thresholds_cfg.technical_validation.required = {
-        "f1": 0.7,
-        "balanced_accuracy": 0.7,
-    }
-    thresholds_cfg.technical_validation.stability = StabilityGate(
-        std_max={"f1": 0.1, "balanced_accuracy": 0.1},
-        pass_rate_min=0.8,
-    )
-    thresholds_cfg.independent_test.required = {
-        "f1_macro": 0.7,
-        "balanced_accuracy": 0.7,
-    }
-    thresholds_cfg.promotion.calibration.brier_max = 0.20
-    thresholds_cfg.promotion.calibration.ece_max = 0.25
+    if promotion_gate_template:
+        thresholds_cfg.promotion_gate_template = promotion_gate_template
+    else:
+        gate_defaults = _default_gate_thresholds(config.task.mode, gate_profile)
+        thresholds_cfg.technical_validation.required = gate_defaults["technical_required"]
+        thresholds_cfg.technical_validation.stability = StabilityGate(
+            std_max=gate_defaults["technical_stability_std_max"],
+            pass_rate_min=gate_defaults["technical_stability_pass_rate_min"],
+        )
+        thresholds_cfg.independent_test.required = gate_defaults["test_required"]
+
     for entry in thresholds:
         if ":" not in entry:
             continue
         metric, value = entry.split(":", 1)
         try:
-            thresholds_cfg.technical_validation.required[metric] = float(value)
+            thresholds_cfg.promotion_gates.append(
+                {
+                    "metric": metric,
+                    "op": ">=",
+                    "threshold": float(value),
+                    "scope": "both",
+                    "aggregation": "mean",
+                    "notes": "created_from_bootstrap_threshold_override",
+                }
+            )
         except ValueError:
             raise typer.BadParameter(f"Invalid threshold: {entry}")
     thresholds_cfg.save(paths.thresholds_yaml)
@@ -432,11 +502,27 @@ def recommend_cmd(
     override: bool = typer.Option(False, "--override", help="Override failed gates"),
     comment: Optional[str] = typer.Option(None, "--comment", help="Override comment"),
     approver: Optional[str] = typer.Option(None, "--approver", help="Override approver"),
+    promotion_gate_template: Optional[str] = typer.Option(
+        None,
+        "--promotion-gate-template",
+        help="Built-in promotion gate template id",
+    ),
+    list_promotion_gate_templates_flag: bool = typer.Option(
+        False,
+        "--list-promotion-gate-templates",
+        help="List available promotion gate templates and exit",
+    ),
 ):
     """Evaluate promotion gates and emit recommendation."""
+    if list_promotion_gate_templates_flag:
+        _print_promotion_templates()
+        return
+
     paths = ProjectPaths(project_dir)
-    config = _load_config(paths)
+    _load_config(paths)
     thresholds = _load_thresholds(paths)
+    if promotion_gate_template:
+        thresholds.promotion_gate_template = promotion_gate_template
 
     technical_root = paths.runs_dir / "technical_validation"
     test_root = paths.runs_dir / "independent_test"
@@ -477,89 +563,21 @@ def recommend_cmd(
 
     gate_rows = []
     for phase, result in gate_results.items():
-        gate_rows.append({
-            "phase": phase,
-            "passed": result.passed,
-            "reasons": "; ".join(result.reasons) if result.reasons else "",
-        })
+        gate_rows.append(
+            {
+                "phase": phase,
+                "passed": result.passed,
+                "reasons": "; ".join(result.reasons) if result.reasons else "",
+            }
+        )
 
-    gating_rows = []
+    gating_rows = per_gate_rows(gate_results)
     report_only_rows = []
-    cal_thresholds = thresholds.promotion.calibration
     phases = {
         "technical_validation": (tech_summary, thresholds.technical_validation),
         "independent_test": (test_summary, thresholds.independent_test),
     }
     for phase, (metrics, phase_thresholds) in phases.items():
-        for metric_name, threshold in phase_thresholds.required.items():
-            normalized = normalize_metric_name(metric_name)
-            actual = metrics.get(normalized)
-            passed = actual is not None and actual >= threshold
-            gating_rows.append({
-                "phase": phase,
-                "metric": metric_name,
-                "value": actual,
-                "threshold": threshold,
-                "direction": ">=",
-                "passed": passed,
-            })
-        for metric_name, max_allowed in phase_thresholds.safety.items():
-            normalized = normalize_metric_name(metric_name)
-            actual = metrics.get(normalized)
-            passed = actual is not None and actual <= max_allowed
-            gating_rows.append({
-                "phase": phase,
-                "metric": metric_name,
-                "value": actual,
-                "threshold": max_allowed,
-                "direction": "<=",
-                "passed": passed,
-            })
-        brier_value = metrics.get("brier_calibrated")
-        gating_rows.append({
-            "phase": phase,
-            "metric": "brier_calibrated",
-            "value": brier_value,
-            "threshold": cal_thresholds.brier_max,
-            "direction": "<=",
-            "passed": brier_value is not None and brier_value <= cal_thresholds.brier_max,
-        })
-        ece_value = metrics.get("ece_calibrated")
-        gating_rows.append({
-            "phase": phase,
-            "metric": "ece_calibrated",
-            "value": ece_value,
-            "threshold": cal_thresholds.ece_max,
-            "direction": "<=",
-            "passed": ece_value is not None and ece_value <= cal_thresholds.ece_max,
-        })
-        if phase == "technical_validation" and phase_thresholds.stability:
-            stability = phase_thresholds.stability
-            for metric_name, max_std in stability.std_max.items():
-                normalized = normalize_metric_name(metric_name)
-                actual = gate_results["technical_validation"].metrics.get(f"{normalized}_std")
-                passed = actual is not None and actual <= max_std
-                gating_rows.append({
-                    "phase": phase,
-                    "metric": f"{metric_name}_std",
-                    "value": actual,
-                    "threshold": max_std,
-                    "direction": "<=",
-                    "passed": passed,
-                })
-            for metric_name in phase_thresholds.required.keys():
-                normalized = normalize_metric_name(metric_name)
-                actual = gate_results["technical_validation"].metrics.get(f"{normalized}_pass_rate")
-                passed = actual is not None and actual >= stability.pass_rate_min
-                gating_rows.append({
-                    "phase": phase,
-                    "metric": f"{metric_name}_pass_rate",
-                    "value": actual,
-                    "threshold": stability.pass_rate_min,
-                    "direction": ">=",
-                    "passed": passed,
-                })
-
         report_only_keys = {
             "roc_auc",
             "roc_auc_ovr_macro",
@@ -602,6 +620,7 @@ def recommend_cmd(
         pd.DataFrame(gate_rows),
         pd.DataFrame(gating_rows),
         pd.DataFrame(report_only_rows),
+        promotion_template=gate_results["technical_validation"].template,
         calibration_selection=calibration_selection,
     )
 
@@ -611,6 +630,8 @@ def recommend_cmd(
         "technical_run": technical_run.name,
         "test_run": test_run.name,
         "reasons": reasons,
+        "promotion_template": gate_results["technical_validation"].template,
+        "resolved_gates": gating_rows,
         "override": {
             "enabled": override,
             "comment": comment,
@@ -629,6 +650,21 @@ def recommend_cmd(
     }
     with open(paths.promotion_dir / "promotion_decision.json", "w", encoding="utf-8") as handle:
         json.dump(decision_json, handle, indent=2)
+    with open(paths.promotion_dir / "run.json", "w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "phase": "promotion_recommendation",
+                "decision": decision_payload["decision"],
+                "timestamp": decision_payload["timestamp"],
+                "technical_run": decision_payload["technical_run"],
+                "test_run": decision_payload["test_run"],
+                "promotion_template": decision_payload["promotion_template"],
+                "resolved_gates": decision_payload["resolved_gates"],
+                "reasons": decision_payload["reasons"],
+            },
+            handle,
+            indent=2,
+        )
     typer.echo(str(report_path))
 
 

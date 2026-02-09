@@ -12,7 +12,13 @@ import numpy as np
 from classiflow.inference.config import InferenceConfig
 from classiflow.inference.loader import ArtifactLoader
 from classiflow.inference.preprocess import FeatureAligner, validate_input_data
-from classiflow.inference.predict import BinaryPredictor, MetaPredictor, HierarchicalPredictor, MulticlassPredictor
+from classiflow.inference.predict import (
+    BinaryPredictor,
+    MetaPredictor,
+    HierarchicalPredictor,
+    MulticlassPredictor,
+    add_binary_prediction_columns,
+)
 from classiflow.inference.metrics import compute_classification_metrics
 from classiflow.metrics.calibration import compute_probability_quality
 from classiflow.inference.plots import generate_all_plots
@@ -86,6 +92,16 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
 
     logger.info(f"  Detected run type: {run_type}")
 
+    positive_class = None
+    if loader.manifest and loader.manifest.task_definitions:
+        task_def = loader.manifest.task_definitions.get("binary_task")
+        if isinstance(task_def, str):
+            prefix = "positive_class="
+            if prefix in task_def:
+                positive_class = task_def.split(prefix, 1)[1].strip()
+        elif isinstance(task_def, dict):
+            positive_class = task_def.get("positive_class") or task_def.get("pos_label")
+
     # Load input data (supports CSV, Parquet, and Parquet dataset directories)
     logger.info("\n[2/7] Loading and preprocessing data...")
     from classiflow.data import load_table
@@ -138,6 +154,15 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
     # Run predictions
     logger.info("\n[3/7] Running predictions...")
     predictions = _run_predictions(loader, X, metadata, config)
+    if run_type == "binary" and "predicted_label" not in predictions.columns:
+        label_series = None
+        if config.label_col and config.label_col in metadata.columns:
+            label_series = metadata[config.label_col]
+        predictions = add_binary_prediction_columns(
+            predictions,
+            labels=label_series,
+            positive_class=positive_class,
+        )
 
     # Add metadata columns (ID, true label)
     final_predictions = pd.concat([metadata, predictions], axis=1)
@@ -164,15 +189,6 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
     calibration_curve_df = None
     if config.label_col and config.label_col in metadata.columns:
         logger.info("\n[4/7] Computing metrics...")
-        positive_class = None
-        if loader.manifest and loader.manifest.task_definitions:
-            task_def = loader.manifest.task_definitions.get("binary_task")
-            if isinstance(task_def, str):
-                prefix = "positive_class="
-                if prefix in task_def:
-                    positive_class = task_def.split(prefix, 1)[1].strip()
-            elif isinstance(task_def, dict):
-                positive_class = task_def.get("positive_class") or task_def.get("pos_label")
         metrics, calibration_curve_df = _compute_metrics(
             final_predictions,
             label_col=config.label_col,

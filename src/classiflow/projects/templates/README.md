@@ -21,5 +21,7 @@ classiflow project recommend
 
 - Update `project.yaml` to reflect your manifest columns.
 - Update `registry/thresholds.yaml` with promotion gates.
+- Calibration gates are optional: set `promotion.calibration.brier_max` and/or
+  `promotion.calibration.ece_max` only when you want them to gate promotion.
 - Store reviewer feedback in `promotion/`.
 - For hierarchical workflows, set `task.hierarchy_path` to the L2 label column.

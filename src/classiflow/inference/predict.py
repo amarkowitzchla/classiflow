@@ -104,6 +104,72 @@ class BinaryPredictor:
         return (scores >= threshold).astype(int)
 
 
+def add_binary_prediction_columns(
+    predictions: pd.DataFrame,
+    labels: Optional[pd.Series],
+    positive_class: Optional[str] = None,
+) -> pd.DataFrame:
+    """
+    Add predicted_label and predicted_proba columns for binary outputs when possible.
+
+    Uses label-derived class names to map 0/1 predictions to string labels. Adds
+    probability columns only when scores are in the [0, 1] range.
+    """
+    if "predicted_label" in predictions.columns:
+        return predictions
+
+    score_cols = [c for c in predictions.columns if c.endswith("_score")]
+    pred_cols = [c for c in predictions.columns if c.endswith("_pred")]
+    if not score_cols or not pred_cols:
+        return predictions
+
+    score_col = sorted(score_cols)[0]
+    candidate_pred_col = score_col.replace("_score", "_pred")
+    pred_col = candidate_pred_col if candidate_pred_col in predictions.columns else sorted(pred_cols)[0]
+
+    if labels is None:
+        logger.warning("Binary labels unavailable; cannot derive predicted_label.")
+        return predictions
+
+    class_names = sorted(pd.unique(labels.dropna()))
+    if len(class_names) != 2:
+        logger.warning("Expected 2 unique labels for binary mapping; skipping predicted_label.")
+        return predictions
+
+    pos_label = positive_class if positive_class in class_names else class_names[1]
+    neg_label = class_names[0] if class_names[1] == pos_label else class_names[1]
+
+    pred_series = predictions[pred_col]
+    if pd.api.types.is_numeric_dtype(pred_series) or pd.api.types.is_bool_dtype(pred_series):
+        pred_values = pred_series.astype(int).values
+        predictions["predicted_label"] = np.where(pred_values == 1, pos_label, neg_label)
+    else:
+        pred_numeric = pd.to_numeric(pred_series, errors="coerce")
+        if pred_numeric.notna().all():
+            pred_values = pred_numeric.astype(int).values
+            predictions["predicted_label"] = np.where(pred_values == 1, pos_label, neg_label)
+        else:
+            if set(pred_series.dropna().unique()).issubset(set(class_names)):
+                predictions["predicted_label"] = pred_series.astype(str).values
+            else:
+                logger.warning("Unsupported binary prediction encoding; skipping predicted_label.")
+                return predictions
+
+    scores = pd.to_numeric(predictions[score_col], errors="coerce").values
+    finite = np.isfinite(scores)
+    if finite.any():
+        smin = float(np.nanmin(scores))
+        smax = float(np.nanmax(scores))
+        if smin >= 0.0 and smax <= 1.0:
+            predictions[f"predicted_proba_{neg_label}"] = 1.0 - scores
+            predictions[f"predicted_proba_{pos_label}"] = scores
+            predictions["predicted_proba"] = np.maximum(1.0 - scores, scores)
+        else:
+            logger.warning("Binary scores are not probabilities; skipping predicted_proba columns.")
+
+    return predictions
+
+
 class MetaPredictor:
     """Predict using meta-classifier."""
 

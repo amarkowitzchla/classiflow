@@ -9,6 +9,7 @@ from classiflow.projects.orchestrator import (
     build_final_model,
     run_independent_test,
 )
+from classiflow.projects.promotion_templates import list_promotion_gate_templates
 
 __all__ = [
     "ProjectConfig",
@@ -19,4 +20,5 @@ __all__ = [
     "run_technical_validation",
     "build_final_model",
     "run_independent_test",
+    "list_promotion_gate_templates",
 ]

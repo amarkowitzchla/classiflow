@@ -95,6 +95,47 @@ def test_promotion_fails_on_poor_calibration() -> None:
     assert not results["independent_test"].passed
 
 
+def test_promotion_ignores_calibration_when_not_configured() -> None:
+    thresholds = ThresholdsConfig()
+    thresholds.technical_validation.required = {"recall": 0.8}
+    thresholds.independent_test.required = {"recall": 0.8}
+
+    tech_metrics = {"recall": 0.9}
+    test_metrics = {"recall": 0.92}
+
+    results = evaluate_promotion(thresholds, tech_metrics, {}, test_metrics)
+    assert results["technical_validation"].passed
+    assert results["independent_test"].passed
+
+
+def test_promotion_enforces_only_configured_calibration_metric() -> None:
+    thresholds = ThresholdsConfig()
+    thresholds.technical_validation.required = {"recall": 0.8}
+    thresholds.independent_test.required = {"recall": 0.8}
+    thresholds.promotion.calibration.brier_max = 0.2
+    thresholds.promotion.calibration.ece_max = None
+
+    tech_metrics = {"recall": 0.9, "brier_calibrated": 0.3}
+    test_metrics = {"recall": 0.92, "brier_calibrated": 0.12}
+
+    results = evaluate_promotion(thresholds, tech_metrics, {}, test_metrics)
+    assert not results["technical_validation"].passed
+    assert results["independent_test"].passed
+
+
+def test_promotion_resolves_f1_to_weighted_when_macro_missing() -> None:
+    thresholds = ThresholdsConfig()
+    thresholds.technical_validation.required = {"f1": 0.7}
+    thresholds.independent_test.required = {"f1": 0.7}
+
+    tech_metrics = {"f1_weighted": 0.8}
+    test_metrics = {"f1_weighted": 0.85}
+
+    results = evaluate_promotion(thresholds, tech_metrics, {}, test_metrics)
+    assert results["technical_validation"].passed
+    assert results["independent_test"].passed
+
+
 def test_promotion_passes_when_decision_and_calibration_pass() -> None:
     thresholds = ThresholdsConfig()
     thresholds.technical_validation.required = {"recall": 0.8}

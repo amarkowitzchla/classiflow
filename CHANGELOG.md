@@ -25,6 +25,24 @@ Guidelines:
 - **Stats binary mode**: 2-class datasets now dispatch to Welch's t-test or Mann–Whitney U with per-feature p-value adjustment.
 
 ### Changed
+- Binary inference now emits `predicted_label` and `predicted_proba_*` columns when labels
+  are present and scores are probabilities, enabling plots for binary `project run-test`.
+- `project recommend` now enforces calibration gates only when explicitly configured in
+  `registry/thresholds.yaml` (`promotion.calibration.brier_max` / `ece_max`), removing
+  implicit calibration failures when those keys are absent.
+- `project recommend` now resolves `f1` thresholds against available metrics
+  (`f1_macro` then `f1_weighted` then `f1`) to avoid mode-specific naming failures.
+- `project bootstrap` now supports `--gate-profile balanced|f1|sensitivity` to initialize
+  threshold defaults by user objective while keeping full manual control in thresholds YAML.
+- Added promotion gate templates with provenance-aware evaluation:
+  - Built-ins: `clinical_conservative`, `screen_ruleout`, `confirm_rulein`, `research_exploratory`
+  - New thresholds schema fields: `promotion_gate_template`, `promotion_gates`
+  - Precedence: manual `promotion_gates` overrides template and records
+    `ignored_due_to_manual_override`
+  - New CLI options: `--promotion-gate-template`, `--list-promotion-gate-templates`
+    on `project bootstrap` and `project recommend`
+  - Promotion artifacts now include template metadata, layman explanation, resolved gate rows,
+    and per-gate pass/fail details for technical validation and independent test.
 
 ### Deprecated
 

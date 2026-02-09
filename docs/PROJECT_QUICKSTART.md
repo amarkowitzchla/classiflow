@@ -95,6 +95,42 @@ classiflow project run-test projects/GLIOMA_SUBTYPE__glioma_subtype
 classiflow project recommend projects/GLIOMA_SUBTYPE__glioma_subtype
 ```
 
+List built-in promotion gate templates:
+
+```bash
+classiflow project recommend projects/GLIOMA_SUBTYPE__glioma_subtype --list-promotion-gate-templates
+```
+
+Apply a template at evaluation time:
+
+```bash
+classiflow project recommend projects/GLIOMA_SUBTYPE__glioma_subtype --promotion-gate-template clinical_conservative
+```
+
+Promotion gate templates:
+
+| Template ID | Display name | Layman explanation | Gates |
+|---|---|---|---|
+| `clinical_conservative` | Conservative Clinical Gate | The model is consistently right across different groups and doesn't miss too many real cases or overcall too often. | Balanced Accuracy >= 0.80; Sensitivity >= 0.85; MCC >= 0.60 |
+| `screen_ruleout` | Screening / Rule-Out Gate | If the model says 'no,' we can trust it - even if it flags extra cases for review. | Sensitivity >= 0.95; ROC AUC >= 0.90 |
+| `confirm_rulein` | High-Risk Confirmatory Gate | When the model says 'yes,' it's almost always correct. | Specificity >= 0.98; Precision >= 0.90; MCC >= 0.65 |
+| `research_exploratory` | Research / Exploratory Gate | The model shows promise and performs better than chance, but isn't ready for clinical use yet. | Balanced Accuracy >= 0.70; F1 Score >= 0.65 |
+
+YAML examples:
+
+```yaml
+promotion_gate_template: clinical_conservative
+```
+
+```yaml
+promotion_gates:
+  - metric: "Sensitivity"
+    op: ">="
+    threshold: 0.95
+    scope: both
+    aggregation: mean
+```
+
 ## 7) Ship for deployment
 
 ```bash

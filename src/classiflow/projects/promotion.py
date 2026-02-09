@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional, Tuple
+import operator
 
 import numpy as np
 
-from classiflow.projects.project_models import ThresholdsConfig
+from classiflow.projects.project_models import PromotionGateSpec, ThresholdsConfig
+from classiflow.projects.promotion_templates import (
+    TEMPLATE_DEFAULT_F1_BALACC,
+    get_promotion_gate_template,
+)
 
 
 METRIC_ALIASES = {
@@ -15,12 +20,24 @@ METRIC_ALIASES = {
     "tpr": "recall",
     "balanced_acc": "balanced_accuracy",
     "balanced_accuracy": "balanced_accuracy",
+    "f1_score": "f1_macro",
     "f1_macro": "f1_macro",
-    "f1": "f1_macro",  # Map f1 to f1_macro for multi-class problems
+    "f1": "f1_macro",
     "accuracy": "accuracy",
     "roc_auc": "roc_auc",
     "roc_auc_macro": "roc_auc_ovr_macro",
     "roc_auc_ovr_macro": "roc_auc_ovr_macro",
+    "precision": "precision",
+    "specificity": "specificity",
+    "mcc": "mcc",
+    "recall": "recall",
+}
+
+_COMPARATORS = {
+    ">=": operator.ge,
+    ">": operator.gt,
+    "<=": operator.le,
+    "<": operator.lt,
 }
 
 
@@ -29,107 +46,243 @@ def normalize_metric_name(name: str) -> str:
     return METRIC_ALIASES.get(key, key)
 
 
+def _metric_candidates(name: str) -> List[str]:
+    normalized = normalize_metric_name(name)
+    candidates = [normalized]
+    if normalized == "f1_macro":
+        candidates.extend(["f1_weighted", "f1"])
+    elif normalized == "f1":
+        candidates.extend(["f1_macro", "f1_weighted"])
+    elif normalized == "roc_auc":
+        candidates.extend(["roc_auc_ovr_macro", "roc_auc_macro"])
+    elif normalized == "recall":
+        candidates.extend(["sensitivity", "tpr"])
+    return candidates
+
+
+def resolve_metric(metrics: Dict[str, float], metric_name: str) -> Optional[float]:
+    for key in _metric_candidates(metric_name):
+        value = metrics.get(key)
+        if value is not None:
+            return value
+    return None
+
+
+def _resolve_per_fold_values(per_fold: Dict[str, List[float]], metric_name: str) -> Optional[List[float]]:
+    for key in _metric_candidates(metric_name):
+        values = per_fold.get(key)
+        if values:
+            return values
+    return None
+
+
+@dataclass
+class PerGateResult:
+    """Result of evaluating one gate."""
+
+    phase: str
+    metric: str
+    op: str
+    threshold: float
+    observed_value: Optional[float]
+    passed: bool
+    scope: str
+    aggregation: str
+    notes: Optional[str] = None
+
+
 @dataclass
 class GateResult:
-    """Result of evaluating a gate."""
+    """Result of evaluating a phase."""
 
     passed: bool
     reasons: List[str]
     metrics: Dict[str, float]
+    per_gate_results: List[PerGateResult]
+    template: Dict[str, object]
 
 
-def _evaluate_required(metrics: Dict[str, float], required: Dict[str, float]) -> Tuple[bool, List[str]]:
-    reasons = []
-    ok = True
-    for metric, threshold in required.items():
-        key = normalize_metric_name(metric)
-        value = metrics.get(key)
-        if value is None or np.isnan(value):
-            ok = False
-            reasons.append(f"Missing metric: {metric}")
-            continue
-        if value < threshold:
-            ok = False
-            reasons.append(f"{metric}={value:.4f} < {threshold:.4f}")
-    return ok, reasons
+def _compare(value: float, op: str, threshold: float) -> bool:
+    return _COMPARATORS[op](value, threshold)
 
 
-def _evaluate_safety(metrics: Dict[str, float], safety: Dict[str, float]) -> Tuple[bool, List[str]]:
-    reasons = []
-    ok = True
-    for metric, max_allowed in safety.items():
-        key = normalize_metric_name(metric)
-        value = metrics.get(key)
-        if value is None or np.isnan(value):
-            ok = False
-            reasons.append(f"Missing safety metric: {metric}")
-            continue
-        if value > max_allowed:
-            ok = False
-            reasons.append(f"{metric}={value:.4f} > {max_allowed:.4f}")
-    return ok, reasons
-
-
-def _evaluate_stability(
+def _aggregate_gate_value(
+    metric_name: str,
+    aggregation: str,
+    summary_metrics: Dict[str, float],
     per_fold: Dict[str, List[float]],
-    std_max: Dict[str, float],
-    pass_rate_min: float,
-    required: Dict[str, float],
-) -> Tuple[bool, List[str], Dict[str, float]]:
-    reasons = []
-    ok = True
-    stability_metrics = {}
-    catastrophic_metrics = {"recall", "sensitivity", "tpr"}
-    for metric, values in per_fold.items():
-        norm_metric = normalize_metric_name(metric)
-        values = [v for v in values if v == v]
-        if not values:
-            ok = False
-            reasons.append(f"No fold values for {metric}")
-            continue
-        std = float(np.std(values, ddof=1)) if len(values) > 1 else 0.0
-        stability_metrics[f"{norm_metric}_std"] = std
-        std_thresh = std_max.get(metric) or std_max.get(norm_metric)
-        if std_thresh is not None and std > std_thresh:
-            ok = False
-            reasons.append(f"{metric} std={std:.4f} > {std_thresh:.4f}")
-        if metric in required or norm_metric in required:
-            threshold = required.get(metric, required.get(norm_metric))
-            pass_rate = float(np.mean([v >= threshold for v in values]))
-            stability_metrics[f"{norm_metric}_pass_rate"] = pass_rate
-            if pass_rate < pass_rate_min:
-                ok = False
-                reasons.append(
-                    f"{metric} pass_rate={pass_rate:.2f} < {pass_rate_min:.2f}"
-                )
-        if norm_metric in catastrophic_metrics and any(v <= 0 for v in values):
-            ok = False
-            reasons.append(f"{metric} catastrophic failure (value <= 0)")
-    return ok, reasons, stability_metrics
+) -> Optional[float]:
+    aggregation = aggregation.lower()
+    if aggregation == "mean":
+        value = resolve_metric(summary_metrics, metric_name)
+        if value is not None and not np.isnan(value):
+            return float(value)
+
+    values = _resolve_per_fold_values(per_fold, metric_name)
+    if values is None:
+        # Median/min/percentile require fold-level values; mean can fallback to summary.
+        return None
+    values = [float(v) for v in values if v == v]
+    if not values:
+        return None
+
+    if aggregation == "mean":
+        return float(np.mean(values))
+    if aggregation == "median":
+        return float(np.median(values))
+    if aggregation == "min":
+        return float(np.min(values))
+    if aggregation.startswith("p"):
+        percentile = int(aggregation[1:])
+        return float(np.percentile(values, percentile))
+    return None
+
+
+def _phase_name_for_scope(scope: str) -> List[str]:
+    if scope == "outer":
+        return ["technical_validation"]
+    if scope == "independent":
+        return ["independent_test"]
+    return ["technical_validation", "independent_test"]
+
+
+def _legacy_gates(thresholds: ThresholdsConfig) -> List[PromotionGateSpec]:
+    gates: List[PromotionGateSpec] = []
+    for metric, threshold in thresholds.technical_validation.required.items():
+        gates.append(
+            PromotionGateSpec(metric=metric, op=">=", threshold=float(threshold), scope="outer", aggregation="mean")
+        )
+    for metric, threshold in thresholds.independent_test.required.items():
+        gates.append(
+            PromotionGateSpec(metric=metric, op=">=", threshold=float(threshold), scope="independent", aggregation="mean")
+        )
+    for metric, threshold in thresholds.technical_validation.safety.items():
+        gates.append(
+            PromotionGateSpec(metric=metric, op="<=", threshold=float(threshold), scope="outer", aggregation="mean")
+        )
+    for metric, threshold in thresholds.independent_test.safety.items():
+        gates.append(
+            PromotionGateSpec(metric=metric, op="<=", threshold=float(threshold), scope="independent", aggregation="mean")
+        )
+    return gates
+
+
+def resolve_promotion_gates(thresholds: ThresholdsConfig) -> Dict[str, object]:
+    """Resolve manual/template/default gates with precedence and provenance."""
+    manual_gates = list(thresholds.promotion_gates)
+    template_id = thresholds.promotion_gate_template
+    ignored_template: Optional[Dict[str, object]] = None
+
+    if manual_gates:
+        if template_id:
+            template = get_promotion_gate_template(template_id)
+            ignored_template = {
+                "template_id": template.template_id,
+                "display_name": template.display_name,
+                "version": template.version,
+                "status": "ignored_due_to_manual_override",
+            }
+        return {
+            "source": "manual",
+            "template_id": "manual_override",
+            "display_name": "Manual Promotion Gates",
+            "description": "Gates from thresholds.promotion_gates",
+            "layman_explanation": "Custom promotion gates defined by the project.",
+            "version": 1,
+            "gates": manual_gates,
+            "ignored_template": ignored_template,
+        }
+
+    if template_id:
+        template = get_promotion_gate_template(template_id)
+        return {
+            "source": "template",
+            "template_id": template.template_id,
+            "display_name": template.display_name,
+            "description": template.description,
+            "layman_explanation": template.layman_explanation,
+            "version": template.version,
+            "gates": list(template.gates),
+            "ignored_template": None,
+        }
+
+    legacy = _legacy_gates(thresholds)
+    if legacy:
+        return {
+            "source": "legacy",
+            "template_id": "legacy_thresholds",
+            "display_name": "Legacy Threshold Gates",
+            "description": "Derived from technical/independent required and safety threshold maps.",
+            "layman_explanation": "Legacy threshold configuration was used for promotion checks.",
+            "version": 1,
+            "gates": legacy,
+            "ignored_template": None,
+        }
+
+    template = get_promotion_gate_template(TEMPLATE_DEFAULT_F1_BALACC)
+    return {
+        "source": "default",
+        "template_id": template.template_id,
+        "display_name": template.display_name,
+        "description": template.description,
+        "layman_explanation": template.layman_explanation,
+        "version": template.version,
+        "gates": list(template.gates),
+        "ignored_template": None,
+    }
 
 
 def _evaluate_calibration(
     metrics: Dict[str, float],
-    brier_max: float,
-    ece_max: float,
-) -> Tuple[bool, List[str]]:
+    brier_max: Optional[float],
+    ece_max: Optional[float],
+) -> Tuple[bool, List[str], List[PerGateResult]]:
     reasons = []
     ok = True
-    brier = metrics.get("brier_calibrated")
-    if brier is None or np.isnan(brier):
-        ok = False
-        reasons.append("Missing calibrated metric: brier_calibrated")
-    elif brier > brier_max:
-        ok = False
-        reasons.append(f"brier_calibrated={brier:.4f} > {brier_max:.4f}")
-    ece = metrics.get("ece_calibrated")
-    if ece is None or np.isnan(ece):
-        ok = False
-        reasons.append("Missing calibrated metric: ece_calibrated")
-    elif ece > ece_max:
-        ok = False
-        reasons.append(f"ece_calibrated={ece:.4f} > {ece_max:.4f}")
-    return ok, reasons
+    per_gate: List[PerGateResult] = []
+    if brier_max is not None:
+        brier = metrics.get("brier_calibrated")
+        passed = brier is not None and not np.isnan(brier) and brier <= brier_max
+        if not passed:
+            ok = False
+            if brier is None or np.isnan(brier):
+                reasons.append("Missing calibrated metric: brier_calibrated")
+            else:
+                reasons.append(f"brier_calibrated={brier:.4f} > {brier_max:.4f}")
+        per_gate.append(
+            PerGateResult(
+                phase="",
+                metric="brier_calibrated",
+                op="<=",
+                threshold=float(brier_max),
+                observed_value=float(brier) if brier is not None and not np.isnan(brier) else None,
+                passed=passed,
+                scope="both",
+                aggregation="mean",
+            )
+        )
+    if ece_max is not None:
+        ece = metrics.get("ece_calibrated")
+        passed = ece is not None and not np.isnan(ece) and ece <= ece_max
+        if not passed:
+            ok = False
+            if ece is None or np.isnan(ece):
+                reasons.append("Missing calibrated metric: ece_calibrated")
+            else:
+                reasons.append(f"ece_calibrated={ece:.4f} > {ece_max:.4f}")
+        per_gate.append(
+            PerGateResult(
+                phase="",
+                metric="ece_calibrated",
+                op="<=",
+                threshold=float(ece_max),
+                observed_value=float(ece) if ece is not None and not np.isnan(ece) else None,
+                passed=passed,
+                scope="both",
+                aggregation="mean",
+            )
+        )
+    return ok, reasons, per_gate
 
 
 def evaluate_promotion(
@@ -139,60 +292,84 @@ def evaluate_promotion(
     test_metrics: Dict[str, float],
 ) -> Dict[str, GateResult]:
     """Evaluate promotion gates for technical validation and independent test."""
-    results: Dict[str, GateResult] = {}
+    resolved = resolve_promotion_gates(thresholds)
+    gates: List[PromotionGateSpec] = resolved["gates"]
 
-    tech_req_ok, tech_req_reasons = _evaluate_required(
-        technical_metrics, thresholds.technical_validation.required
-    )
-    tech_safety_ok, tech_safety_reasons = _evaluate_safety(
-        technical_metrics, thresholds.technical_validation.safety
-    )
+    phase_inputs = {
+        "technical_validation": {
+            "summary": technical_metrics,
+            "per_fold": technical_per_fold,
+        },
+        "independent_test": {
+            "summary": test_metrics,
+            "per_fold": {},
+        },
+    }
+
+    phase_results: Dict[str, GateResult] = {
+        "technical_validation": GateResult(
+            passed=True,
+            reasons=[],
+            metrics=dict(technical_metrics),
+            per_gate_results=[],
+            template={k: v for k, v in resolved.items() if k != "gates"},
+        ),
+        "independent_test": GateResult(
+            passed=True,
+            reasons=[],
+            metrics=dict(test_metrics),
+            per_gate_results=[],
+            template={k: v for k, v in resolved.items() if k != "gates"},
+        ),
+    }
+
+    for gate in gates:
+        for phase in _phase_name_for_scope(gate.scope):
+            observed = _aggregate_gate_value(
+                metric_name=gate.metric,
+                aggregation=gate.aggregation,
+                summary_metrics=phase_inputs[phase]["summary"],
+                per_fold=phase_inputs[phase]["per_fold"],
+            )
+            passed = observed is not None and _compare(observed, gate.op, gate.threshold)
+            per_gate_result = PerGateResult(
+                phase=phase,
+                metric=gate.metric,
+                op=gate.op,
+                threshold=float(gate.threshold),
+                observed_value=observed,
+                passed=passed,
+                scope=gate.scope,
+                aggregation=gate.aggregation,
+                notes=gate.notes,
+            )
+            phase_results[phase].per_gate_results.append(per_gate_result)
+            if not passed:
+                phase_results[phase].passed = False
+                if observed is None:
+                    phase_results[phase].reasons.append(
+                        f"Missing metric: {gate.metric} ({gate.aggregation}, scope={gate.scope})"
+                    )
+                else:
+                    phase_results[phase].reasons.append(
+                        f"{gate.metric}={observed:.4f} {gate.op} {gate.threshold:.4f} failed"
+                    )
+
     cal_thresh = thresholds.promotion.calibration
-    tech_cal_ok, tech_cal_reasons = _evaluate_calibration(
-        technical_metrics,
-        cal_thresh.brier_max,
-        cal_thresh.ece_max,
-    )
-
-    stability_ok = True
-    stability_reasons: List[str] = []
-    stability_metrics: Dict[str, float] = {}
-    if thresholds.technical_validation.stability:
-        stability_ok, stability_reasons, stability_metrics = _evaluate_stability(
-            technical_per_fold,
-            thresholds.technical_validation.stability.std_max,
-            thresholds.technical_validation.stability.pass_rate_min,
-            thresholds.technical_validation.required,
+    for phase in ["technical_validation", "independent_test"]:
+        cal_ok, cal_reasons, cal_results = _evaluate_calibration(
+            phase_inputs[phase]["summary"],
+            cal_thresh.brier_max,
+            cal_thresh.ece_max,
         )
+        for cal_result in cal_results:
+            cal_result.phase = phase
+        phase_results[phase].per_gate_results.extend(cal_results)
+        if not cal_ok:
+            phase_results[phase].passed = False
+            phase_results[phase].reasons.extend(cal_reasons)
 
-    tech_ok = tech_req_ok and tech_safety_ok and stability_ok and tech_cal_ok
-    tech_reasons = tech_req_reasons + tech_safety_reasons + stability_reasons + tech_cal_reasons
-    results["technical_validation"] = GateResult(
-        passed=tech_ok,
-        reasons=tech_reasons,
-        metrics={**technical_metrics, **stability_metrics},
-    )
-
-    test_req_ok, test_req_reasons = _evaluate_required(
-        test_metrics, thresholds.independent_test.required
-    )
-    test_safety_ok, test_safety_reasons = _evaluate_safety(
-        test_metrics, thresholds.independent_test.safety
-    )
-    test_cal_ok, test_cal_reasons = _evaluate_calibration(
-        test_metrics,
-        cal_thresh.brier_max,
-        cal_thresh.ece_max,
-    )
-    test_ok = test_req_ok and test_safety_ok and test_cal_ok
-    test_reasons = test_req_reasons + test_safety_reasons + test_cal_reasons
-    results["independent_test"] = GateResult(
-        passed=test_ok,
-        reasons=test_reasons,
-        metrics=test_metrics,
-    )
-
-    return results
+    return phase_results
 
 
 def promotion_decision(results: Dict[str, GateResult]) -> Tuple[bool, List[str]]:
@@ -205,3 +382,14 @@ def promotion_decision(results: Dict[str, GateResult]) -> Tuple[bool, List[str]]
         for reason in results[phase].reasons:
             reasons.append(f"{phase}: {reason}")
     return False, reasons
+
+
+def per_gate_rows(results: Dict[str, GateResult]) -> List[Dict[str, object]]:
+    """Convert per-gate results to report/JSON rows."""
+    rows: List[Dict[str, object]] = []
+    for phase, result in results.items():
+        for gate in result.per_gate_results:
+            payload = asdict(gate)
+            payload["phase"] = phase
+            rows.append(payload)
+    return rows
