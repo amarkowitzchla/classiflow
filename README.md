@@ -125,6 +125,10 @@ S004,P003,0.44,1.10,Glioma,GBM
 
 ### 2. Bootstrap a project
 
+Recommended baseline settings for most clinical workflows:
+* set `--patient-id-col` when patient IDs are available
+* set `--promotion-gate-template` at bootstrap so recommendation criteria are explicit from day 1
+
 #### Binary classification
 
 ```bash
@@ -134,6 +138,7 @@ classiflow project bootstrap \
   --name "Tumor Detection" \
   --mode binary \
   --label-col diagnosis \
+  --promotion-gate-template research_exploratory \
   --out projects/
 ```
 
@@ -146,6 +151,7 @@ classiflow project bootstrap \
   --name "Glioma Subtype" \
   --mode meta \
   --label-col subtype \
+  --promotion-gate-template clinical_conservative \
   --out projects/
 ```
 
@@ -160,6 +166,7 @@ classiflow project bootstrap \
   --label-col tumor_type \
   --hierarchy subtype \
   --patient-id-col patient_id \
+  --promotion-gate-template clinical_conservative \
   --out projects/
 ```
 
@@ -191,6 +198,37 @@ This:
 ```bash
 classiflow project run-test projects/BRAIN_TUMOR__brain_tumor
 ```
+
+---
+
+### 6. Run promotion recommendation (recommended)
+
+List available promotion gate templates:
+
+```bash
+classiflow project recommend projects/BRAIN_TUMOR__brain_tumor --list-promotion-gate-templates
+```
+
+Run recommendation using the gates already configured in `registry/thresholds.yaml`:
+
+```bash
+classiflow project recommend projects/BRAIN_TUMOR__brain_tumor
+```
+
+Override the gate template for a single recommendation run:
+
+```bash
+classiflow project recommend projects/BRAIN_TUMOR__brain_tumor --promotion-gate-template clinical_conservative
+```
+
+### Promotion gate templates (`--list-promotion-gate-templates`)
+
+| Promotion Gate Template | Primary Use Case | Key Metrics & Thresholds | What This Gate Optimizes For | Layman Explanation | When You Should Use This |
+| --- | --- | --- | --- | --- | --- |
+| `clinical_conservative` (Conservative Clinical Gate) | Clinical-ready diagnostic or subtype classifier | Balanced Accuracy >= 0.80<br>Sensitivity >= 0.85<br>MCC >= 0.60 | Balanced performance with controlled false positives and false negatives | "The model is consistently right across different groups and doesn't miss too many real cases or overcall too often." | When the model may influence diagnosis or interpretation and must behave reliably across diverse patient populations. |
+| `screen_ruleout` (Screening / Rule-Out Gate) | Triage or screening models | Sensitivity >= 0.95<br>ROC AUC >= 0.90 | Minimizing missed positives while maintaining overall discrimination | "If the model says 'no,' we can trust it - even if it flags extra cases for review." | When missing a true case would be worse than sending extra cases for follow-up. |
+| `confirm_rulein` (High-Risk Confirmatory Gate) | Rule-in or confirmatory tests | Specificity >= 0.98<br>Precision >= 0.90<br>MCC >= 0.65 | Very high confidence in positive predictions | "When the model says 'yes,' it's almost always correct." | When a positive result could trigger expensive, irreversible, or high-risk clinical actions. |
+| `research_exploratory` (Research / Exploratory Gate) | Early-stage research or feasibility studies | Balanced Accuracy >= 0.70<br>F1 Score >= 0.65 | Detecting meaningful signal under limited data or imbalance | "The model shows promise and performs better than chance, but isn't ready for clinical use yet." | When exploring whether a modeling approach or data modality is worth further development. |
 
 ---
 
