@@ -352,7 +352,9 @@ def bootstrap_project(
     if mode == "auto":
         label_col = key_columns["label"]
         try:
-            label_series = pd.read_csv(train_dest, usecols=[label_col])[label_col]
+            from classiflow.data import load_table
+
+            label_series = load_table(train_dest, columns=[label_col])[label_col]
             n_labels = label_series.nunique()
             inferred_mode = "binary" if n_labels <= 2 else "meta"
         except Exception:

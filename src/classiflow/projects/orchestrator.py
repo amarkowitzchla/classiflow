@@ -1416,11 +1416,12 @@ def _train_final_hierarchical(
 ) -> None:
     import json as jsonlib
     import numpy as np
+    from classiflow.data import load_table
     from sklearn.preprocessing import LabelEncoder, StandardScaler
     from sklearn.model_selection import StratifiedShuffleSplit
     from classiflow.models.smote import apply_smote
 
-    df = pd.read_csv(train_manifest)
+    df = load_table(train_manifest)
     label_l1 = config.key_columns.label
     label_l2 = config.task.hierarchy_path
     if label_l2 is None:
@@ -1759,7 +1760,7 @@ def build_final_model(
         package_version=__version__,
         training_data_path=str(train_manifest),
         training_data_hash=train_entry.sha256,
-        training_data_size_bytes=train_manifest.stat().st_size,
+        training_data_size_bytes=train_entry.size_bytes,
         training_data_row_count=train_entry.stats.rows,
         config={
             **effective_config.model_dump(mode="python"),

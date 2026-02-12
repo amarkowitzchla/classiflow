@@ -134,5 +134,5 @@ def register_dataset(
 
 def verify_manifest_hash(manifest_path: Path, expected_hash: str) -> bool:
     """Verify manifest hash without parsing rows."""
-    actual = compute_file_hash(manifest_path)
+    actual = get_file_metadata(manifest_path)["sha256_hash"]
     return actual == expected_hash
