@@ -9,7 +9,8 @@ from typing import Dict, Optional
 
 import pandas as pd
 
-from classiflow.lineage.hashing import compute_file_hash
+from classiflow.data import load_table
+from classiflow.lineage.hashing import get_file_metadata
 from classiflow.projects.project_models import (
     DatasetEntry,
     DatasetRegistry,
@@ -89,7 +90,7 @@ def register_dataset(
     if not manifest_path.exists():
         raise FileNotFoundError(f"Manifest not found: {manifest_path}")
 
-    df = pd.read_csv(manifest_path)
+    df = load_table(manifest_path)
     required_cols = {config.key_columns.label}
     if config.key_columns.sample_id:
         required_cols.add(config.key_columns.sample_id)
@@ -99,8 +100,9 @@ def register_dataset(
     schema = _infer_schema(df, config)
     stats = _summarize_stats(df, config)
 
-    sha256 = compute_file_hash(manifest_path)
-    size_bytes = manifest_path.stat().st_size
+    metadata = get_file_metadata(manifest_path)
+    sha256 = metadata["sha256_hash"]
+    size_bytes = int(metadata["size_bytes"])
     registry = DatasetRegistry.load(registry_path)
 
     previous_hashes = []
