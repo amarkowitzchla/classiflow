@@ -164,8 +164,30 @@ def _print_promotion_templates() -> None:
 
 
 def _infer_key_columns(train_manifest: Path) -> dict:
-    df = pd.read_csv(train_manifest, nrows=5)
-    columns = df.columns.tolist()
+    path = Path(train_manifest)
+
+    if path.is_dir():
+        try:
+            import pyarrow.dataset as ds
+        except ImportError as exc:  # pragma: no cover - dependency/runtime specific
+            raise typer.BadParameter(
+                "Parquet dataset input requires pyarrow. Install with "
+                "`pip install classiflow[parquet]` or `pip install pyarrow`."
+            ) from exc
+        columns = list(ds.dataset(path, format="parquet").schema.names)
+    elif path.suffix.lower() == ".parquet":
+        try:
+            import pyarrow.parquet as pq
+        except ImportError as exc:  # pragma: no cover - dependency/runtime specific
+            raise typer.BadParameter(
+                "Parquet input requires pyarrow. Install with "
+                "`pip install classiflow[parquet]` or `pip install pyarrow`."
+            ) from exc
+        columns = list(pq.read_schema(path).names)
+    else:
+        df = pd.read_csv(path, nrows=5)
+        columns = df.columns.tolist()
+
     return {
         "sample_id": _pick_column(columns, ["sample_id", "sample", "id"]),
         "patient_id": _pick_column(columns, ["patient_id", "patient", "subject_id"]),
