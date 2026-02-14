@@ -9,6 +9,7 @@ from classiflow.backends.torch.estimators import (
     TorchLogisticRegressionClassifier,
     TorchSoftmaxRegressionClassifier,
 )
+from classiflow.config import default_torch_num_workers
 
 
 def _make_binary_data(seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
@@ -80,3 +81,8 @@ def test_torch_multiclass_predict_proba_shape() -> None:
     proba = clf.predict_proba(X)
     assert proba.shape == (X.shape[0], 3)
     assert np.allclose(proba.sum(axis=1), 1.0, atol=1e-5)
+
+
+def test_torch_estimators_default_num_workers() -> None:
+    clf = TorchLogisticRegressionClassifier(device="cpu")
+    assert clf.num_workers == default_torch_num_workers()

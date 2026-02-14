@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from classiflow.cli.project import bootstrap_project
+from classiflow.config import default_torch_num_workers
 from classiflow.projects import orchestrator
 from classiflow.projects.dataset_registry import register_dataset
 from classiflow.projects.project_fs import ProjectPaths, choose_project_id, project_root
@@ -97,6 +98,7 @@ def test_project_bootstrap_torch_binary_excludes_multiclass(tmp_path: Path) -> N
     assert config_data["execution"]["engine"] == "torch"
     assert config_data["execution"]["device"] == "mps"
     assert config_data["execution"]["torch"]["dtype"] == "float32"
+    assert config_data["execution"]["torch"]["num_workers"] == default_torch_num_workers()
     assert "multiclass" not in config_data
 
 
@@ -119,6 +121,7 @@ def test_legacy_backend_fields_are_normalized() -> None:
     assert config.execution.device == "cpu"
     assert config.execution.model_set == "torch_fast"
     assert config.torch_dtype == "float32"
+    assert config.torch_num_workers == 0
 
 
 def test_legacy_calibration_toggle_is_normalized() -> None:

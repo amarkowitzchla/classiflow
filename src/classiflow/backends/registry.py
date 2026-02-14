@@ -6,6 +6,7 @@ from typing import Dict, Any, Tuple, TYPE_CHECKING
 
 from sklearn.linear_model import LogisticRegression
 
+from classiflow.config import default_torch_num_workers
 from classiflow.models.estimators import get_estimators as get_sklearn_estimators
 from classiflow.models.estimators import get_param_grids as get_sklearn_param_grids
 
@@ -43,7 +44,7 @@ def get_model_set(
     max_iter: int = 10000,
     device: str = "auto",
     torch_dtype: str = "float32",
-    torch_num_workers: int = 0,
+    torch_num_workers: int | None = None,
     meta_C_grid: list[float] | None = None,
 ) -> Dict[str, Any]:
     """
@@ -64,6 +65,8 @@ def get_model_set(
     """
     backend = get_backend(backend)
     model_set = model_set or _default_model_set(backend)
+    if torch_num_workers is None:
+        torch_num_workers = default_torch_num_workers()
 
     if command not in {"train-binary", "train-meta"}:
         raise ValueError(f"Unsupported command for model registry: {command}")

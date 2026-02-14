@@ -33,6 +33,7 @@ from imblearn.pipeline import Pipeline as ImbPipeline
 from classiflow.io import load_data
 from classiflow.models import AdaptiveSMOTE
 from classiflow.backends.registry import get_backend, get_model_set
+from classiflow.config import default_torch_num_workers
 from classiflow.tasks import TaskBuilder
 
 logger = logging.getLogger(__name__)
@@ -110,7 +111,7 @@ class FinalTrainConfig:
     model_set: Optional[str] = None
     device: str = "auto"
     torch_dtype: str = "float32"
-    torch_num_workers: int = 0
+    torch_num_workers: int = field(default_factory=default_torch_num_workers)
 
     # Random state
     random_state: int = 42

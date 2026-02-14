@@ -13,6 +13,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import f1_score
 
+from classiflow.config import default_torch_num_workers
 from classiflow.backends.torch.modules import (
     BinaryLinear,
     BinaryMLP,
@@ -40,7 +41,7 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         seed: int = 42,
         device: str = "auto",
         torch_dtype: str = "float32",
-        num_workers: int = 0,
+        num_workers: int | None = None,
         class_weight: str | dict[str, float] | None = "balanced",
         val_fraction: float = 0.1,
     ):
@@ -55,7 +56,7 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         self.seed = seed
         self.device = device
         self.torch_dtype = torch_dtype
-        self.num_workers = num_workers
+        self.num_workers = default_torch_num_workers() if num_workers is None else num_workers
         self.class_weight = class_weight
         self.val_fraction = val_fraction
 
@@ -92,7 +93,7 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         resolved = resolve_device(self.device)
         self._device = torch.device(resolved)
         self._dtype = resolve_dtype(self.torch_dtype, resolved)
-        logger.info(
+        logger.debug(
             "%s using torch device=%s (requested=%s)",
             self.__class__.__name__,
             self._device,
@@ -112,6 +113,21 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         best_metric = -np.inf
         epochs_no_improve = 0
         use_cuda_transfer = bool(self._device is not None and self._device.type == "cuda")
+        metric_name = self._validation_metric_name()
+        if X_val is None or y_val is None:
+            logger.info(
+                "%s training %d epochs (no validation split; early stopping disabled)",
+                self.__class__.__name__,
+                self.epochs,
+            )
+        else:
+            logger.info(
+                "%s training %d epochs (early stopping on %s, patience=%d)",
+                self.__class__.__name__,
+                self.epochs,
+                metric_name,
+                self.patience,
+            )
 
         for epoch in range(self.epochs):
             self.model.train()
@@ -134,6 +150,12 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
                 optimizer.step()
 
             if X_val is None or y_val is None:
+                logger.info(
+                    "%s epoch %d/%d",
+                    self.__class__.__name__,
+                    epoch + 1,
+                    self.epochs,
+                )
                 continue
 
             self.model.eval()
@@ -151,7 +173,27 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
             else:
                 epochs_no_improve += 1
 
+            logger.info(
+                "%s epoch %d/%d - %s=%.4f (best=%.4f, patience=%d/%d)",
+                self.__class__.__name__,
+                epoch + 1,
+                self.epochs,
+                metric_name,
+                metric,
+                best_metric,
+                epochs_no_improve,
+                self.patience,
+            )
+
             if self.patience and epochs_no_improve >= self.patience:
+                logger.info(
+                    "%s early stopping at epoch %d/%d (best %s=%.4f)",
+                    self.__class__.__name__,
+                    epoch + 1,
+                    self.epochs,
+                    metric_name,
+                    best_metric,
+                )
                 break
 
         if best_state is not None:
@@ -159,6 +201,9 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
 
     def _validation_metric(self, logits: torch.Tensor, y_val: np.ndarray) -> float:
         raise NotImplementedError
+
+    def _validation_metric_name(self) -> str:
+        return "val_metric"
 
     def _prepare_target(self, yb: torch.Tensor) -> torch.Tensor:
         return yb
@@ -171,7 +216,7 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         self.model = self._build_model(self._input_dim, self._num_classes).to(self._device, dtype=self._dtype)
         try:
             param_device = next(self.model.parameters()).device
-            logger.info("%s model parameters on device=%s", self.__class__.__name__, param_device)
+            logger.debug("%s model parameters on device=%s", self.__class__.__name__, param_device)
         except StopIteration:
             logger.warning("%s model has no parameters to report device.", self.__class__.__name__)
         loss_fn = self._create_loss(y_encoded).to(self._device)
@@ -240,6 +285,9 @@ class TorchLogisticRegressionClassifier(_TorchBaseEstimator):
         preds = (probs >= 0.5).astype(int)
         return f1_score(y_val, preds, zero_division=0)
 
+    def _validation_metric_name(self) -> str:
+        return "val_f1"
+
     def _prepare_target(self, yb: torch.Tensor) -> torch.Tensor:
         return yb.float()
 
@@ -296,6 +344,9 @@ class TorchSoftmaxRegressionClassifier(_TorchBaseEstimator):
     def _validation_metric(self, logits: torch.Tensor, y_val: np.ndarray) -> float:
         preds = torch.argmax(logits, dim=1).detach().cpu().numpy()
         return f1_score(y_val, preds, average="macro", zero_division=0)
+
+    def _validation_metric_name(self) -> str:
+        return "val_f1_macro"
 
     def _prepare_target(self, yb: torch.Tensor) -> torch.Tensor:
         return yb.long()

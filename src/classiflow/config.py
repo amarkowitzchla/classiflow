@@ -13,6 +13,12 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
+def default_torch_num_workers() -> int:
+    """Compute default torch DataLoader workers: CPU count minus two, min one."""
+    cpu_total = os.cpu_count() or 1
+    return max(cpu_total - 2, 1)
+
+
 def _resolve_data_path(
     data: Optional[Path] = None,
     data_csv: Optional[Path] = None,
@@ -82,7 +88,7 @@ class TrainConfig:
     backend: Literal["sklearn", "torch"] = "sklearn"
     device: Literal["auto", "cpu", "cuda", "mps"] = "auto"
     model_set: Optional[str] = None
-    torch_num_workers: int = 0
+    torch_num_workers: int = field(default_factory=default_torch_num_workers)
     torch_dtype: Literal["float32", "float16"] = "float32"
     require_torch_device: bool = False
 

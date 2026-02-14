@@ -12,7 +12,14 @@ import pandas as pd
 import typer
 
 from classiflow import __version__
-from classiflow.config import TrainConfig, MetaConfig, MulticlassConfig, HierarchicalConfig, _resolve_data_path
+from classiflow.config import (
+    TrainConfig,
+    MetaConfig,
+    MulticlassConfig,
+    HierarchicalConfig,
+    _resolve_data_path,
+    default_torch_num_workers,
+)
 from classiflow.training import train_binary_task, train_meta_classifier, train_multiclass_classifier
 from classiflow.io.compatibility import assess_data_compatibility
 from classiflow.evaluation.smote_comparison import SMOTEComparison
@@ -112,7 +119,7 @@ def train_binary(
         help="Model set registry key (e.g., torch_basic, torch_fast).",
     ),
     torch_num_workers: int = typer.Option(
-        0,
+        default_torch_num_workers(),
         "--torch-num-workers",
         help="PyTorch DataLoader worker count (torch backend only).",
     ),
@@ -257,7 +264,7 @@ def train_meta(
         help="Model set registry key (e.g., torch_basic, torch_fast).",
     ),
     torch_num_workers: int = typer.Option(
-        0,
+        default_torch_num_workers(),
         "--torch-num-workers",
         help="PyTorch DataLoader worker count (torch backend only).",
     ),

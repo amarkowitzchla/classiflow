@@ -10,6 +10,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 
+from classiflow.config import default_torch_num_workers
+
 logger = logging.getLogger(__name__)
 
 
@@ -18,7 +20,7 @@ def get_estimators(
     max_iter: int = 10000,
     logreg_params: Optional[Dict[str, Any]] = None,
     resolved_device: Optional[str] = None,
-    torch_num_workers: int = 0,
+    torch_num_workers: int | None = None,
 ) -> Dict[str, Any]:
     """
     Get dictionary of estimators with consistent configurations.
@@ -44,6 +46,9 @@ def get_estimators(
     }
     if logreg_params:
         base_logreg_params.update(logreg_params)
+    resolved_torch_workers = (
+        default_torch_num_workers() if torch_num_workers is None else torch_num_workers
+    )
 
     estimators: Dict[str, Any] = {
         "LogisticRegression": LogisticRegression(**base_logreg_params),
@@ -76,7 +81,7 @@ def get_estimators(
                 class_weight="balanced",
                 random_state=random_state,
                 device=resolved_device,
-                num_workers=torch_num_workers,
+                num_workers=resolved_torch_workers,
             )
             estimators["torch_mlp"] = TorchMLPClassifier(
                 lr=1e-3,
@@ -88,7 +93,7 @@ def get_estimators(
                 class_weight="balanced",
                 random_state=random_state,
                 device=resolved_device,
-                num_workers=torch_num_workers,
+                num_workers=resolved_torch_workers,
             )
         except Exception as exc:
             logger.warning("Torch estimators unavailable (%s). Skipping torch models.", exc)

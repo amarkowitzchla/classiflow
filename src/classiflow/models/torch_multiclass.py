@@ -8,6 +8,7 @@ from classiflow.backends.torch.estimators import (
     TorchSoftmaxRegressionClassifier,
     TorchMLPMulticlassClassifier,
 )
+from classiflow.config import default_torch_num_workers
 
 
 class TorchLinearClassifier(TorchSoftmaxRegressionClassifier):
@@ -22,8 +23,9 @@ class TorchLinearClassifier(TorchSoftmaxRegressionClassifier):
         class_weight: str | dict[int, float] | None = "balanced",
         random_state: int = 42,
         device: str = "cpu",
-        num_workers: int = 0,
+        num_workers: int | None = None,
     ):
+        resolved_workers = default_torch_num_workers() if num_workers is None else num_workers
         self.random_state = random_state
         super().__init__(
             lr=lr,
@@ -37,7 +39,7 @@ class TorchLinearClassifier(TorchSoftmaxRegressionClassifier):
             seed=random_state,
             device=device,
             torch_dtype="float32",
-            num_workers=num_workers,
+            num_workers=resolved_workers,
             class_weight=class_weight,
             val_fraction=0.0,
         )
@@ -68,8 +70,9 @@ class TorchMLPClassifier(TorchMLPMulticlassClassifier):
         class_weight: str | dict[int, float] | None = "balanced",
         random_state: int = 42,
         device: str = "cpu",
-        num_workers: int = 0,
+        num_workers: int | None = None,
     ):
+        resolved_workers = default_torch_num_workers() if num_workers is None else num_workers
         self.random_state = random_state
         super().__init__(
             lr=lr,
@@ -83,7 +86,7 @@ class TorchMLPClassifier(TorchMLPMulticlassClassifier):
             seed=random_state,
             device=device,
             torch_dtype="float32",
-            num_workers=num_workers,
+            num_workers=resolved_workers,
             class_weight=class_weight,
             val_fraction=0.0,
         )

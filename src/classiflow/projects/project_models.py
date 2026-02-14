@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import os
 import re
 from typing import Any, Dict, List, Literal, Optional, Tuple
 import warnings
@@ -28,6 +29,12 @@ TORCH_CANDIDATES = {
     "torch_mlp",
     "torch_linear",
 }
+
+
+def _default_torch_num_workers() -> int:
+    """Compute a conservative default DataLoader worker count."""
+    cpu_total = os.cpu_count() or 1
+    return max(cpu_total - 2, 1)
 
 
 def available_project_options() -> Dict[str, List[str]]:
@@ -87,7 +94,11 @@ def normalize_project_payload(payload: Dict[str, Any]) -> Tuple[Dict[str, Any], 
         device = str(data.pop("device", "auto")).lower()
         model_set = data.pop("model_set", None)
         torch_dtype = str(data.pop("torch_dtype", "float32")).lower()
-        torch_num_workers = int(data.pop("torch_num_workers", 0) or 0)
+        legacy_torch_num_workers = data.pop("torch_num_workers", None)
+        if legacy_torch_num_workers is None:
+            torch_num_workers = _default_torch_num_workers()
+        else:
+            torch_num_workers = int(legacy_torch_num_workers)
         require_torch_device = bool(data.pop("require_torch_device", False))
 
         normalized_execution: Dict[str, Any] = {"engine": backend}
@@ -351,7 +362,9 @@ class ExecutionTorchSettings(BaseModel):
     """Torch execution options used when engine is torch or hybrid."""
 
     dtype: Literal["float32", "float16"] = Field(default="float32", description="Torch tensor dtype")
-    num_workers: int = Field(default=0, description="DataLoader worker count")
+    num_workers: int = Field(
+        default_factory=_default_torch_num_workers, description="DataLoader worker count"
+    )
     require_device: bool = Field(
         default=False,
         description="Fail instead of falling back if requested torch device is unavailable",
@@ -548,7 +561,7 @@ class ProjectConfig(BaseModel):
     def torch_num_workers(self) -> int:
         """Backward-compatible torch worker view for existing orchestration code."""
         if self.execution.torch is None:
-            return 0
+            return _default_torch_num_workers()
         return self.execution.torch.num_workers
 
     @property
@@ -637,7 +650,7 @@ class ProjectConfig(BaseModel):
             execution["device"] = device or "auto"
             execution["torch"] = {
                 "dtype": "float32",
-                "num_workers": 0,
+                "num_workers": _default_torch_num_workers(),
                 "require_device": False,
             }
             if engine == "torch" and mode in {"binary", "meta"}:
