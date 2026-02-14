@@ -757,7 +757,7 @@ def _train_meta_model(
     )
     X_meta_va = _build_meta_features(
         X_va,
-        y_va,
+        None,
         best_pipes,
         best_models,
         tasks,
@@ -1389,33 +1389,40 @@ def _build_meta_features(
         if key not in best_pipes:
             continue
 
+        col_name = f"{task_name}_score"
         pipe = best_pipes[key]
+        try:
+            # Always score every row for validation/inference parity and to avoid
+            # label-conditioned feature sparsity on outer validation rows.
+            meta[col_name] = _get_scores(pipe, X)
+        except Exception as exc:
+            logger.warning("Task score computation failed for %s: %s", task_name, exc)
+            meta[col_name] = np.nan
+            continue
+
+        if not use_oof:
+            continue
+
+        if y is None:
+            raise ValueError("Labels are required when use_oof=True.")
+
         y_bin = tasks[task_name](y).dropna()
         if y_bin.empty:
             continue
 
-        idx = y_bin.index
+        idx = y_bin.index.intersection(X.index)
+        if idx.empty:
+            continue
+
         X_subset = X.loc[idx]
+        y_subset = y_bin.loc[idx]
+        groups_subset = groups_tr.loc[idx] if groups_tr is not None else None
+        splits = _inner_cv_splits_for_task(X_subset, y_subset, config, groups_subset)
+        oof_scores = _cross_val_scores(pipe, X_subset, y_subset, splits)
+        meta.loc[idx, col_name] = oof_scores
 
-        groups_subset = None
-        if groups_tr is not None:
-            groups_subset = groups_tr.loc[idx]
-
-        if use_oof:
-            splits = _inner_cv_splits_for_task(X_subset, y_bin, config, groups_subset)
-            if splits:
-                scores = _cross_val_scores(pipe, X_subset, y_bin, splits)
-            else:
-                scores = _cross_val_scores(pipe, X_subset, y_bin, [])
-        else:
-            scores = _get_scores(pipe, X_subset)
-
-        col_name = f"{task_name}_score"
-        meta[col_name] = 0.0
-        meta.loc[idx, col_name] = scores
-
-        if use_oof and np.isnan(scores).any():
-            missing = int(np.isnan(scores).sum())
+        if np.isnan(oof_scores).any():
+            missing = int(np.isnan(oof_scores).sum())
             logger.warning(
                 "OOF scores missing for task=%s fold=%s variant=%s (n=%s).",
                 task_name,

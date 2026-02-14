@@ -18,6 +18,16 @@ This README is intentionally short and practical. A junior developer should be a
 
 ---
 
+## Available notebook projects
+
+Example notebook-backed project runs are available in:
+
+* [Embry Methyl Multiclass (sklearn)](notebooks/runs/embry_methyl_multiclass_sklearn)
+* [Liquid Biopsy Fragmentomic MB Meta (sklearn technical)](notebooks/runs/liquid_biopsy_fragmentomic_mb_meta_sklearn_technical)
+* [MRS MB Meta (sklearn technical)](notebooks/runs/mrs_mb_meta_sklearn_technical)
+
+---
+
 ## Installation
 
 Choose **one** of the following paths.
