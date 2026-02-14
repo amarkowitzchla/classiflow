@@ -114,6 +114,16 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         epochs_no_improve = 0
         use_cuda_transfer = bool(self._device is not None and self._device.type == "cuda")
         metric_name = self._validation_metric_name()
+        train_loader = make_dataloader(
+            X_train,
+            y_train,
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=self.num_workers,
+            worker_seed=self.seed,
+            pin_memory=use_cuda_transfer,
+            persistent_workers=True,
+        )
         if X_val is None or y_val is None:
             logger.info(
                 "%s training %d epochs (no validation split; early stopping disabled)",
@@ -131,15 +141,6 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
 
         for epoch in range(self.epochs):
             self.model.train()
-            train_loader = make_dataloader(
-                X_train,
-                y_train,
-                batch_size=self.batch_size,
-                shuffle=True,
-                num_workers=self.num_workers,
-                worker_seed=self.seed,
-                pin_memory=use_cuda_transfer,
-            )
             for xb, yb in train_loader:
                 xb = xb.to(self._device, dtype=self._dtype, non_blocking=use_cuda_transfer)
                 yb = self._prepare_target(yb.to(self._device, non_blocking=use_cuda_transfer))
