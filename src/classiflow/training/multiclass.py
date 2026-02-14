@@ -206,6 +206,7 @@ def _run_multiclass_nested_cv(
             config.max_iter,
             logreg_params=logreg_params,
             resolved_device=resolved_device,
+            torch_num_workers=config.torch_num_workers,
         ),
         resolved_device,
     )

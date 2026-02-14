@@ -567,6 +567,7 @@ def run_technical_validation(
             calibration_bins=config.calibration.bins,
             calibration_binning=config.calibration.binning,
             device=config.device,
+            torch_num_workers=config.torch_num_workers,
             tracker=config.tracker,
             experiment_name=config.experiment_name or f"{config.project.id}/technical",
             run_name=f"technical-{run_id}",
@@ -1363,6 +1364,7 @@ def _train_final_multiclass(
         10000,
         logreg_params=logreg_params,
         resolved_device=resolved_device,
+        torch_num_workers=config.torch_num_workers,
     )
     estimator_mode = config.multiclass.estimator_mode
     if estimator_mode == "torch_only":

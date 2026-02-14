@@ -111,6 +111,7 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         best_state = None
         best_metric = -np.inf
         epochs_no_improve = 0
+        use_cuda_transfer = bool(self._device is not None and self._device.type == "cuda")
 
         for epoch in range(self.epochs):
             self.model.train()
@@ -121,10 +122,11 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
                 shuffle=True,
                 num_workers=self.num_workers,
                 worker_seed=self.seed,
+                pin_memory=use_cuda_transfer,
             )
             for xb, yb in train_loader:
-                xb = xb.to(self._device, dtype=self._dtype)
-                yb = self._prepare_target(yb.to(self._device))
+                xb = xb.to(self._device, dtype=self._dtype, non_blocking=use_cuda_transfer)
+                yb = self._prepare_target(yb.to(self._device, non_blocking=use_cuda_transfer))
                 optimizer.zero_grad()
                 logits = self.model(xb)
                 loss = loss_fn(logits, yb)
@@ -136,7 +138,9 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
 
             self.model.eval()
             with torch.no_grad():
-                xb = torch.from_numpy(X_val).to(self._device, dtype=self._dtype)
+                xb = torch.from_numpy(X_val).to(
+                    self._device, dtype=self._dtype, non_blocking=use_cuda_transfer
+                )
                 logits = self.model(xb)
                 metric = self._validation_metric(logits, y_val)
 
@@ -243,8 +247,11 @@ class TorchLogisticRegressionClassifier(_TorchBaseEstimator):
         self._check_fitted()
         X = np.asarray(X, dtype=np.float32)
         self.model.eval()
+        use_cuda_transfer = bool(self._device is not None and self._device.type == "cuda")
         with torch.no_grad():
-            xb = torch.from_numpy(X).to(self._device, dtype=self._dtype)
+            xb = torch.from_numpy(X).to(
+                self._device, dtype=self._dtype, non_blocking=use_cuda_transfer
+            )
             logits = self.model(xb)
             probs = torch.sigmoid(logits).cpu().numpy()
         return np.column_stack([1.0 - probs, probs])
@@ -297,8 +304,11 @@ class TorchSoftmaxRegressionClassifier(_TorchBaseEstimator):
         self._check_fitted()
         X = np.asarray(X, dtype=np.float32)
         self.model.eval()
+        use_cuda_transfer = bool(self._device is not None and self._device.type == "cuda")
         with torch.no_grad():
-            xb = torch.from_numpy(X).to(self._device, dtype=self._dtype)
+            xb = torch.from_numpy(X).to(
+                self._device, dtype=self._dtype, non_blocking=use_cuda_transfer
+            )
             logits = self.model(xb)
             probs = torch.softmax(logits, dim=1).cpu().numpy()
         return probs

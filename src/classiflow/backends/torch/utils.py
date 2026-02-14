@@ -56,6 +56,7 @@ def make_dataloader(
     shuffle: bool,
     num_workers: int,
     worker_seed: Optional[int] = None,
+    pin_memory: bool = False,
 ) -> DataLoader:
     """Create a DataLoader from numpy arrays."""
     dataset = TensorDataset(torch.from_numpy(X), torch.from_numpy(y))
@@ -73,4 +74,5 @@ def make_dataloader(
         drop_last=False,
         num_workers=num_workers,
         worker_init_fn=worker_init_fn,
+        pin_memory=pin_memory,
     )
