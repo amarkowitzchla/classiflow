@@ -1,0 +1,27 @@
+technical_validation:
+  required:
+    f1_macro: 0.7
+    balanced_accuracy: 0.7
+  stability:
+    std_max:
+      f1_macro: 0.1
+      balanced_accuracy: 0.1
+    pass_rate_min: 0.8
+  safety: {}
+independent_test:
+  required:
+    f1_macro: 0.7
+    balanced_accuracy: 0.7
+  stability: null
+  safety: {}
+promotion_logic: ALL_REQUIRED_AND_STABILITY
+promotion_gate_template: null
+promotion_gates: []
+promotion:
+  calibration:
+    brier_max: null
+    ece_max: null
+override:
+  allow_override: true
+  require_comment: true
+  require_approver: true

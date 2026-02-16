@@ -68,6 +68,16 @@ from classiflow.tracking import get_tracker, extract_loggable_params, summarize_
 logger = logging.getLogger(__name__)
 
 
+def _torch_temperature_scaling_enabled(config: MetaConfig) -> bool:
+    enabled = str(getattr(config, "calibration_enabled", "auto")).strip().lower()
+    method = str(getattr(config, "calibration_method", "sigmoid")).strip().lower()
+    if method != "temperature":
+        return False
+    if str(getattr(config, "backend", "sklearn")).lower() != "torch":
+        return False
+    return enabled != "false"
+
+
 def _log_torch_status(requested_device: str) -> None:
     """Log torch availability for GPU-backed meta training."""
     try:
@@ -276,6 +286,7 @@ def _run_meta_nested_cv(
         device=config.device,
         torch_dtype=config.torch_dtype,
         torch_num_workers=config.torch_num_workers,
+        torch_temperature_scaling=_torch_temperature_scaling_enabled(config),
         meta_C_grid=config.meta_C_grid,
     )
     estimators = model_spec["base_estimators"]
@@ -1314,6 +1325,13 @@ def _fit_meta_calibrator(
 
     effective_method = method
     y_series = pd.Series(y)
+    if method == "temperature":
+        metadata["warnings"].append(
+            "Temperature scaling is not supported by CalibratedClassifierCV; "
+            "using estimator probabilities without additional meta calibration."
+        )
+        metadata["method_used"] = "temperature"
+        return model, metadata
     if method == "isotonic":
         min_samples = config.calibration_isotonic_min_samples
         if len(X_meta) < min_samples or y_series.value_counts().min() < 2:

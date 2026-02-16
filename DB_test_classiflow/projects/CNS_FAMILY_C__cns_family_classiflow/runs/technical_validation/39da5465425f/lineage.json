@@ -1,0 +1,25 @@
+{
+  "phase": "TECHNICAL_VALIDATION",
+  "run_id": "39da5465425f",
+  "timestamp_local": "2026-02-14T08:26:16.348661",
+  "timestamp_utc": "2026-02-14T08:26:16.348671+00:00",
+  "classiflow_version": "0.1.0",
+  "git_hash": null,
+  "python_version": "3.11.14",
+  "platform": "Linux-6.1.159-181.297.amzn2023.x86_64-x86_64-with-glibc2.35",
+  "config_hash": "148234397e85a3ee20e5c370d3755d339c5d141ed0dfed93d1beeae71b94b2d0",
+  "dataset_hashes": {
+    "train": "002b9eb04b32940e860ec929cabcf54639263d4a3df2d8206f67b939e7dee739",
+    "test": "047ab1ed773fb813083bec38413d37a4c07c3a5d3c3f66a5d4b8772680222a58"
+  },
+  "command": "classiflow project run-technical",
+  "args": {
+    "run_id": "39da5465425f"
+  },
+  "outputs": [
+    {
+      "path": "projects/CNS_FAMILY_C__cns_family_classiflow/runs/technical_validation/39da5465425f/config.resolved.yaml",
+      "sha256": "2cf66297375566e3ebf248d558bcd5ff41a9f2fb0f1ff6477860ed23f218378e"
+    }
+  ]
+}

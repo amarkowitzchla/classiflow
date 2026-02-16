@@ -1,0 +1,235 @@
+{
+  "decision": "PASS",
+  "timestamp": "2026-02-14T19:45:59.801689",
+  "technical_run": "39da5465425f",
+  "test_run": "4f4f5acde185",
+  "reasons": [],
+  "promotion_template": {
+    "source": "legacy",
+    "template_id": "legacy_thresholds",
+    "display_name": "Legacy Threshold Gates",
+    "description": "Derived from technical/independent required and safety threshold maps.",
+    "layman_explanation": "Legacy threshold configuration was used for promotion checks.",
+    "version": 1,
+    "ignored_template": null
+  },
+  "resolved_gates": [
+    {
+      "phase": "technical_validation",
+      "metric": "f1_macro",
+      "op": ">=",
+      "threshold": 0.7,
+      "observed_value": 0.9677441296527117,
+      "passed": true,
+      "scope": "outer",
+      "aggregation": "mean",
+      "notes": null
+    },
+    {
+      "phase": "technical_validation",
+      "metric": "balanced_accuracy",
+      "op": ">=",
+      "threshold": 0.7,
+      "observed_value": 0.9706088180029795,
+      "passed": true,
+      "scope": "outer",
+      "aggregation": "mean",
+      "notes": null
+    },
+    {
+      "phase": "independent_test",
+      "metric": "f1_macro",
+      "op": ">=",
+      "threshold": 0.7,
+      "observed_value": 0.7842461489248593,
+      "passed": true,
+      "scope": "independent",
+      "aggregation": "mean",
+      "notes": null
+    },
+    {
+      "phase": "independent_test",
+      "metric": "balanced_accuracy",
+      "op": ">=",
+      "threshold": 0.7,
+      "observed_value": 0.9289627613822324,
+      "passed": true,
+      "scope": "independent",
+      "aggregation": "mean",
+      "notes": null
+    }
+  ],
+  "override": {
+    "enabled": false,
+    "comment": null,
+    "approver": null
+  },
+  "gates": [
+    {
+      "phase": "technical_validation",
+      "passed": true,
+      "reasons": ""
+    },
+    {
+      "phase": "independent_test",
+      "passed": true,
+      "reasons": ""
+    }
+  ],
+  "metrics": {
+    "gating": [
+      {
+        "phase": "technical_validation",
+        "metric": "f1_macro",
+        "op": ">=",
+        "threshold": 0.7,
+        "observed_value": 0.9677441296527117,
+        "passed": true,
+        "scope": "outer",
+        "aggregation": "mean",
+        "notes": null
+      },
+      {
+        "phase": "technical_validation",
+        "metric": "balanced_accuracy",
+        "op": ">=",
+        "threshold": 0.7,
+        "observed_value": 0.9706088180029795,
+        "passed": true,
+        "scope": "outer",
+        "aggregation": "mean",
+        "notes": null
+      },
+      {
+        "phase": "independent_test",
+        "metric": "f1_macro",
+        "op": ">=",
+        "threshold": 0.7,
+        "observed_value": 0.7842461489248593,
+        "passed": true,
+        "scope": "independent",
+        "aggregation": "mean",
+        "notes": null
+      },
+      {
+        "phase": "independent_test",
+        "metric": "balanced_accuracy",
+        "op": ">=",
+        "threshold": 0.7,
+        "observed_value": 0.9289627613822324,
+        "passed": true,
+        "scope": "independent",
+        "aggregation": "mean",
+        "notes": null
+      }
+    ],
+    "report_only": [
+      {
+        "phase": "technical_validation",
+        "metric": "brier",
+        "value": 0.0007875318529646106
+      },
+      {
+        "phase": "technical_validation",
+        "metric": "brier_recommended",
+        "value": 0.0007875318529646106
+      },
+      {
+        "phase": "technical_validation",
+        "metric": "brier_multiclass_sum",
+        "value": 0.022838423735973706
+      },
+      {
+        "phase": "technical_validation",
+        "metric": "brier_multiclass_mean",
+        "value": 0.0007875318529646106
+      },
+      {
+        "phase": "technical_validation",
+        "metric": "log_loss",
+        "value": 0.11999584973938554
+      },
+      {
+        "phase": "technical_validation",
+        "metric": "ece",
+        "value": 0.010547222367001416
+      },
+      {
+        "phase": "technical_validation",
+        "metric": "ece_top1",
+        "value": 0.010547222367001416
+      },
+      {
+        "phase": "technical_validation",
+        "metric": "ece_ovr_macro",
+        "value": 0.0004372748467389288
+      },
+      {
+        "phase": "technical_validation",
+        "metric": "pred_alignment_mismatch_rate",
+        "value": 0.0
+      },
+      {
+        "phase": "technical_validation",
+        "metric": "brier_uncalibrated",
+        "value": 0.0007875318529646106
+      },
+      {
+        "phase": "technical_validation",
+        "metric": "log_loss_uncalibrated",
+        "value": 0.11999584973938554
+      },
+      {
+        "phase": "technical_validation",
+        "metric": "ece_uncalibrated",
+        "value": 0.010547222367001416
+      },
+      {
+        "phase": "independent_test",
+        "metric": "accuracy",
+        "value": 0.9067028985507246
+      },
+      {
+        "phase": "independent_test",
+        "metric": "log_loss",
+        "value": 1.336400543864335
+      },
+      {
+        "phase": "independent_test",
+        "metric": "brier",
+        "value": 0.005982963144950681
+      },
+      {
+        "phase": "independent_test",
+        "metric": "ece",
+        "value": 0.08626070264996828
+      },
+      {
+        "phase": "independent_test",
+        "metric": "ece_top1",
+        "value": 0.08626070264996828
+      },
+      {
+        "phase": "independent_test",
+        "metric": "ece_binary_pos",
+        "value": NaN
+      },
+      {
+        "phase": "independent_test",
+        "metric": "ece_ovr_macro",
+        "value": 0.006251104710991933
+      },
+      {
+        "phase": "independent_test",
+        "metric": "pred_alignment_mismatch_rate",
+        "value": 0.0
+      },
+      {
+        "phase": "independent_test",
+        "metric": "calibration_bins",
+        "value": 10.0
+      }
+    ]
+  },
+  "calibration": {}
+}

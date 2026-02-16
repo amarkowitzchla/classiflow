@@ -61,6 +61,30 @@ def version_callback(value: bool):
         raise typer.Exit()
 
 
+def _normalize_calibration_options(
+    calibration_enabled: str,
+    calibration_method: str,
+) -> tuple[str, str]:
+    enabled = calibration_enabled.lower().strip()
+    method = calibration_method.lower().strip()
+
+    valid_enabled = {"false", "true", "auto"}
+    if enabled not in valid_enabled:
+        raise typer.BadParameter(
+            f"Unsupported calibration mode '{calibration_enabled}'. "
+            f"Choose from {', '.join(sorted(valid_enabled))}."
+        )
+
+    valid_methods = {"sigmoid", "isotonic", "temperature"}
+    if method not in valid_methods:
+        raise typer.BadParameter(
+            f"Unsupported calibration method '{calibration_method}'. "
+            f"Choose from {', '.join(sorted(valid_methods))}."
+        )
+
+    return enabled, method
+
+
 @app.callback()
 def main(
     version: bool = typer.Option(
@@ -102,6 +126,16 @@ def train_binary(
     inner_repeats: int = typer.Option(2, "--inner-repeats", help="Number of inner CV repeats"),
     random_state: int = typer.Option(42, "--random-state", help="Random seed"),
     smote: str = typer.Option("off", "--smote", help="SMOTE mode: off, on, both"),
+    calibration_enabled: str = typer.Option(
+        "auto",
+        "--calibration-enabled",
+        help="Calibration mode: auto, true, false.",
+    ),
+    calibration_method: str = typer.Option(
+        "sigmoid",
+        "--calibration-method",
+        help="Calibration method: sigmoid, isotonic, or temperature (torch only).",
+    ),
     max_iter: int = typer.Option(10000, "--max-iter", help="Max iterations for linear models"),
     backend: str = typer.Option(
         "sklearn",
@@ -182,6 +216,10 @@ def train_binary(
 
     backend = backend.lower()
     device = device.lower()
+    calibration_enabled, calibration_method = _normalize_calibration_options(
+        calibration_enabled,
+        calibration_method,
+    )
     if model_set is None:
         model_set = "torch_basic" if backend == "torch" else "default"
 
@@ -197,6 +235,8 @@ def train_binary(
         random_state=random_state,
         smote_mode=smote,
         max_iter=max_iter,
+        calibration_enabled=calibration_enabled,
+        calibration_method=calibration_method,
         backend=backend,
         device=device,
         model_set=model_set,
@@ -286,7 +326,7 @@ def train_meta(
     calibration_method: str = typer.Option(
         "sigmoid",
         "--calibration-method",
-        help="Calibration method: sigmoid (default) or isotonic.",
+        help="Calibration method: sigmoid, isotonic, or temperature (torch learners).",
     ),
     calibration_cv: int = typer.Option(
         3,
@@ -362,7 +402,7 @@ def train_meta(
         model_set = "torch_basic" if backend == "torch" else "default"
 
     calibration_method = calibration_method.lower().strip()
-    valid_methods = {"sigmoid", "isotonic"}
+    valid_methods = {"sigmoid", "isotonic", "temperature"}
     if calibration_method not in valid_methods:
         raise typer.BadParameter(
             f"Unsupported calibration method '{calibration_method}'. "
@@ -455,6 +495,16 @@ def train_multiclass(
     inner_repeats: int = typer.Option(2, "--inner-repeats", help="Number of inner CV repeats"),
     random_state: int = typer.Option(42, "--random-state", help="Random seed"),
     smote: str = typer.Option("both", "--smote", help="SMOTE mode: off, on, both"),
+    calibration_enabled: str = typer.Option(
+        "auto",
+        "--calibration-enabled",
+        help="Calibration mode: auto, true, false.",
+    ),
+    calibration_method: str = typer.Option(
+        "sigmoid",
+        "--calibration-method",
+        help="Calibration method: sigmoid, isotonic, or temperature (torch only).",
+    ),
     max_iter: int = typer.Option(10000, "--max-iter", help="Max iterations for non-logreg linear models"),
     group_stratify: bool = typer.Option(
         True,
@@ -529,6 +579,10 @@ def train_multiclass(
     normalized_class_weight = logreg_class_weight
     if isinstance(normalized_class_weight, str) and normalized_class_weight.lower() in {"none", "null"}:
         normalized_class_weight = None
+    calibration_enabled, calibration_method = _normalize_calibration_options(
+        calibration_enabled,
+        calibration_method,
+    )
 
     config = MulticlassConfig(
         data_path=resolved_path,
@@ -542,6 +596,8 @@ def train_multiclass(
         random_state=random_state,
         smote_mode=smote,
         max_iter=max_iter,
+        calibration_enabled=calibration_enabled,
+        calibration_method=calibration_method,
         group_stratify=group_stratify,
         logreg_solver=logreg_solver,
         logreg_multi_class=logreg_multi_class,

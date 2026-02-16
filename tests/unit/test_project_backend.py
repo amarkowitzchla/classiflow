@@ -139,6 +139,25 @@ def test_legacy_calibration_toggle_is_normalized() -> None:
     assert config.calibration.method == "sigmoid"
 
 
+def test_project_config_allows_temperature_calibration_method() -> None:
+    config = ProjectConfig.model_validate(
+        {
+            "project": {"id": "C002", "name": "CalibrationTemp"},
+            "data": {"train": {"manifest": "train.csv"}},
+            "task": {"mode": "multiclass", "patient_stratified": False},
+            "execution": {
+                "engine": "torch",
+                "device": "cpu",
+                "torch": {"dtype": "float32", "num_workers": 0, "require_device": False},
+            },
+            "calibration": {"enabled": "true", "method": "temperature"},
+        }
+    )
+
+    assert config.calibration.enabled == "true"
+    assert config.calibration.method == "temperature"
+
+
 def test_sklearn_engine_rejects_torch_subtree() -> None:
     with pytest.raises(ValueError, match="execution.torch is not allowed"):
         ProjectConfig.model_validate(

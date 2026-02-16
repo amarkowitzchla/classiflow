@@ -86,3 +86,37 @@ def test_torch_multiclass_predict_proba_shape() -> None:
 def test_torch_estimators_default_num_workers() -> None:
     clf = TorchLogisticRegressionClassifier(device="cpu")
     assert clf.num_workers == default_torch_num_workers()
+
+
+def test_torch_binary_temperature_scaling_optional() -> None:
+    X, y = _make_binary_data()
+    clf = TorchLogisticRegressionClassifier(
+        epochs=3,
+        patience=0,
+        val_fraction=0.0,
+        temperature_scaling=True,
+        temperature_val_fraction=0.2,
+        device="cpu",
+        num_workers=0,
+        seed=9,
+    )
+    clf.fit(X, y)
+    assert clf.temperature_fitted_
+    assert clf.temperature_ > 0.0
+
+
+def test_torch_multiclass_temperature_scaling_optional() -> None:
+    X, y = _make_multiclass_data()
+    clf = TorchSoftmaxRegressionClassifier(
+        epochs=3,
+        patience=0,
+        val_fraction=0.0,
+        temperature_scaling=True,
+        temperature_val_fraction=0.2,
+        device="cpu",
+        num_workers=0,
+        seed=10,
+    )
+    clf.fit(X, y)
+    assert clf.temperature_fitted_
+    assert clf.temperature_ > 0.0

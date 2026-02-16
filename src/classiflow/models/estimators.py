@@ -21,6 +21,7 @@ def get_estimators(
     logreg_params: Optional[Dict[str, Any]] = None,
     resolved_device: Optional[str] = None,
     torch_num_workers: int | None = None,
+    torch_temperature_scaling: bool = False,
 ) -> Dict[str, Any]:
     """
     Get dictionary of estimators with consistent configurations.
@@ -82,6 +83,7 @@ def get_estimators(
                 random_state=random_state,
                 device=resolved_device,
                 num_workers=resolved_torch_workers,
+                temperature_scaling=torch_temperature_scaling,
             )
             estimators["torch_mlp"] = TorchMLPClassifier(
                 lr=1e-3,
@@ -94,6 +96,7 @@ def get_estimators(
                 random_state=random_state,
                 device=resolved_device,
                 num_workers=resolved_torch_workers,
+                temperature_scaling=torch_temperature_scaling,
             )
         except Exception as exc:
             logger.warning("Torch estimators unavailable (%s). Skipping torch models.", exc)

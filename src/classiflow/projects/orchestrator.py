@@ -83,6 +83,16 @@ def _resolve_manifest(project_root: Path, manifest_path: str) -> Path:
     return path
 
 
+def _project_torch_temperature_scaling_enabled(config: ProjectConfig) -> bool:
+    enabled = str(config.calibration.enabled).strip().lower()
+    method = str(config.calibration.method).strip().lower()
+    if method != "temperature":
+        return False
+    if config.execution.engine not in {"torch", "hybrid"}:
+        return False
+    return enabled != "false"
+
+
 def _lineage_payload(
     phase: str,
     run_id: str,
@@ -485,6 +495,8 @@ def run_technical_validation(
             smote_mode="both"
             if config.imbalance.smote.get("compare")
             else ("on" if config.imbalance.smote.get("enabled") else "off"),
+            calibration_enabled=config.calibration.enabled,
+            calibration_method=config.calibration.method,
             calibration_bins=config.calibration.bins,
             calibration_binning=config.calibration.binning,
             backend=config.backend,
@@ -564,6 +576,8 @@ def run_technical_validation(
             logreg_C=config.multiclass.logreg.C,
             logreg_class_weight=config.multiclass.logreg.class_weight,
             logreg_n_jobs=config.multiclass.logreg.n_jobs,
+            calibration_enabled=config.calibration.enabled,
+            calibration_method=config.calibration.method,
             calibration_bins=config.calibration.bins,
             calibration_binning=config.calibration.binning,
             device=config.device,
@@ -1278,6 +1292,7 @@ def _retrain_binary_pipelines_per_task(
         device=config.device,
         torch_dtype=config.torch_dtype,
         torch_num_workers=config.torch_num_workers,
+        torch_temperature_scaling=_project_torch_temperature_scaling_enabled(config),
         meta_C_grid=None,
     )
     estimators = model_spec["base_estimators"]
@@ -1365,6 +1380,7 @@ def _train_final_multiclass(
         logreg_params=logreg_params,
         resolved_device=resolved_device,
         torch_num_workers=config.torch_num_workers,
+        torch_temperature_scaling=_project_torch_temperature_scaling_enabled(config),
     )
     estimator_mode = config.multiclass.estimator_mode
     if estimator_mode == "torch_only":

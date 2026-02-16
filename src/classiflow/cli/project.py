@@ -96,9 +96,10 @@ def _append_project_yaml_hints(project_yaml: Path, mode: str, engine: str) -> No
     ]
     if mode == "meta":
         hint_lines.append("# - calibration.enabled (auto|true|false)")
-        hint_lines.append("# - calibration.method (sigmoid|isotonic)")
+        hint_lines.append("# - calibration.method (sigmoid|isotonic|temperature)")
     if mode == "multiclass":
         hint_lines.append("# - multiclass.backend and multiclass.sklearn.logreg.*")
+        hint_lines.append("# - calibration.enabled and calibration.method (temperature for torch learners)")
     if engine in {"torch", "hybrid"}:
         hint_lines.append("# - execution.device and execution.torch.*")
         hint_lines.append("# Advanced knobs: execution.model_set, execution.torch.num_workers")

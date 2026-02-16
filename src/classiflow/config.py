@@ -80,6 +80,8 @@ class TrainConfig:
     # SMOTE
     smote_mode: Literal["off", "on", "both"] = "off"
     smote_k_neighbors: int = 5
+    calibration_enabled: Literal["false", "true", "auto"] = "auto"
+    calibration_method: Literal["sigmoid", "isotonic", "temperature"] = "sigmoid"
     calibration_bins: int = 10
     calibration_binning: Literal["uniform", "quantile"] = "quantile"
 
@@ -150,7 +152,7 @@ class MetaConfig(TrainConfig):
     meta_C_grid: List[float] = field(default_factory=lambda: [0.01, 0.1, 1, 10])
     calibrate_meta: bool = True  # Legacy toggle; mapped to calibration_enabled when used.
     calibration_enabled: Literal["false", "true", "auto"] = "auto"
-    calibration_method: Literal["sigmoid", "isotonic"] = "sigmoid"
+    calibration_method: Literal["sigmoid", "isotonic", "temperature"] = "sigmoid"
     calibration_cv: int = 3
     calibration_bins: int = 10
     calibration_binning: Literal["uniform", "quantile"] = "quantile"

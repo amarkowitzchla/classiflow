@@ -63,6 +63,16 @@ MC_SCORER_ORDER = [
 ]
 
 
+def _torch_temperature_scaling_enabled(config: MulticlassConfig) -> bool:
+    enabled = str(getattr(config, "calibration_enabled", "auto")).strip().lower()
+    method = str(getattr(config, "calibration_method", "sigmoid")).strip().lower()
+    if method != "temperature":
+        return False
+    if enabled == "false":
+        return False
+    return True
+
+
 def train_multiclass_classifier(config: MulticlassConfig) -> Dict[str, Any]:
     """Train a direct multiclass classifier using nested CV."""
     logger.info("Starting multiclass training")
@@ -188,6 +198,7 @@ def _run_multiclass_nested_cv(
     groups: Optional[pd.Series] = None,
 ) -> Dict[str, Any]:
     """Run nested CV for direct multiclass training."""
+    torch_temperature_scaling = _torch_temperature_scaling_enabled(config)
     label_ids = list(range(len(classes)))
     logreg_params = {
         "solver": config.logreg_solver,
@@ -207,6 +218,7 @@ def _run_multiclass_nested_cv(
             logreg_params=logreg_params,
             resolved_device=resolved_device,
             torch_num_workers=config.torch_num_workers,
+            torch_temperature_scaling=torch_temperature_scaling,
         ),
         resolved_device,
     )

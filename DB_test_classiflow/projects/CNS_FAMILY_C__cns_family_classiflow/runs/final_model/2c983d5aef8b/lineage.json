@@ -1,0 +1,32 @@
+{
+  "phase": "FINAL_MODEL",
+  "run_id": "2c983d5aef8b",
+  "timestamp_local": "2026-02-14T19:42:18.632066",
+  "timestamp_utc": "2026-02-14T19:42:18.632081+00:00",
+  "classiflow_version": "0.1.0",
+  "git_hash": null,
+  "python_version": "3.11.14",
+  "platform": "Linux-6.1.159-181.297.amzn2023.x86_64-x86_64-with-glibc2.35",
+  "config_hash": "b2ea9b7718da527f7f12a2543c83ea6b63da81b084a4ec5d1350d54581de1ccb",
+  "dataset_hashes": {
+    "train": "002b9eb04b32940e860ec929cabcf54639263d4a3df2d8206f67b939e7dee739",
+    "test": "047ab1ed773fb813083bec38413d37a4c07c3a5d3c3f66a5d4b8772680222a58"
+  },
+  "command": "classiflow project build-bundle",
+  "args": {
+    "run_id": "2c983d5aef8b",
+    "technical_run": "39da5465425f",
+    "sampler": "none",
+    "train_from_scratch": true
+  },
+  "outputs": [
+    {
+      "path": "projects/CNS_FAMILY_C__cns_family_classiflow/runs/final_model/2c983d5aef8b/model_bundle.zip",
+      "sha256": "49a2edba74d58fea26884f8c6bb578927ba53a145069e7733f9334e913eac8bf"
+    },
+    {
+      "path": "projects/CNS_FAMILY_C__cns_family_classiflow/runs/final_model/2c983d5aef8b/run.json",
+      "sha256": "9433bf1fdc725fb56662553b421ea7ae9ec117e76c276115c6b332f08aad38df"
+    }
+  ]
+}

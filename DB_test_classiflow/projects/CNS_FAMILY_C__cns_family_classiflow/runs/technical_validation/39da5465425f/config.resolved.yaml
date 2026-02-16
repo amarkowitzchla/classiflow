@@ -1,0 +1,99 @@
+project:
+  id: CNS_FAMILY_C
+  name: CNS_FAMILY_CLASSIFLOW
+  description: ''
+  owner: ''
+data:
+  train:
+    manifest: /home/sagemaker-user/data/classiflow_data/CNS_FULL_DATASET_FAMILY_TRAIN.parquet
+  test:
+    manifest: /home/sagemaker-user/data/classiflow_data/CNS_FULL_DATASET_FAMILY_TEST.parquet
+key_columns:
+  sample_id: sample_id
+  label: label
+task:
+  mode: multiclass
+  patient_stratified: true
+validation:
+  nested_cv:
+    outer_folds: 3
+    inner_folds: 5
+    repeats: 2
+    seed: 42
+models:
+  candidates:
+  - torch_logistic_regression
+  - torch_mlp
+  selection_metric: f1
+  selection_direction: max
+imbalance:
+  smote:
+    enabled: false
+    compare: false
+multiclass:
+  group_stratify: true
+  backend: torch_cuda
+  sklearn:
+    logreg:
+      solver: saga
+      multi_class: auto
+      penalty: l2
+      max_iter: 5000
+      tol: 0.001
+      C: 1.0
+      class_weight: balanced
+      n_jobs: -1
+  torch:
+    model_set: torch_basic
+metrics:
+  primary:
+  - f1
+  - balanced_accuracy
+  averaging: macro
+  include_confidence_intervals: false
+calibration:
+  enabled: auto
+  method: sigmoid
+  cv: 3
+  bins: 10
+  binning: quantile
+  isotonic_min_samples: 100
+  policy:
+    apply_to_modes:
+    - binary
+    - multiclass
+    - hierarchical
+    - meta
+    force_keep: false
+    probability_quality_checks:
+      enabled: true
+      apply_to_modes:
+      - binary
+      - multiclass
+      - hierarchical
+      - meta
+    thresholds:
+      underconfidence_gap: -0.1
+      high_accuracy: 0.9
+      near_perfect_accuracy: 0.97
+      min_calibration_n: 200
+      min_class_n: 25
+      min_brier_improvement: 0.002
+      max_log_loss_regression: 0.01
+      max_ece_ovr_regression: 0.01
+final_model:
+  sanity_min_std: 0.02
+  sanity_max_mean_deviation: 0.15
+  train_from_scratch: true
+  verify_dataset_hash: true
+bundle:
+  name: model_bundle
+  include_preprocessing: true
+  format: zip
+execution:
+  engine: torch
+  device: cuda
+  torch:
+    dtype: float32
+    num_workers: 30
+    require_device: false

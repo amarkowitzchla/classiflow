@@ -45,6 +45,7 @@ def get_model_set(
     device: str = "auto",
     torch_dtype: str = "float32",
     torch_num_workers: int | None = None,
+    torch_temperature_scaling: bool = False,
     meta_C_grid: list[float] | None = None,
 ) -> Dict[str, Any]:
     """
@@ -120,6 +121,7 @@ def get_model_set(
                 torch_dtype=torch_dtype,
                 num_workers=torch_num_workers,
                 class_weight="balanced",
+                temperature_scaling=torch_temperature_scaling,
             ),
             "TorchMLP": TorchMLPClassifier(
                 lr=1e-3,
@@ -135,6 +137,7 @@ def get_model_set(
                 torch_dtype=torch_dtype,
                 num_workers=torch_num_workers,
                 class_weight="balanced",
+                temperature_scaling=torch_temperature_scaling,
             ),
         }
         if model_set == "torch_fast":
@@ -183,6 +186,7 @@ def get_model_set(
             torch_dtype=torch_dtype,
             num_workers=torch_num_workers,
             class_weight="balanced",
+            temperature_scaling=torch_temperature_scaling,
         ),
         "TorchMLP": TorchMLPClassifier(
             lr=1e-3,
@@ -198,6 +202,7 @@ def get_model_set(
             torch_dtype=torch_dtype,
             num_workers=torch_num_workers,
             class_weight="balanced",
+            temperature_scaling=torch_temperature_scaling,
         ),
     }
     if model_set == "torch_fast":
@@ -245,6 +250,7 @@ def get_model_set(
             torch_dtype=torch_dtype,
             num_workers=torch_num_workers,
             class_weight="balanced",
+            temperature_scaling=torch_temperature_scaling,
         ),
         "TorchMLPMulticlass": TorchMLPMulticlassClassifier(
             lr=1e-3,
@@ -260,6 +266,7 @@ def get_model_set(
             torch_dtype=torch_dtype,
             num_workers=torch_num_workers,
             class_weight="balanced",
+            temperature_scaling=torch_temperature_scaling,
         ),
     }
 

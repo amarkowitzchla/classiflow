@@ -44,6 +44,8 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         num_workers: int | None = None,
         class_weight: str | dict[str, float] | None = "balanced",
         val_fraction: float = 0.1,
+        temperature_scaling: bool = False,
+        temperature_val_fraction: float = 0.1,
     ):
         self.lr = lr
         self.weight_decay = weight_decay
@@ -59,6 +61,8 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         self.num_workers = default_torch_num_workers() if num_workers is None else num_workers
         self.class_weight = class_weight
         self.val_fraction = val_fraction
+        self.temperature_scaling = temperature_scaling
+        self.temperature_val_fraction = temperature_val_fraction
 
         self.model: Optional[nn.Module] = None
         self.classes_: Optional[np.ndarray] = None
@@ -68,6 +72,8 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         self._input_dim: Optional[int] = None
         self._num_classes: Optional[int] = None
         self._is_fitted = False
+        self.temperature_: float = 1.0
+        self.temperature_fitted_: bool = False
 
     def _build_model(self, input_dim: int, num_classes: int) -> nn.Module:
         raise NotImplementedError
@@ -209,6 +215,60 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
     def _prepare_target(self, yb: torch.Tensor) -> torch.Tensor:
         return yb
 
+    def _apply_temperature(self, logits: torch.Tensor) -> torch.Tensor:
+        temperature = float(getattr(self, "temperature_", 1.0))
+        if temperature <= 0:
+            return logits
+        return logits / temperature
+
+    def _fit_temperature_scaler(self, X_cal: np.ndarray, y_cal: np.ndarray) -> None:
+        if self.model is None:
+            return
+        if X_cal.size == 0 or y_cal.size == 0:
+            return
+        if self._num_classes is None:
+            return
+
+        use_cuda_transfer = bool(self._device is not None and self._device.type == "cuda")
+        self.model.eval()
+        with torch.no_grad():
+            xb = torch.from_numpy(X_cal).to(
+                self._device, dtype=self._dtype, non_blocking=use_cuda_transfer
+            )
+            logits = self.model(xb).detach().float().cpu()
+
+        use_binary_loss = logits.ndim == 1 or (logits.ndim == 2 and logits.shape[1] == 1)
+        if use_binary_loss:
+            logits = logits.reshape(-1)
+            targets = torch.from_numpy(y_cal).float().cpu()
+            loss_fn = nn.BCEWithLogitsLoss()
+        else:
+            targets = torch.from_numpy(y_cal).long().cpu()
+            loss_fn = nn.CrossEntropyLoss()
+
+        log_temperature = nn.Parameter(torch.zeros(1, dtype=torch.float32))
+        optimizer = torch.optim.Adam([log_temperature], lr=0.05)
+
+        try:
+            for _ in range(100):
+                optimizer.zero_grad()
+                temperature = torch.exp(log_temperature).clamp(1e-3, 100.0)
+                scaled_logits = logits / temperature
+                loss = loss_fn(scaled_logits, targets)
+                loss.backward()
+                optimizer.step()
+            self.temperature_ = float(torch.exp(log_temperature.detach()).clamp(1e-3, 100.0).item())
+            self.temperature_fitted_ = True
+            logger.info(
+                "%s fitted temperature scaler (temperature=%.4f)",
+                self.__class__.__name__,
+                self.temperature_,
+            )
+        except Exception as exc:
+            logger.warning("%s temperature scaling failed: %s", self.__class__.__name__, exc)
+            self.temperature_ = 1.0
+            self.temperature_fitted_ = False
+
     def fit(self, X: np.ndarray, y: np.ndarray) -> "_TorchBaseEstimator":
         set_seed(self.seed)
         X, y_encoded = self._prepare(X, y)
@@ -222,7 +282,8 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
             logger.warning("%s model has no parameters to report device.", self.__class__.__name__)
         loss_fn = self._create_loss(y_encoded).to(self._device)
 
-        X_train, X_val, y_train, y_val = None, None, None, None
+        X_train, X_val, y_train, y_val = X, None, y_encoded, None
+        X_cal, y_cal = None, None
         if self.val_fraction > 0 and len(np.unique(y_encoded)) > 1 and len(y_encoded) >= 10:
             try:
                 X_train, X_val, y_train, y_val = train_test_split(
@@ -232,12 +293,35 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
                     random_state=self.seed,
                     stratify=y_encoded,
                 )
+                X_cal, y_cal = X_val, y_val
             except ValueError:
-                X_train, y_train = X, y_encoded
-        else:
-            X_train, y_train = X, y_encoded
+                X_train, X_val, y_train, y_val = X, None, y_encoded, None
+
+        if self.temperature_scaling and X_cal is None:
+            if self.temperature_val_fraction > 0 and len(np.unique(y_train)) > 1 and len(y_train) >= 10:
+                try:
+                    X_train, X_cal, y_train, y_cal = train_test_split(
+                        X_train,
+                        y_train,
+                        test_size=self.temperature_val_fraction,
+                        random_state=self.seed,
+                        stratify=y_train,
+                    )
+                except ValueError:
+                    X_cal, y_cal = None, None
 
         self._train_loop(X_train, y_train, X_val, y_val, loss_fn)
+        self.temperature_ = 1.0
+        self.temperature_fitted_ = False
+        if self.temperature_scaling:
+            if X_cal is None or y_cal is None:
+                logger.warning(
+                    "%s temperature scaling requested but calibration split unavailable; "
+                    "using unscaled probabilities.",
+                    self.__class__.__name__,
+                )
+            else:
+                self._fit_temperature_scaler(X_cal, y_cal)
         self._is_fitted = True
         return self
 
@@ -256,6 +340,14 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)
+        if not hasattr(self, "temperature_scaling"):
+            self.temperature_scaling = False
+        if not hasattr(self, "temperature_val_fraction"):
+            self.temperature_val_fraction = 0.1
+        if not hasattr(self, "temperature_"):
+            self.temperature_ = 1.0
+        if not hasattr(self, "temperature_fitted_"):
+            self.temperature_fitted_ = False
         model_state = state.get("_model_state_dict")
         if model_state is not None and self._input_dim is not None and self._num_classes is not None:
             self._setup_device()
@@ -301,7 +393,7 @@ class TorchLogisticRegressionClassifier(_TorchBaseEstimator):
             xb = torch.from_numpy(X).to(
                 self._device, dtype=self._dtype, non_blocking=use_cuda_transfer
             )
-            logits = self.model(xb)
+            logits = self._apply_temperature(self.model(xb))
             probs = torch.sigmoid(logits).cpu().numpy()
         return np.column_stack([1.0 - probs, probs])
 
@@ -361,7 +453,7 @@ class TorchSoftmaxRegressionClassifier(_TorchBaseEstimator):
             xb = torch.from_numpy(X).to(
                 self._device, dtype=self._dtype, non_blocking=use_cuda_transfer
             )
-            logits = self.model(xb)
+            logits = self._apply_temperature(self.model(xb))
             probs = torch.softmax(logits, dim=1).cpu().numpy()
         return probs
 

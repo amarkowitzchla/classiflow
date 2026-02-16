@@ -48,7 +48,7 @@ def available_project_options() -> Dict[str, List[str]]:
         "multiclass.backend[hybrid]": ["hybrid_sklearn_meta_torch_base"],
         "models.selection_direction": ["max", "min"],
         "calibration.enabled": ["auto", "true", "false"],
-        "calibration.method": ["sigmoid", "isotonic"],
+        "calibration.method": ["sigmoid", "isotonic", "temperature"],
         "calibration.binning": ["uniform", "quantile"],
         "execution.torch.dtype": ["float32", "float16"],
     }
@@ -313,7 +313,7 @@ class CalibrationConfig(BaseModel):
     """Meta classifier calibration settings."""
 
     enabled: Literal["false", "true", "auto"] = "auto"
-    method: Literal["sigmoid", "isotonic"] = "sigmoid"
+    method: Literal["sigmoid", "isotonic", "temperature"] = "sigmoid"
     cv: int = 3
     bins: int = 10
     binning: Literal["uniform", "quantile"] = "quantile"

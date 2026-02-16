@@ -24,6 +24,7 @@ class TorchLinearClassifier(TorchSoftmaxRegressionClassifier):
         random_state: int = 42,
         device: str = "cpu",
         num_workers: int | None = None,
+        temperature_scaling: bool = False,
     ):
         resolved_workers = default_torch_num_workers() if num_workers is None else num_workers
         self.random_state = random_state
@@ -42,6 +43,7 @@ class TorchLinearClassifier(TorchSoftmaxRegressionClassifier):
             num_workers=resolved_workers,
             class_weight=class_weight,
             val_fraction=0.0,
+            temperature_scaling=temperature_scaling,
         )
 
     def get_params(self, deep: bool = True) -> dict[str, Any]:
@@ -71,6 +73,7 @@ class TorchMLPClassifier(TorchMLPMulticlassClassifier):
         random_state: int = 42,
         device: str = "cpu",
         num_workers: int | None = None,
+        temperature_scaling: bool = False,
     ):
         resolved_workers = default_torch_num_workers() if num_workers is None else num_workers
         self.random_state = random_state
@@ -89,6 +92,7 @@ class TorchMLPClassifier(TorchMLPMulticlassClassifier):
             num_workers=resolved_workers,
             class_weight=class_weight,
             val_fraction=0.0,
+            temperature_scaling=temperature_scaling,
         )
 
     def get_params(self, deep: bool = True) -> dict[str, Any]:
