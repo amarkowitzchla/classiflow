@@ -1,3 +1,7 @@
+DB_test*
+classiflow-ui*
+rebuild_ui.sh
+
 # Python
 __pycache__/
 *.py[cod]
