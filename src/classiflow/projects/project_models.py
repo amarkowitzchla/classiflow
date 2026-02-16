@@ -612,8 +612,9 @@ class ProjectConfig(BaseModel):
             "execution": dump["execution"],
         }
 
-        if self.task.mode == "meta":
-            result["calibration"] = dump["calibration"]
+        # Calibration settings are used across workflows (meta/binary/multiclass/hierarchical),
+        # so keep this block in minimal configs as well.
+        result["calibration"] = dump["calibration"]
         if self.task.mode == "multiclass":
             result["multiclass"] = dump["multiclass"]
 

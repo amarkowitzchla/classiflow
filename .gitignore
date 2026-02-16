@@ -1,4 +1,5 @@
-DB_test*
+DB_test_classiflow
+DB_test_classiflow/*
 classiflow-ui*
 rebuild_ui.sh
 

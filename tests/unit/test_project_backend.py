@@ -102,6 +102,40 @@ def test_project_bootstrap_torch_binary_excludes_multiclass(tmp_path: Path) -> N
     assert "multiclass" not in config_data
 
 
+def test_project_bootstrap_accepts_calibration_options(tmp_path: Path) -> None:
+    train_manifest = tmp_path / "train.csv"
+    _write_manifest(train_manifest)
+
+    bootstrap_project(
+        train_manifest=train_manifest,
+        test_manifest=None,
+        name="Torch Multiclass",
+        out_dir=tmp_path,
+        mode="multiclass",
+        engine="torch",
+        device="cpu",
+        show_options=False,
+        hierarchy=None,
+        label_col="label",
+        sample_id_col=None,
+        patient_id_col=None,
+        no_patient_stratified=False,
+        thresholds=[],
+        gate_profile="balanced",
+        promotion_gate_template=None,
+        list_promotion_gate_templates_flag=False,
+        copy_data="pointer",
+        calibration_enabled="true",
+        calibration_method="temperature",
+        test_id="TMCAL",
+    )
+
+    root = project_root(tmp_path, "TMCAL", "Torch Multiclass")
+    config_data = load_yaml(root / "project.yaml")
+    assert config_data["calibration"]["enabled"] == "true"
+    assert config_data["calibration"]["method"] == "temperature"
+
+
 def test_legacy_backend_fields_are_normalized() -> None:
     config = ProjectConfig.model_validate(
         {

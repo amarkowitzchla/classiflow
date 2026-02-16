@@ -295,6 +295,16 @@ def bootstrap_project(
         help="List available promotion gate templates and exit",
     ),
     copy_data: str = typer.Option("pointer", "--copy-data", help="copy|symlink|pointer"),
+    calibration_enabled: str = typer.Option(
+        "auto",
+        "--calibration-enabled",
+        help="Calibration mode: auto|true|false",
+    ),
+    calibration_method: str = typer.Option(
+        "sigmoid",
+        "--calibration-method",
+        help="Calibration method: sigmoid|isotonic|temperature",
+    ),
     test_id: Optional[str] = typer.Option(None, "--test-id", help="Project/test identifier"),
 ):
     """Bootstrap a project with dataset registration."""
@@ -372,6 +382,22 @@ def bootstrap_project(
             "Use --engine torch or --engine hybrid to enable device selection."
         )
 
+    if not isinstance(calibration_enabled, str):
+        calibration_enabled = "auto"
+    if not isinstance(calibration_method, str):
+        calibration_method = "sigmoid"
+
+    calibration_enabled = calibration_enabled.lower().strip()
+    if calibration_enabled not in {"auto", "true", "false"}:
+        raise typer.BadParameter(
+            "calibration-enabled must be one of: auto, true, false"
+        )
+    calibration_method = calibration_method.lower().strip()
+    if calibration_method not in {"sigmoid", "isotonic", "temperature"}:
+        raise typer.BadParameter(
+            "calibration-method must be one of: sigmoid, isotonic, temperature"
+        )
+
     config = ProjectConfig.scaffold(
         project_id=project_id,
         name=name,
@@ -388,6 +414,8 @@ def bootstrap_project(
     config.task.patient_stratified = not no_patient_stratified
     config.key_columns.slide_id = key_columns["slide_id"]
     config.key_columns.specimen_id = key_columns["specimen_id"]
+    config.calibration.enabled = calibration_enabled  # type: ignore[assignment]
+    config.calibration.method = calibration_method  # type: ignore[assignment]
 
     config.save(paths.project_yaml, minimal=True)
     _append_project_yaml_hints(paths.project_yaml, mode=selected_mode, engine=selected_engine)
