@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import typer
 
 from classiflow.cli.project import bootstrap_project
 from classiflow.projects import orchestrator
@@ -64,6 +65,7 @@ def test_project_bootstrap_sklearn_is_minimal(tmp_path: Path) -> None:
     assert config_data["execution"] == {"engine": "sklearn"}
     assert config_data["multiclass"]["backend"] == "sklearn_cpu"
     assert "torch" not in config_data["execution"]
+    assert "tasks_only" not in config_data["task"]
 
 
 def test_project_bootstrap_torch_binary_excludes_multiclass(tmp_path: Path) -> None:
@@ -98,6 +100,72 @@ def test_project_bootstrap_torch_binary_excludes_multiclass(tmp_path: Path) -> N
     assert config_data["execution"]["device"] == "mps"
     assert config_data["execution"]["torch"]["dtype"] == "float32"
     assert "multiclass" not in config_data
+
+
+def test_project_bootstrap_meta_persists_custom_tasks(tmp_path: Path) -> None:
+    train_manifest = tmp_path / "train.csv"
+    _write_manifest(train_manifest)
+    tasks_json = tmp_path / "tasks.json"
+    tasks_json.write_text('{"A_vs_B_only":{"pos":["A"],"neg":["B"]}}', encoding="utf-8")
+
+    bootstrap_project(
+        train_manifest=train_manifest,
+        test_manifest=None,
+        name="Meta Custom Tasks",
+        out_dir=tmp_path,
+        mode="meta",
+        engine="sklearn",
+        device=None,
+        show_options=False,
+        hierarchy=None,
+        label_col="label",
+        tasks_json=tasks_json,
+        tasks_only=True,
+        sample_id_col=None,
+        patient_id_col=None,
+        no_patient_stratified=False,
+        thresholds=[],
+        gate_profile="balanced",
+        promotion_gate_template=None,
+        list_promotion_gate_templates_flag=False,
+        copy_data="pointer",
+        test_id="TMETA",
+    )
+
+    root = project_root(tmp_path, "TMETA", "Meta Custom Tasks")
+    config_data = load_yaml(root / "project.yaml")
+    assert config_data["task"]["tasks_json"] == str(tasks_json.resolve())
+    assert config_data["task"]["tasks_only"] is True
+
+
+def test_project_bootstrap_tasks_only_requires_tasks_json(tmp_path: Path) -> None:
+    train_manifest = tmp_path / "train.csv"
+    _write_manifest(train_manifest)
+
+    with pytest.raises(typer.BadParameter, match="--tasks-only requires --tasks-json"):
+        bootstrap_project(
+            train_manifest=train_manifest,
+            test_manifest=None,
+            name="Meta Missing Tasks",
+            out_dir=tmp_path,
+            mode="meta",
+            engine="sklearn",
+            device=None,
+            show_options=False,
+            hierarchy=None,
+            label_col="label",
+            tasks_json=None,
+            tasks_only=True,
+            sample_id_col=None,
+            patient_id_col=None,
+            no_patient_stratified=False,
+            thresholds=[],
+            gate_profile="balanced",
+            promotion_gate_template=None,
+            list_promotion_gate_templates_flag=False,
+            copy_data="pointer",
+            test_id="TMISS",
+        )
 
 
 def test_legacy_backend_fields_are_normalized() -> None:
@@ -154,12 +222,21 @@ def test_sklearn_engine_rejects_torch_subtree() -> None:
 def test_project_run_passes_backend_settings(tmp_path: Path, monkeypatch) -> None:
     train_manifest = tmp_path / "train.csv"
     _write_manifest(train_manifest)
+    tasks_dir = tmp_path / "project" / "config"
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    tasks_json = tasks_dir / "tasks.json"
+    tasks_json.write_text('{"A_vs_B_only":{"pos":["A"],"neg":["B"]}}', encoding="utf-8")
 
     config = ProjectConfig(
         project={"id": "B001", "name": "Backend"},
         data={"train": {"manifest": str(train_manifest)}},
         key_columns={"label": "label", "sample_id": "sample_id"},
-        task={"mode": "meta", "patient_stratified": False},
+        task={
+            "mode": "meta",
+            "patient_stratified": False,
+            "tasks_json": "config/tasks.json",
+            "tasks_only": True,
+        },
         execution={
             "engine": "torch",
             "device": "cpu",
@@ -182,6 +259,8 @@ def test_project_run_passes_backend_settings(tmp_path: Path, monkeypatch) -> Non
         captured["backend"] = train_config.backend
         captured["device"] = train_config.device
         captured["model_set"] = train_config.model_set
+        captured["tasks_json"] = train_config.tasks_json
+        captured["tasks_only"] = train_config.tasks_only
         return {}
 
     monkeypatch.setattr(orchestrator, "train_meta_classifier", _fake_train_meta)
@@ -194,4 +273,6 @@ def test_project_run_passes_backend_settings(tmp_path: Path, monkeypatch) -> Non
         "backend": "torch",
         "device": "cpu",
         "model_set": "torch_fast",
+        "tasks_json": tasks_json,
+        "tasks_only": True,
     }

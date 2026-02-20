@@ -165,6 +165,19 @@ classiflow project bootstrap \
   --out projects/
 ```
 
+Meta mode custom tasks (optional):
+
+```bash
+classiflow project bootstrap \
+  --train-manifest data/train.csv \
+  --name "Glioma Subtype Custom Tasks" \
+  --mode meta \
+  --label-col subtype \
+  --tasks-json data/tasks.json \
+  --tasks-only \
+  --out projects/
+```
+
 #### Hierarchical classification (clinical default)
 
 ```bash

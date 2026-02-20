@@ -34,6 +34,10 @@ Guidelines:
   `backend/device/torch_*` keys for new configs.
 - `project bootstrap` now supports explicit runtime selection with `--engine`, `--device`, and
   `--show-options`, and emits mode/engine-aware minimal YAML.
+- `project bootstrap` now supports meta custom task wiring with `--tasks-json` and `--tasks-only`:
+  - persisted in `project.yaml` as `task.tasks_json` and `task.tasks_only`
+  - validated as meta-only options (`--tasks-only` requires `--tasks-json`)
+  - forwarded by `project run-technical` into meta training (`MetaConfig.tasks_json/tasks_only`)
 - Multiclass project runtime selection is explicit via `multiclass.backend`
   (`sklearn_cpu`, `torch_*`, `hybrid_sklearn_meta_torch_base`).
 - Legacy project configs are normalized to the new schema with warnings; use

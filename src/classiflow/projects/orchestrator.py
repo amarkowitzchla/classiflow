@@ -67,6 +67,13 @@ def _git_hash(cwd: Path) -> Optional[str]:
 
 
 def _config_hash(data: Dict) -> str:
+    # Keep hash stability for legacy configs that do not use custom meta task files.
+    task_cfg = data.get("task")
+    if isinstance(task_cfg, dict) and task_cfg.get("tasks_json") in {None, ""}:
+        task_cfg.pop("tasks_json", None)
+        if task_cfg.get("tasks_only") is False:
+            task_cfg.pop("tasks_only", None)
+
     payload = json.dumps(data, sort_keys=True, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -81,6 +88,12 @@ def _resolve_manifest(project_root: Path, manifest_path: str) -> Path:
     if not path.is_absolute():
         path = project_root / manifest_path
     return path
+
+
+def _resolve_project_path(project_root: Path, config_path: Optional[str]) -> Optional[Path]:
+    if config_path is None:
+        return None
+    return _resolve_manifest(project_root, config_path)
 
 
 def _lineage_payload(
@@ -499,10 +512,19 @@ def run_technical_validation(
         )
         train_binary_task(train_config)
     elif config.task.mode == "meta":
+        tasks_json_path = _resolve_project_path(paths.root, config.task.tasks_json)
+        if config.task.tasks_only and tasks_json_path is None:
+            raise ValueError("task.tasks_only requires task.tasks_json in project.yaml")
+        if tasks_json_path is not None and not tasks_json_path.exists():
+            raise ValueError(
+                f"Configured task.tasks_json does not exist: {tasks_json_path}"
+            )
         train_config = MetaConfig(
             data_csv=train_manifest,
             label_col=config.key_columns.label,
             patient_col=config.key_columns.patient_id if config.task.patient_stratified else None,
+            tasks_json=tasks_json_path,
+            tasks_only=config.task.tasks_only,
             outdir=run_dir,
             outer_folds=config.validation.nested_cv.outer_folds,
             inner_splits=config.validation.nested_cv.inner_folds,
