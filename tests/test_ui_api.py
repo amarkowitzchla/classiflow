@@ -47,6 +47,20 @@ key_columns:
   label: target
 task:
   mode: meta
+execution:
+  engine: torch
+  device: mps
+  model_set: torch_fast
+models:
+  candidates:
+    - torch_mlp
+  expanded_mlp_tuning_grid: true
+  final_estimator_strategy: single
+  bagging_n_estimators: 15
+  bagging_max_samples: 0.8
+  bagging_max_features: 0.6
+  bagging_bootstrap: true
+  bagging_bootstrap_features: false
 validation:
   nested_cv:
     outer_folds: 3
@@ -228,6 +242,12 @@ class TestProjectEndpoints:
         assert data["id"] == "TEST_PROJECT__test_project"
         assert data["name"] == "Test Project"
         assert data["promotion"]["decision"] == "PASS"
+        assert data["model_settings"]["engine"] == "torch"
+        assert data["model_settings"]["device"] == "mps"
+        assert data["model_settings"]["model_set"] == "torch_fast"
+        assert data["model_settings"]["expanded_mlp_tuning_grid"] is True
+        assert data["model_settings"]["final_estimator_strategy"] == "single"
+        assert data["model_settings"]["bagging_n_estimators"] == 15
         assert "technical_validation" in data["phases"]
 
     def test_get_project_not_found(self, test_client):

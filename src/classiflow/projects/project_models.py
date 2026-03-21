@@ -46,6 +46,7 @@ def available_project_options() -> Dict[str, List[str]]:
         "multiclass.backend[sklearn]": ["sklearn_cpu"],
         "multiclass.backend[torch]": ["torch_auto", "torch_cpu", "torch_cuda", "torch_mps"],
         "multiclass.backend[hybrid]": ["hybrid_sklearn_meta_torch_base"],
+        "models.final_estimator_strategy": ["single", "bagged"],
         "models.selection_direction": ["max", "min"],
         "calibration.enabled": ["auto", "true", "false"],
         "calibration.method": ["sigmoid", "isotonic", "temperature"],
@@ -235,6 +236,27 @@ class ModelsConfig(BaseModel):
     )
     selection_metric: str = "f1"
     selection_direction: Literal["max", "min"] = "max"
+    expanded_mlp_tuning_grid: bool = False
+    final_estimator_strategy: Literal["single", "bagged"] = "single"
+    bagging_n_estimators: int = 10
+    bagging_max_samples: float = 1.0
+    bagging_max_features: float = 1.0
+    bagging_bootstrap: bool = True
+    bagging_bootstrap_features: bool = False
+
+    @field_validator("bagging_n_estimators")
+    @classmethod
+    def _positive_bagging_estimators(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("must be >= 1")
+        return value
+
+    @field_validator("bagging_max_samples", "bagging_max_features")
+    @classmethod
+    def _unit_interval_fraction(cls, value: float) -> float:
+        if not (0.0 < value <= 1.0):
+            raise ValueError("must be within (0, 1]")
+        return value
 
 
 class ImbalanceConfig(BaseModel):
@@ -465,6 +487,12 @@ class ProjectConfig(BaseModel):
             raise ValueError(
                 f"execution.engine=hybrid is not supported for task.mode={mode}. "
                 "Suggestion: use --engine sklearn or --engine torch."
+            )
+
+        if mode in {"meta", "hierarchical"} and self.models.final_estimator_strategy != "single":
+            raise ValueError(
+                "models.final_estimator_strategy=bagged is not supported for "
+                f"task.mode={mode}. Suggestion: set models.final_estimator_strategy=single."
             )
 
         if mode == "hierarchical" and engine == "torch":

@@ -112,6 +112,7 @@ class FinalTrainConfig:
     device: str = "auto"
     torch_dtype: str = "float32"
     torch_num_workers: int = field(default_factory=default_torch_num_workers)
+    expanded_mlp_tuning_grid: bool = False
 
     # Random state
     random_state: int = 42
@@ -139,6 +140,9 @@ class FinalTrainConfig:
             "backend": self.backend,
             "model_set": self.model_set,
             "device": self.device,
+            "torch_dtype": self.torch_dtype,
+            "torch_num_workers": self.torch_num_workers,
+            "expanded_mlp_tuning_grid": self.expanded_mlp_tuning_grid,
             "random_state": self.random_state,
             "max_iter": self.max_iter,
             "sanity_min_std": self.sanity_min_std,
@@ -726,6 +730,7 @@ def train_final_meta_model(config: FinalTrainConfig) -> FinalTrainResult:
         torch_dtype=config.torch_dtype,
         torch_num_workers=config.torch_num_workers,
         meta_C_grid=None,
+        expanded_mlp_tuning_grid=config.expanded_mlp_tuning_grid,
     )
     estimators = model_spec["base_estimators"]
 

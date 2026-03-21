@@ -11,6 +11,11 @@ from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 
 from classiflow.config import default_torch_num_workers
+from classiflow.models.ensemble import (
+    adapt_param_grid_for_strategy,
+    wrap_estimator_for_strategy,
+)
+from classiflow.models.mlp_tuning import build_torch_mlp_param_grid, prefix_param_grid
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +27,13 @@ def get_estimators(
     resolved_device: Optional[str] = None,
     torch_num_workers: int | None = None,
     torch_temperature_scaling: bool = False,
+    expanded_mlp_tuning_grid: bool = False,
+    final_estimator_strategy: str = "single",
+    bagging_n_estimators: int = 10,
+    bagging_max_samples: float = 1.0,
+    bagging_max_features: float = 1.0,
+    bagging_bootstrap: bool = True,
+    bagging_bootstrap_features: bool = False,
 ) -> Dict[str, Any]:
     """
     Get dictionary of estimators with consistent configurations.
@@ -92,6 +104,9 @@ def get_estimators(
                 batch_size=256,
                 hidden_dim=128,
                 n_layers=1,
+                dropout=0.0,
+                activation="relu",
+                use_batchnorm=False,
                 class_weight="balanced",
                 random_state=random_state,
                 device=resolved_device,
@@ -101,10 +116,27 @@ def get_estimators(
         except Exception as exc:
             logger.warning("Torch estimators unavailable (%s). Skipping torch models.", exc)
 
-    return estimators
+    return {
+        name: wrap_estimator_for_strategy(
+            estimator,
+            strategy=final_estimator_strategy,
+            random_state=random_state,
+            bagging_n_estimators=bagging_n_estimators,
+            bagging_max_samples=bagging_max_samples,
+            bagging_max_features=bagging_max_features,
+            bagging_bootstrap=bagging_bootstrap,
+            bagging_bootstrap_features=bagging_bootstrap_features,
+        )
+        for name, estimator in estimators.items()
+    }
 
 
-def get_param_grids(resolved_device: Optional[str] = None) -> Dict[str, Dict[str, list]]:
+def get_param_grids(
+    resolved_device: Optional[str] = None,
+    *,
+    expanded_mlp_tuning_grid: bool = False,
+    final_estimator_strategy: str = "single",
+) -> Dict[str, Dict[str, list]]:
     """
     Get hyperparameter grids for GridSearchCV.
 
@@ -137,12 +169,16 @@ def get_param_grids(resolved_device: Optional[str] = None) -> Dict[str, Dict[str
             "clf__weight_decay": [0.0, 1e-4],
             "clf__epochs": [10, 25],
         }
-        grids["torch_mlp"] = {
-            "clf__hidden_dim": [128, 256],
-            "clf__lr": [1e-3],
-            "clf__weight_decay": [1e-4],
-            "clf__epochs": [25],
-            "clf__batch_size": [256, 512],
-        }
+        grids["torch_mlp"] = prefix_param_grid(
+            build_torch_mlp_param_grid("basic", expanded=expanded_mlp_tuning_grid),
+            prefix="clf__",
+        )
 
-    return grids
+    return {
+        name: adapt_param_grid_for_strategy(
+            grid,
+            strategy=final_estimator_strategy,
+            pipeline_prefix="clf__",
+        )
+        for name, grid in grids.items()
+    }

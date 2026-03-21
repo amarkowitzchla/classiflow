@@ -4,7 +4,7 @@ from pathlib import Path
 import streamlit as st
 import pandas as pd
 
-from classiflow.config import TrainConfig, MetaConfig
+from classiflow.config import TrainConfig, MetaConfig, default_torch_num_workers
 from classiflow.training import train_binary_task, train_meta_classifier
 from classiflow.streamlit_app.ui.helpers import list_outputs
 
@@ -88,6 +88,86 @@ colA, colB, colC, colD = st.columns(4)
 smote = colA.toggle("Use SMOTE", value=True)
 folds = colB.number_input("CV folds", min_value=2, max_value=10, value=3, step=1)
 seed = colC.number_input("Random seed", min_value=0, max_value=9999, value=42, step=1)
+backend = colD.selectbox("Backend", options=["sklearn", "torch"], index=0)
+
+device = "auto"
+model_set = None
+torch_dtype = "float32"
+torch_num_workers = default_torch_num_workers()
+require_torch_device = False
+expanded_mlp_tuning_grid = False
+
+if backend == "torch":
+    st.caption("Torch backend enables MLP candidates and expanded MLP tuning.")
+    colE, colF, colG, colH = st.columns(4)
+    device = colE.selectbox("Device", options=["auto", "cpu", "cuda", "mps"], index=0)
+    model_set = colF.selectbox("Torch model set", options=["torch_basic", "torch_fast"], index=0)
+    torch_dtype = colG.selectbox("Torch dtype", options=["float32", "float16"], index=0)
+    torch_num_workers = int(
+        colH.number_input(
+            "Torch workers",
+            min_value=0,
+            max_value=32,
+            value=default_torch_num_workers(),
+            step=1,
+        )
+    )
+    colI, colJ = st.columns(2)
+    require_torch_device = colI.checkbox("Require requested device", value=False)
+    expanded_mlp_tuning_grid = colJ.checkbox(
+        "Expanded MLP tuning grid",
+        value=False,
+        help="Include CCIX-style MLP hyperparameter axes and nearby values.",
+    )
+else:
+    st.caption("Expanded MLP tuning grid applies only when using the torch backend.")
+
+final_estimator_strategy = "single"
+bagging_n_estimators = 10
+bagging_max_samples = 1.0
+bagging_max_features = 1.0
+bagging_bootstrap = True
+bagging_bootstrap_features = False
+
+if is_binary:
+    st.subheader("Final estimator")
+    final_estimator_strategy = st.selectbox(
+        "Final estimator strategy",
+        options=["single", "bagged"],
+        index=0,
+        help="Bagged wraps the selected final estimator in a bootstrap ensemble.",
+    )
+    if final_estimator_strategy == "bagged":
+        colK, colL, colM = st.columns(3)
+        bagging_n_estimators = int(
+            colK.number_input("Bagging estimators", min_value=1, max_value=200, value=10, step=1)
+        )
+        bagging_max_samples = float(
+            colL.number_input(
+                "Bagging max samples",
+                min_value=0.05,
+                max_value=1.0,
+                value=1.0,
+                step=0.05,
+            )
+        )
+        bagging_max_features = float(
+            colM.number_input(
+                "Bagging max features",
+                min_value=0.05,
+                max_value=1.0,
+                value=1.0,
+                step=0.05,
+            )
+        )
+        colN, colO = st.columns(2)
+        bagging_bootstrap = colN.checkbox("Bootstrap rows", value=True)
+        bagging_bootstrap_features = colO.checkbox("Bootstrap features", value=False)
+else:
+    st.info(
+        "This page runs the meta workflow for non-binary labels. "
+        "Bagging is not exposed here because meta final estimators remain single-model."
+    )
 
 # Run
 button_label = "Run training (binary)" if is_binary else "Run training (multiclass + meta)"
@@ -102,6 +182,19 @@ if st.button(button_label, type="primary"):
                 outer_folds=int(folds),
                 random_state=int(seed),
                 smote_mode="on" if smote else "off",
+                backend=backend,
+                device=device,
+                model_set=model_set,
+                torch_num_workers=torch_num_workers,
+                torch_dtype=torch_dtype,
+                require_torch_device=require_torch_device,
+                expanded_mlp_tuning_grid=expanded_mlp_tuning_grid,
+                final_estimator_strategy=final_estimator_strategy,
+                bagging_n_estimators=bagging_n_estimators,
+                bagging_max_samples=bagging_max_samples,
+                bagging_max_features=bagging_max_features,
+                bagging_bootstrap=bagging_bootstrap,
+                bagging_bootstrap_features=bagging_bootstrap_features,
             )
             try:
                 train_binary_task(config)
@@ -119,6 +212,13 @@ if st.button(button_label, type="primary"):
                 outer_folds=int(folds),
                 random_state=int(seed),
                 smote_mode=smote_mode,
+                backend=backend,
+                device=device,
+                model_set=model_set,
+                torch_num_workers=torch_num_workers,
+                torch_dtype=torch_dtype,
+                require_torch_device=require_torch_device,
+                expanded_mlp_tuning_grid=expanded_mlp_tuning_grid,
             )
             try:
                 train_meta_classifier(config)

@@ -17,6 +17,6 @@ conda activate classiflow
 python -m pip install -e .
 
 # 6) serve with explicit static dir (important)
-classiflow ui serve \
-  --projects-root DB_test_classiflow/projects \
-  --static-dir "$(pwd)/classiflow-ui/dist"
+# classiflow ui serve \
+#   --projects-root DB_test_classiflow/projects \
+#   --static-dir "$(pwd)/classiflow-ui/dist"

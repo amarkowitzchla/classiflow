@@ -17,11 +17,45 @@ def test_cli_version_flag() -> None:
     assert "classiflow" in result.stdout
 
 
+def test_train_binary_help_lists_new_tuning_and_bagging_flags() -> None:
+    runner = CliRunner()
+    result = runner.invoke(app, ["train-binary", "--help"], env={"COLUMNS": "200"})
+    assert result.exit_code == 0
+    assert "--expanded-mlp-tuning-grid" in result.output
+    assert "--final-estimator-strategy" in result.output
+    assert "--bagging-n-estimators" in result.output
+
+
+def test_train_meta_help_lists_expanded_grid_but_not_bagging() -> None:
+    runner = CliRunner()
+    result = runner.invoke(app, ["train-meta", "--help"], env={"COLUMNS": "200"})
+    assert result.exit_code == 0
+    assert "--expanded-mlp-tuning-grid" in result.output
+    assert "--final-estimator-strategy" not in result.output
+    assert "--bagging-n-estimators" not in result.output
+
+
+def test_train_multiclass_help_lists_new_tuning_and_bagging_flags() -> None:
+    runner = CliRunner()
+    result = runner.invoke(app, ["train-multiclass", "--help"], env={"COLUMNS": "200"})
+    assert result.exit_code == 0
+    assert "--expanded-mlp-tuning-grid" in result.output
+    assert "--final-estimator-strategy" in result.output
+    assert "--bagging-n-estimators" in result.output
+
+
 def test_cli_project_bootstrap_smoke(tmp_path: Path) -> None:
     runner = CliRunner()
-    fixtures_dir = Path(__file__).resolve().parents[1] / "fixtures"
-    train_manifest = fixtures_dir / "tiny_train_manifest.csv"
-    assert train_manifest.exists()
+    train_manifest = tmp_path / "train.csv"
+    pd.DataFrame(
+        {
+            "sample_id": ["s1", "s2", "s3", "s4"],
+            "patient_id": ["p1", "p2", "p3", "p4"],
+            "label": ["A", "A", "B", "B"],
+            "feat1": [0.1, 0.2, 0.3, 0.4],
+            "feat2": [1.0, 2.0, 3.0, 4.0],
+        }
+    ).to_csv(train_manifest, index=False)
 
     projects_root = tmp_path / "projects"
     result = runner.invoke(

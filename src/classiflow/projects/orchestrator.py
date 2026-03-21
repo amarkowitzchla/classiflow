@@ -505,6 +505,13 @@ def run_technical_validation(
             torch_num_workers=config.torch_num_workers,
             torch_dtype=config.torch_dtype,
             require_torch_device=config.require_torch_device,
+            expanded_mlp_tuning_grid=config.models.expanded_mlp_tuning_grid,
+            final_estimator_strategy=config.models.final_estimator_strategy,
+            bagging_n_estimators=config.models.bagging_n_estimators,
+            bagging_max_samples=config.models.bagging_max_samples,
+            bagging_max_features=config.models.bagging_max_features,
+            bagging_bootstrap=config.models.bagging_bootstrap,
+            bagging_bootstrap_features=config.models.bagging_bootstrap_features,
             tracker=config.tracker,
             experiment_name=config.experiment_name or f"{config.project.id}/technical",
             run_name=f"technical-{run_id}",
@@ -529,6 +536,7 @@ def run_technical_validation(
             torch_num_workers=config.torch_num_workers,
             torch_dtype=config.torch_dtype,
             require_torch_device=config.require_torch_device,
+            expanded_mlp_tuning_grid=config.models.expanded_mlp_tuning_grid,
             calibrate_meta=config.calibration.enabled != "false",
             calibration_enabled=config.calibration.enabled,
             calibration_method=config.calibration.method,
@@ -582,6 +590,13 @@ def run_technical_validation(
             calibration_binning=config.calibration.binning,
             device=config.device,
             torch_num_workers=config.torch_num_workers,
+            expanded_mlp_tuning_grid=config.models.expanded_mlp_tuning_grid,
+            final_estimator_strategy=config.models.final_estimator_strategy,
+            bagging_n_estimators=config.models.bagging_n_estimators,
+            bagging_max_samples=config.models.bagging_max_samples,
+            bagging_max_features=config.models.bagging_max_features,
+            bagging_bootstrap=config.models.bagging_bootstrap,
+            bagging_bootstrap_features=config.models.bagging_bootstrap_features,
             tracker=config.tracker,
             experiment_name=config.experiment_name or f"{config.project.id}/technical",
             run_name=f"technical-{run_id}",
@@ -968,7 +983,24 @@ def _train_final_binary(
     pos_label = y_raw.value_counts().idxmin()
     y = (y_raw == pos_label).astype(int)
 
-    estimator = get_estimators(config.validation.nested_cv.seed, 10000)[best_cfg["model_name"]]
+    estimator = get_model_set(
+        command="train-binary",
+        backend=get_backend(config.backend),
+        model_set=config.model_set,
+        random_state=config.validation.nested_cv.seed,
+        max_iter=10000,
+        device=config.device,
+        torch_dtype=config.torch_dtype,
+        torch_num_workers=config.torch_num_workers,
+        torch_temperature_scaling=_project_torch_temperature_scaling_enabled(config),
+        expanded_mlp_tuning_grid=config.models.expanded_mlp_tuning_grid,
+        final_estimator_strategy=config.models.final_estimator_strategy,
+        bagging_n_estimators=config.models.bagging_n_estimators,
+        bagging_max_samples=config.models.bagging_max_samples,
+        bagging_max_features=config.models.bagging_max_features,
+        bagging_bootstrap=config.models.bagging_bootstrap,
+        bagging_bootstrap_features=config.models.bagging_bootstrap_features,
+    )["estimators"][best_cfg["model_name"]]
     cleaned = _filter_model_params(estimator, best_cfg["params"])
     params = {f"clf__{k}": v for k, v in cleaned.items() if k}
     sampler = AdaptiveSMOTE(k_max=5, random_state=config.validation.nested_cv.seed)
@@ -1294,6 +1326,7 @@ def _retrain_binary_pipelines_per_task(
         torch_num_workers=config.torch_num_workers,
         torch_temperature_scaling=_project_torch_temperature_scaling_enabled(config),
         meta_C_grid=None,
+        expanded_mlp_tuning_grid=config.models.expanded_mlp_tuning_grid,
     )
     estimators = model_spec["base_estimators"]
 
@@ -1381,6 +1414,12 @@ def _train_final_multiclass(
         resolved_device=resolved_device,
         torch_num_workers=config.torch_num_workers,
         torch_temperature_scaling=_project_torch_temperature_scaling_enabled(config),
+        final_estimator_strategy=config.models.final_estimator_strategy,
+        bagging_n_estimators=config.models.bagging_n_estimators,
+        bagging_max_samples=config.models.bagging_max_samples,
+        bagging_max_features=config.models.bagging_max_features,
+        bagging_bootstrap=config.models.bagging_bootstrap,
+        bagging_bootstrap_features=config.models.bagging_bootstrap_features,
     )
     estimator_mode = config.multiclass.estimator_mode
     if estimator_mode == "torch_only":
@@ -1720,6 +1759,7 @@ def build_final_model(
             device=effective_config.device,
             torch_dtype=effective_config.torch_dtype,
             torch_num_workers=effective_config.torch_num_workers,
+            expanded_mlp_tuning_grid=effective_config.models.expanded_mlp_tuning_grid,
             random_state=effective_config.validation.nested_cv.seed,
             max_iter=10000,
             outdir=run_dir,

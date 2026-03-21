@@ -219,10 +219,20 @@ def _run_multiclass_nested_cv(
             resolved_device=resolved_device,
             torch_num_workers=config.torch_num_workers,
             torch_temperature_scaling=torch_temperature_scaling,
+            final_estimator_strategy=config.final_estimator_strategy,
+            bagging_n_estimators=config.bagging_n_estimators,
+            bagging_max_samples=config.bagging_max_samples,
+            bagging_max_features=config.bagging_max_features,
+            bagging_bootstrap=config.bagging_bootstrap,
+            bagging_bootstrap_features=config.bagging_bootstrap_features,
         ),
         resolved_device,
     )
-    param_grids = get_param_grids(resolved_device=resolved_device)
+    param_grids = get_param_grids(
+        resolved_device=resolved_device,
+        expanded_mlp_tuning_grid=config.expanded_mlp_tuning_grid,
+        final_estimator_strategy=config.final_estimator_strategy,
+    )
     estimators, param_grids = _filter_estimators(
         estimators,
         param_grids,

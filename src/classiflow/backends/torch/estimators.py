@@ -37,6 +37,8 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         dropout: float = 0.0,
         hidden_dim: int = 128,
         n_layers: int = 1,
+        activation: str = "relu",
+        use_batchnorm: bool = False,
         patience: int = 10,
         seed: int = 42,
         device: str = "auto",
@@ -54,6 +56,8 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         self.dropout = dropout
         self.hidden_dim = hidden_dim
         self.n_layers = n_layers
+        self.activation = activation
+        self.use_batchnorm = use_batchnorm
         self.patience = patience
         self.seed = seed
         self.device = device
@@ -348,6 +352,10 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
             self.temperature_ = 1.0
         if not hasattr(self, "temperature_fitted_"):
             self.temperature_fitted_ = False
+        if not hasattr(self, "activation"):
+            self.activation = "relu"
+        if not hasattr(self, "use_batchnorm"):
+            self.use_batchnorm = False
         model_state = state.get("_model_state_dict")
         if model_state is not None and self._input_dim is not None and self._num_classes is not None:
             self._setup_device()
@@ -409,7 +417,14 @@ class TorchMLPClassifier(TorchLogisticRegressionClassifier):
     """Binary MLP classifier."""
 
     def _build_model(self, input_dim: int, num_classes: int) -> nn.Module:
-        return BinaryMLP(input_dim, self.hidden_dim, self.n_layers, self.dropout)
+        return BinaryMLP(
+            input_dim,
+            self.hidden_dim,
+            self.n_layers,
+            self.dropout,
+            activation=self.activation,
+            use_batchnorm=self.use_batchnorm,
+        )
 
 
 class TorchSoftmaxRegressionClassifier(_TorchBaseEstimator):
@@ -469,4 +484,12 @@ class TorchMLPMulticlassClassifier(TorchSoftmaxRegressionClassifier):
     """Multiclass MLP classifier."""
 
     def _build_model(self, input_dim: int, num_classes: int) -> nn.Module:
-        return MulticlassMLP(input_dim, num_classes, self.hidden_dim, self.n_layers, self.dropout)
+        return MulticlassMLP(
+            input_dim,
+            num_classes,
+            self.hidden_dim,
+            self.n_layers,
+            self.dropout,
+            activation=self.activation,
+            use_batchnorm=self.use_batchnorm,
+        )

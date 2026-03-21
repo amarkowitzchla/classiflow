@@ -24,7 +24,7 @@ class ProjectConfigNormalized:
     owner: Optional[str] = None
 
     # Task info
-    task_mode: Optional[str] = None  # binary, meta, hierarchical
+    task_mode: Optional[str] = None  # binary, meta, hierarchical, multiclass
     label_column: Optional[str] = None
 
     # Data paths
@@ -37,7 +37,17 @@ class ProjectConfigNormalized:
     seed: int = 42
 
     # Model info
+    execution_engine: Optional[str] = None
+    execution_device: Optional[str] = None
+    model_set: Optional[str] = None
     candidates: list[str] = field(default_factory=list)
+    expanded_mlp_tuning_grid: bool = False
+    final_estimator_strategy: str = "single"
+    bagging_n_estimators: int = 10
+    bagging_max_samples: float = 1.0
+    bagging_max_features: float = 1.0
+    bagging_bootstrap: bool = True
+    bagging_bootstrap_features: bool = False
     primary_metrics: list[str] = field(default_factory=list)
 
     # Source
@@ -156,9 +166,22 @@ def parse_project_config(project_dir: Path) -> ProjectConfigNormalized:
     config.inner_folds = nested_cv.get("inner_folds", 5)
     config.seed = nested_cv.get("seed", 42)
 
+    # Execution
+    execution = data.get("execution", {})
+    config.execution_engine = execution.get("engine")
+    config.execution_device = execution.get("device")
+    config.model_set = execution.get("model_set")
+
     # Models
     models = data.get("models", {})
     config.candidates = models.get("candidates", [])
+    config.expanded_mlp_tuning_grid = bool(models.get("expanded_mlp_tuning_grid", False))
+    config.final_estimator_strategy = models.get("final_estimator_strategy", "single")
+    config.bagging_n_estimators = models.get("bagging_n_estimators", 10)
+    config.bagging_max_samples = models.get("bagging_max_samples", 1.0)
+    config.bagging_max_features = models.get("bagging_max_features", 1.0)
+    config.bagging_bootstrap = bool(models.get("bagging_bootstrap", True))
+    config.bagging_bootstrap_features = bool(models.get("bagging_bootstrap_features", False))
 
     # Metrics
     metrics = data.get("metrics", {})

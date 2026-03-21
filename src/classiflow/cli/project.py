@@ -102,7 +102,12 @@ def _append_project_yaml_hints(project_yaml: Path, mode: str, engine: str) -> No
         hint_lines.append("# - calibration.enabled and calibration.method (temperature for torch learners)")
     if engine in {"torch", "hybrid"}:
         hint_lines.append("# - execution.device and execution.torch.*")
-        hint_lines.append("# Advanced knobs: execution.model_set, execution.torch.num_workers")
+        hint_lines.append(
+            "# Advanced knobs: execution.model_set, execution.torch.num_workers, "
+            "models.expanded_mlp_tuning_grid"
+        )
+    if mode != "meta":
+        hint_lines.append("# - models.final_estimator_strategy and models.bagging_*")
 
     try:
         with open(project_yaml, "a", encoding="utf-8") as handle:

@@ -85,6 +85,28 @@ def _normalize_calibration_options(
     return enabled, method
 
 
+def _normalize_final_estimator_strategy(strategy: str) -> str:
+    normalized = strategy.lower().strip()
+    if normalized not in {"single", "bagged"}:
+        raise typer.BadParameter(
+            f"Unsupported final estimator strategy '{strategy}'. Choose from single, bagged."
+        )
+    return normalized
+
+
+def _validate_bagging_options(
+    bagging_n_estimators: int,
+    bagging_max_samples: float,
+    bagging_max_features: float,
+) -> None:
+    if bagging_n_estimators < 1:
+        raise typer.BadParameter("--bagging-n-estimators must be >= 1.")
+    if not (0.0 < bagging_max_samples <= 1.0):
+        raise typer.BadParameter("--bagging-max-samples must be in (0, 1].")
+    if not (0.0 < bagging_max_features <= 1.0):
+        raise typer.BadParameter("--bagging-max-features must be in (0, 1].")
+
+
 @app.callback()
 def main(
     version: bool = typer.Option(
@@ -162,6 +184,41 @@ def train_binary(
         "--torch-dtype",
         help="Torch dtype: float32 or float16 (torch backend only).",
     ),
+    expanded_mlp_tuning_grid: bool = typer.Option(
+        False,
+        "--expanded-mlp-tuning-grid/--no-expanded-mlp-tuning-grid",
+        help="Expand MLP tuning space to include CCIX-style hyperparameter axes and nearby values.",
+    ),
+    final_estimator_strategy: str = typer.Option(
+        "single",
+        "--final-estimator-strategy",
+        help="Final estimator strategy: single or bagged.",
+    ),
+    bagging_n_estimators: int = typer.Option(
+        10,
+        "--bagging-n-estimators",
+        help="Number of estimators for bagging.",
+    ),
+    bagging_max_samples: float = typer.Option(
+        1.0,
+        "--bagging-max-samples",
+        help="Fraction of samples drawn for each bagged estimator.",
+    ),
+    bagging_max_features: float = typer.Option(
+        1.0,
+        "--bagging-max-features",
+        help="Fraction of features drawn for each bagged estimator.",
+    ),
+    bagging_bootstrap: bool = typer.Option(
+        True,
+        "--bagging-bootstrap/--no-bagging-bootstrap",
+        help="Sample rows with replacement when bagging is enabled.",
+    ),
+    bagging_bootstrap_features: bool = typer.Option(
+        False,
+        "--bagging-bootstrap-features/--no-bagging-bootstrap-features",
+        help="Sample features with replacement when bagging is enabled.",
+    ),
     require_device: bool = typer.Option(
         False,
         "--require-device/--allow-device-fallback",
@@ -220,6 +277,12 @@ def train_binary(
         calibration_enabled,
         calibration_method,
     )
+    final_estimator_strategy = _normalize_final_estimator_strategy(final_estimator_strategy)
+    _validate_bagging_options(
+        bagging_n_estimators,
+        bagging_max_samples,
+        bagging_max_features,
+    )
     if model_set is None:
         model_set = "torch_basic" if backend == "torch" else "default"
 
@@ -243,6 +306,13 @@ def train_binary(
         torch_num_workers=torch_num_workers,
         torch_dtype=torch_dtype,
         require_torch_device=require_device,
+        expanded_mlp_tuning_grid=expanded_mlp_tuning_grid,
+        final_estimator_strategy=final_estimator_strategy,
+        bagging_n_estimators=bagging_n_estimators,
+        bagging_max_samples=bagging_max_samples,
+        bagging_max_features=bagging_max_features,
+        bagging_bootstrap=bagging_bootstrap,
+        bagging_bootstrap_features=bagging_bootstrap_features,
         tracker=tracker,
         experiment_name=experiment_name,
         run_name=run_name,
@@ -312,6 +382,11 @@ def train_meta(
         "float32",
         "--torch-dtype",
         help="Torch dtype: float32 or float16 (torch backend only).",
+    ),
+    expanded_mlp_tuning_grid: bool = typer.Option(
+        False,
+        "--expanded-mlp-tuning-grid/--no-expanded-mlp-tuning-grid",
+        help="Expand MLP tuning space to include CCIX-style hyperparameter axes and nearby values.",
     ),
     require_device: bool = typer.Option(
         False,
@@ -429,6 +504,7 @@ def train_meta(
         torch_num_workers=torch_num_workers,
         torch_dtype=torch_dtype,
         require_torch_device=require_device,
+        expanded_mlp_tuning_grid=expanded_mlp_tuning_grid,
         calibrate_meta=calibrate_meta,
         calibration_enabled="true" if calibrate_meta else "false",
         calibration_method=calibration_method,
@@ -529,6 +605,41 @@ def train_multiclass(
         "--estimator-mode",
         help="Estimator selection: all, torch_only, cpu_only",
     ),
+    expanded_mlp_tuning_grid: bool = typer.Option(
+        False,
+        "--expanded-mlp-tuning-grid/--no-expanded-mlp-tuning-grid",
+        help="Expand MLP tuning space to include CCIX-style hyperparameter axes and nearby values.",
+    ),
+    final_estimator_strategy: str = typer.Option(
+        "single",
+        "--final-estimator-strategy",
+        help="Final estimator strategy: single or bagged.",
+    ),
+    bagging_n_estimators: int = typer.Option(
+        10,
+        "--bagging-n-estimators",
+        help="Number of estimators for bagging.",
+    ),
+    bagging_max_samples: float = typer.Option(
+        1.0,
+        "--bagging-max-samples",
+        help="Fraction of samples drawn for each bagged estimator.",
+    ),
+    bagging_max_features: float = typer.Option(
+        1.0,
+        "--bagging-max-features",
+        help="Fraction of features drawn for each bagged estimator.",
+    ),
+    bagging_bootstrap: bool = typer.Option(
+        True,
+        "--bagging-bootstrap/--no-bagging-bootstrap",
+        help="Sample rows with replacement when bagging is enabled.",
+    ),
+    bagging_bootstrap_features: bool = typer.Option(
+        False,
+        "--bagging-bootstrap-features/--no-bagging-bootstrap-features",
+        help="Sample features with replacement when bagging is enabled.",
+    ),
     tracker: Optional[str] = typer.Option(
         None,
         "--tracker",
@@ -583,6 +694,12 @@ def train_multiclass(
         calibration_enabled,
         calibration_method,
     )
+    final_estimator_strategy = _normalize_final_estimator_strategy(final_estimator_strategy)
+    _validate_bagging_options(
+        bagging_n_estimators,
+        bagging_max_samples,
+        bagging_max_features,
+    )
 
     config = MulticlassConfig(
         data_path=resolved_path,
@@ -599,6 +716,13 @@ def train_multiclass(
         calibration_enabled=calibration_enabled,
         calibration_method=calibration_method,
         group_stratify=group_stratify,
+        expanded_mlp_tuning_grid=expanded_mlp_tuning_grid,
+        final_estimator_strategy=final_estimator_strategy,
+        bagging_n_estimators=bagging_n_estimators,
+        bagging_max_samples=bagging_max_samples,
+        bagging_max_features=bagging_max_features,
+        bagging_bootstrap=bagging_bootstrap,
+        bagging_bootstrap_features=bagging_bootstrap_features,
         logreg_solver=logreg_solver,
         logreg_multi_class=logreg_multi_class,
         # penalty deprecated in sklearn 1.8; keep default and tune via l1_ratio/C

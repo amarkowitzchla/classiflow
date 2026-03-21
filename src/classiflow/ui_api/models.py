@@ -245,6 +245,10 @@ class ProjectDashboard(BaseModel):
     promotion: PromotionSummary = Field(
         default_factory=PromotionSummary, description="Promotion summary"
     )
+    model_settings: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Configured execution/model strategy settings from project.yaml",
+    )
     phases: dict[str, list[RunBrief]] = Field(
         default_factory=dict, description="Runs grouped by phase"
     )

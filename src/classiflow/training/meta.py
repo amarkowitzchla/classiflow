@@ -288,6 +288,7 @@ def _run_meta_nested_cv(
         torch_num_workers=config.torch_num_workers,
         torch_temperature_scaling=_torch_temperature_scaling_enabled(config),
         meta_C_grid=config.meta_C_grid,
+        expanded_mlp_tuning_grid=config.expanded_mlp_tuning_grid,
     )
     estimators = model_spec["base_estimators"]
     param_grids = model_spec["base_param_grids"]

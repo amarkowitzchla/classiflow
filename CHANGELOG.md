@@ -15,6 +15,19 @@ Guidelines:
 
 ### Added
 
+- **Bagged final estimator strategy for binary and direct multiclass workflows**:
+  - New CLI flags on `train-binary` and `train-multiclass`:
+    `--final-estimator-strategy` and `--bagging-*`.
+  - New project config fields:
+    `models.final_estimator_strategy` and `models.bagging_*`.
+  - Bagging is intentionally not supported for `task.mode=meta` or `hierarchical`.
+- **Expanded torch MLP tuning grid**:
+  - New `--expanded-mlp-tuning-grid` flag on `train-binary`, `train-meta`,
+    and `train-multiclass`.
+  - New project config field: `models.expanded_mlp_tuning_grid`.
+  - Expanded grids now include CCIX-style MLP hyperparameter axes and nearby values,
+    including `activation`, `use_batchnorm`, `hidden_dim`, `n_layers`, `dropout`,
+    `lr`, `weight_decay`, `batch_size`, and `epochs`.
 - **Experiment Tracking Integration**: Optional MLflow and Weights & Biases support for all training commands
   - New `tracking` module with pluggable tracker architecture
   - CLI flags: `--tracker`, `--experiment-name`, `--run-name` for all `train-*` commands
@@ -30,6 +43,13 @@ Guidelines:
   - `classiflow config normalize project.yaml --out ...`
 
 ### Changed
+- Torch MLP tuning is now unified across the registry-backed binary/meta paths and the
+  direct multiclass path, reducing drift between torch training modes.
+- Torch MLP implementations now support tunable `activation` and `use_batchnorm`
+  hyperparameters so the expanded grid can mirror the CCIX classifier MLP search space.
+- The Streamlit training UI now exposes torch backend controls, expanded MLP tuning,
+  and binary bagging options; the UI API now surfaces project model settings in
+  project dashboard responses.
 - Project YAML runtime settings now use `execution.*` (`engine`, `device`, `torch`) instead of top-level
   `backend/device/torch_*` keys for new configs.
 - `project bootstrap` now supports explicit runtime selection with `--engine`, `--device`, and

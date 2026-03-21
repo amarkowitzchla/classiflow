@@ -93,6 +93,13 @@ class TrainConfig:
     torch_num_workers: int = field(default_factory=default_torch_num_workers)
     torch_dtype: Literal["float32", "float16"] = "float32"
     require_torch_device: bool = False
+    expanded_mlp_tuning_grid: bool = False
+    final_estimator_strategy: Literal["single", "bagged"] = "single"
+    bagging_n_estimators: int = 10
+    bagging_max_samples: float = 1.0
+    bagging_max_features: float = 1.0
+    bagging_bootstrap: bool = True
+    bagging_bootstrap_features: bool = False
 
     # Experiment tracking (optional)
     tracker: Optional[Literal["mlflow", "wandb"]] = None

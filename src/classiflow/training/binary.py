@@ -174,6 +174,13 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
         torch_dtype=config.torch_dtype,
         torch_num_workers=config.torch_num_workers,
         torch_temperature_scaling=torch_temperature_scaling,
+        expanded_mlp_tuning_grid=config.expanded_mlp_tuning_grid,
+        final_estimator_strategy=config.final_estimator_strategy,
+        bagging_n_estimators=config.bagging_n_estimators,
+        bagging_max_samples=config.bagging_max_samples,
+        bagging_max_features=config.bagging_max_features,
+        bagging_bootstrap=config.bagging_bootstrap,
+        bagging_bootstrap_features=config.bagging_bootstrap_features,
     )
     logger.info("Enabled estimators: %s", ", ".join(model_spec["estimators"].keys()))
 
