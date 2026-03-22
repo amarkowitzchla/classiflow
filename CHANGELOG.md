@@ -43,6 +43,9 @@ Guidelines:
   - `classiflow config normalize project.yaml --out ...`
 
 ### Changed
+- PyTorch dependency floor is now `>=2.7.0` to align with official NVIDIA Blackwell
+  support, and install docs now call out the required CUDA 12.8 (`cu128`) wheels for
+  Blackwell GPU environments.
 - Torch MLP tuning is now unified across the registry-backed binary/meta paths and the
   direct multiclass path, reducing drift between torch training modes.
 - Torch MLP implementations now support tunable `activation` and `use_batchnorm`

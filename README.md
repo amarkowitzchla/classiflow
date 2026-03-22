@@ -52,6 +52,24 @@ Verify:
 python -c "import classiflow; print('classiflow ok')"
 classiflow --help
 ```
+
+### NVIDIA Blackwell GPU note
+
+PyTorch added official NVIDIA Blackwell support in **2.7** via **CUDA 12.8** wheels. If you are installing on a Blackwell GPU system, install or upgrade torch from the `cu128` index before running Classiflow:
+
+```bash
+pip install --upgrade "torch>=2.7,<3.0" --index-url https://download.pytorch.org/whl/cu128
+```
+
+Then install Classiflow normally:
+
+```bash
+pip install classiflow
+# or
+pip install -e .
+```
+
+Older torch builds such as `2.5.1+cu124` do not support `sm_120` Blackwell GPUs.
 ---
 
 ## UI installation (optional)
