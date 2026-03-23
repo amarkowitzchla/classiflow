@@ -47,6 +47,7 @@ def available_project_options() -> Dict[str, List[str]]:
         "multiclass.backend[torch]": ["torch_auto", "torch_cpu", "torch_cuda", "torch_mps"],
         "multiclass.backend[hybrid]": ["hybrid_sklearn_meta_torch_base"],
         "models.final_estimator_strategy": ["single", "bagged"],
+        "models.technical_final_estimator_strategy": ["single", "bagged"],
         "models.selection_direction": ["max", "min"],
         "calibration.enabled": ["auto", "true", "false"],
         "calibration.method": ["sigmoid", "isotonic", "temperature"],
@@ -238,6 +239,7 @@ class ModelsConfig(BaseModel):
     selection_direction: Literal["max", "min"] = "max"
     expanded_mlp_tuning_grid: bool = False
     final_estimator_strategy: Literal["single", "bagged"] = "single"
+    technical_final_estimator_strategy: Literal["single", "bagged"] = "single"
     bagging_n_estimators: int = 10
     bagging_max_samples: float = 1.0
     bagging_max_features: float = 1.0
@@ -494,6 +496,11 @@ class ProjectConfig(BaseModel):
                 "models.final_estimator_strategy=bagged is not supported for "
                 f"task.mode={mode}. Suggestion: set models.final_estimator_strategy=single."
             )
+        if mode in {"meta", "hierarchical"} and self.models.technical_final_estimator_strategy != "single":
+            raise ValueError(
+                "models.technical_final_estimator_strategy=bagged is not supported for "
+                f"task.mode={mode}. Suggestion: set models.technical_final_estimator_strategy=single."
+            )
 
         if mode == "hierarchical" and engine == "torch":
             raise ValueError(
@@ -672,6 +679,14 @@ class ProjectConfig(BaseModel):
         sample_id: Optional[str] = None,
         hierarchy_path: Optional[str] = None,
         device: Optional[ExecutionDevice] = None,
+        expanded_mlp_tuning_grid: bool = False,
+        final_estimator_strategy: Literal["single", "bagged"] = "single",
+        technical_final_estimator_strategy: Literal["single", "bagged"] = "single",
+        bagging_n_estimators: int = 10,
+        bagging_max_samples: float = 1.0,
+        bagging_max_features: float = 1.0,
+        bagging_bootstrap: bool = True,
+        bagging_bootstrap_features: bool = False,
     ) -> "ProjectConfig":
         """Create a mode/engine-aware scaffold configuration."""
         execution: Dict[str, Any] = {"engine": engine}
@@ -697,6 +712,23 @@ class ProjectConfig(BaseModel):
                 multiclass["backend"] = "hybrid_sklearn_meta_torch_base"
                 multiclass["torch"] = {"model_set": "torch_basic"}
 
+        models: Dict[str, Any] = {
+            "selection_metric": "f1",
+            "selection_direction": "max",
+            "expanded_mlp_tuning_grid": expanded_mlp_tuning_grid,
+            "final_estimator_strategy": final_estimator_strategy,
+            "technical_final_estimator_strategy": technical_final_estimator_strategy,
+            "bagging_n_estimators": bagging_n_estimators,
+            "bagging_max_samples": bagging_max_samples,
+            "bagging_max_features": bagging_max_features,
+            "bagging_bootstrap": bagging_bootstrap,
+            "bagging_bootstrap_features": bagging_bootstrap_features,
+        }
+        if engine == "torch":
+            models["candidates"] = ["torch_logistic_regression", "torch_mlp"]
+        elif engine == "hybrid":
+            models["candidates"] = ["logistic_regression", "random_forest", "torch_mlp"]
+
         payload: Dict[str, Any] = {
             "project": {
                 "id": project_id,
@@ -721,20 +753,9 @@ class ProjectConfig(BaseModel):
                 "hierarchy_path": hierarchy_path,
             },
             "execution": execution,
+            "models": models,
             "multiclass": multiclass,
         }
-        if engine == "torch":
-            payload["models"] = {
-                "candidates": ["torch_logistic_regression", "torch_mlp"],
-                "selection_metric": "f1",
-                "selection_direction": "max",
-            }
-        elif engine == "hybrid":
-            payload["models"] = {
-                "candidates": ["logistic_regression", "random_forest", "torch_mlp"],
-                "selection_metric": "f1",
-                "selection_direction": "max",
-            }
         return cls.model_validate(payload)
 
 

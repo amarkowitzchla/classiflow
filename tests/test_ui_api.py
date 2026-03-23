@@ -56,6 +56,7 @@ models:
     - torch_mlp
   expanded_mlp_tuning_grid: true
   final_estimator_strategy: single
+  technical_final_estimator_strategy: single
   bagging_n_estimators: 15
   bagging_max_samples: 0.8
   bagging_max_features: 0.6
@@ -247,6 +248,7 @@ class TestProjectEndpoints:
         assert data["model_settings"]["model_set"] == "torch_fast"
         assert data["model_settings"]["expanded_mlp_tuning_grid"] is True
         assert data["model_settings"]["final_estimator_strategy"] == "single"
+        assert data["model_settings"]["technical_final_estimator_strategy"] == "single"
         assert data["model_settings"]["bagging_n_estimators"] == 15
         assert "technical_validation" in data["phases"]
 

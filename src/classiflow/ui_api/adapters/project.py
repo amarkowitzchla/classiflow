@@ -43,6 +43,7 @@ class ProjectConfigNormalized:
     candidates: list[str] = field(default_factory=list)
     expanded_mlp_tuning_grid: bool = False
     final_estimator_strategy: str = "single"
+    technical_final_estimator_strategy: str = "single"
     bagging_n_estimators: int = 10
     bagging_max_samples: float = 1.0
     bagging_max_features: float = 1.0
@@ -177,6 +178,10 @@ def parse_project_config(project_dir: Path) -> ProjectConfigNormalized:
     config.candidates = models.get("candidates", [])
     config.expanded_mlp_tuning_grid = bool(models.get("expanded_mlp_tuning_grid", False))
     config.final_estimator_strategy = models.get("final_estimator_strategy", "single")
+    config.technical_final_estimator_strategy = models.get(
+        "technical_final_estimator_strategy",
+        "single",
+    )
     config.bagging_n_estimators = models.get("bagging_n_estimators", 10)
     config.bagging_max_samples = models.get("bagging_max_samples", 1.0)
     config.bagging_max_features = models.get("bagging_max_features", 1.0)

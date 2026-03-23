@@ -481,6 +481,7 @@ def run_technical_validation(
     )
     run_dir = paths.runs_subdir("technical_validation", run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
+    technical_final_estimator_strategy = config.models.technical_final_estimator_strategy
 
     if config.task.mode == "binary":
         train_config = TrainConfig(
@@ -506,7 +507,7 @@ def run_technical_validation(
             torch_dtype=config.torch_dtype,
             require_torch_device=config.require_torch_device,
             expanded_mlp_tuning_grid=config.models.expanded_mlp_tuning_grid,
-            final_estimator_strategy=config.models.final_estimator_strategy,
+            final_estimator_strategy=technical_final_estimator_strategy,
             bagging_n_estimators=config.models.bagging_n_estimators,
             bagging_max_samples=config.models.bagging_max_samples,
             bagging_max_features=config.models.bagging_max_features,
@@ -591,7 +592,7 @@ def run_technical_validation(
             device=config.device,
             torch_num_workers=config.torch_num_workers,
             expanded_mlp_tuning_grid=config.models.expanded_mlp_tuning_grid,
-            final_estimator_strategy=config.models.final_estimator_strategy,
+            final_estimator_strategy=technical_final_estimator_strategy,
             bagging_n_estimators=config.models.bagging_n_estimators,
             bagging_max_samples=config.models.bagging_max_samples,
             bagging_max_features=config.models.bagging_max_features,
@@ -957,17 +958,25 @@ def _filter_model_params(estimator, params: Dict[str, object]) -> Dict[str, obje
         "min_samples_leaf",
     }
     for key, value in params.items():
-        if key not in valid:
-            continue
+        clean_key = str(key).replace("clf__", "")
+        candidate_key = clean_key
+        if candidate_key not in valid:
+            if candidate_key.startswith("estimator__") and candidate_key[len("estimator__"):] in valid:
+                candidate_key = candidate_key[len("estimator__"):]
+            elif f"estimator__{candidate_key}" in valid:
+                candidate_key = f"estimator__{candidate_key}"
+            else:
+                continue
         if value != value:
             continue
-        default = defaults.get(key)
+        default = defaults.get(candidate_key)
+        leaf_key = candidate_key.split("__")[-1]
         if isinstance(value, float) and value.is_integer():
-            if isinstance(default, int) or key in int_param_hints:
+            if isinstance(default, int) or leaf_key in int_param_hints:
                 value = int(value)
         if isinstance(default, bool) and isinstance(value, (int, float)):
             value = bool(value)
-        cleaned[key] = value
+        cleaned[candidate_key] = value
     return cleaned
 
 

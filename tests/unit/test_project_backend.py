@@ -52,6 +52,14 @@ def test_project_bootstrap_sklearn_is_minimal(tmp_path: Path) -> None:
         promotion_gate_template=None,
         list_promotion_gate_templates_flag=False,
         copy_data="pointer",
+        expanded_mlp_tuning_grid=False,
+        final_estimator_strategy="single",
+        technical_final_estimator_strategy="single",
+        bagging_n_estimators=10,
+        bagging_max_samples=1.0,
+        bagging_max_features=1.0,
+        bagging_bootstrap=True,
+        bagging_bootstrap_features=False,
         test_id=test_id,
     )
 
@@ -90,6 +98,14 @@ def test_project_bootstrap_torch_binary_excludes_multiclass(tmp_path: Path) -> N
         promotion_gate_template=None,
         list_promotion_gate_templates_flag=False,
         copy_data="pointer",
+        expanded_mlp_tuning_grid=False,
+        final_estimator_strategy="single",
+        technical_final_estimator_strategy="single",
+        bagging_n_estimators=10,
+        bagging_max_samples=1.0,
+        bagging_max_features=1.0,
+        bagging_bootstrap=True,
+        bagging_bootstrap_features=False,
         test_id="TBIN",
     )
 
@@ -127,6 +143,14 @@ def test_project_bootstrap_accepts_calibration_options(tmp_path: Path) -> None:
         copy_data="pointer",
         calibration_enabled="true",
         calibration_method="temperature",
+        expanded_mlp_tuning_grid=True,
+        final_estimator_strategy="bagged",
+        technical_final_estimator_strategy="single",
+        bagging_n_estimators=5,
+        bagging_max_samples=0.7,
+        bagging_max_features=0.9,
+        bagging_bootstrap=True,
+        bagging_bootstrap_features=False,
         test_id="TMCAL",
     )
 
@@ -134,6 +158,10 @@ def test_project_bootstrap_accepts_calibration_options(tmp_path: Path) -> None:
     config_data = load_yaml(root / "project.yaml")
     assert config_data["calibration"]["enabled"] == "true"
     assert config_data["calibration"]["method"] == "temperature"
+    assert config_data["models"]["expanded_mlp_tuning_grid"] is True
+    assert config_data["models"]["final_estimator_strategy"] == "bagged"
+    assert config_data["models"]["technical_final_estimator_strategy"] == "single"
+    assert config_data["models"]["bagging_n_estimators"] == 5
 
 
 def test_legacy_backend_fields_are_normalized() -> None:
@@ -251,3 +279,62 @@ def test_project_run_passes_backend_settings(tmp_path: Path, monkeypatch) -> Non
         "device": "cpu",
         "model_set": "torch_fast",
     }
+
+
+def test_project_run_technical_uses_technical_final_estimator_strategy(tmp_path: Path, monkeypatch) -> None:
+    train_manifest = tmp_path / "train.csv"
+    _write_manifest(train_manifest)
+
+    config = ProjectConfig(
+        project={"id": "B002", "name": "TechnicalStrategy"},
+        data={"train": {"manifest": str(train_manifest)}},
+        key_columns={"label": "label", "sample_id": "sample_id"},
+        task={"mode": "binary", "patient_stratified": False},
+        execution={
+            "engine": "torch",
+            "device": "cpu",
+            "model_set": "torch_fast",
+            "torch": {
+                "dtype": "float32",
+                "num_workers": 0,
+                "require_device": False,
+            },
+        },
+        models={
+            "final_estimator_strategy": "bagged",
+            "technical_final_estimator_strategy": "single",
+        },
+    )
+
+    paths = ProjectPaths(tmp_path / "project")
+    paths.ensure()
+    register_dataset(paths.datasets_yaml, config, "train", train_manifest)
+
+    captured = {}
+
+    def _fake_train_binary(train_config):
+        captured["final_estimator_strategy"] = train_config.final_estimator_strategy
+        captured["bagging_n_estimators"] = train_config.bagging_n_estimators
+        return {}
+
+    monkeypatch.setattr(orchestrator, "train_binary_task", _fake_train_binary)
+    monkeypatch.setattr(orchestrator, "_technical_metrics_from_run", lambda *_args, **_kwargs: ({}, {}))
+    monkeypatch.setattr(orchestrator, "write_technical_report", lambda *_args, **_kwargs: None)
+
+    orchestrator.run_technical_validation(paths, config)
+
+    assert captured == {
+        "final_estimator_strategy": "single",
+        "bagging_n_estimators": 10,
+    }
+
+
+def test_filter_model_params_maps_between_single_and_bagged_estimators():
+    from sklearn.ensemble import BaggingClassifier
+    from sklearn.linear_model import LogisticRegression
+
+    bagged = BaggingClassifier(estimator=LogisticRegression())
+    single = LogisticRegression()
+
+    assert orchestrator._filter_model_params(bagged, {"C": 2.0}) == {"estimator__C": 2.0}
+    assert orchestrator._filter_model_params(single, {"estimator__C": 2.0}) == {"C": 2.0}

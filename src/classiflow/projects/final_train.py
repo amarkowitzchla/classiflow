@@ -394,21 +394,28 @@ def _filter_model_params(estimator, params: Dict[str, Any]) -> Dict[str, Any]:
     for key, value in params.items():
         # Remove clf__ prefix if present
         clean_key = key.replace("clf__", "")
-        if clean_key not in valid:
-            continue
+        candidate_key = clean_key
+        if candidate_key not in valid:
+            if candidate_key.startswith("estimator__") and candidate_key[len("estimator__"):] in valid:
+                candidate_key = candidate_key[len("estimator__"):]
+            elif f"estimator__{candidate_key}" in valid:
+                candidate_key = f"estimator__{candidate_key}"
+            else:
+                continue
         if value != value:  # NaN check
             continue
 
-        default = defaults.get(clean_key)
+        default = defaults.get(candidate_key)
+        leaf_key = candidate_key.split("__")[-1]
 
         # Type coercion
         if isinstance(value, float) and value.is_integer():
-            if isinstance(default, int) or clean_key in int_param_hints:
+            if isinstance(default, int) or leaf_key in int_param_hints:
                 value = int(value)
         if isinstance(default, bool) and isinstance(value, (int, float)):
             value = bool(value)
 
-        cleaned[clean_key] = value
+        cleaned[candidate_key] = value
 
     return cleaned
 

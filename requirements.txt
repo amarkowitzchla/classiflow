@@ -1,5 +1,6 @@
 # NVIDIA Blackwell GPUs require a CUDA 12.8+ PyTorch wheel.
 # Install from https://download.pytorch.org/whl/cu128 for GPU use.
+--extra-index-url https://download.pytorch.org/whl/cu128
 torch>=2.7.0,<3.0.0
 streamlit>=1.36
 uvicorn[standard]>=0.27.0

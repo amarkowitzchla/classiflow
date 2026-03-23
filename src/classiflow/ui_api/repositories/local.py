@@ -282,6 +282,7 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
                 "candidates": project.config.candidates,
                 "expanded_mlp_tuning_grid": project.config.expanded_mlp_tuning_grid,
                 "final_estimator_strategy": project.config.final_estimator_strategy,
+                "technical_final_estimator_strategy": project.config.technical_final_estimator_strategy,
                 "bagging_n_estimators": project.config.bagging_n_estimators,
                 "bagging_max_samples": project.config.bagging_max_samples,
                 "bagging_max_features": project.config.bagging_max_features,

@@ -46,6 +46,11 @@ Guidelines:
 - PyTorch dependency floor is now `>=2.7.0` to align with official NVIDIA Blackwell
   support, and install docs now call out the required CUDA 12.8 (`cu128`) wheels for
   Blackwell GPU environments.
+- `project bootstrap` now accepts `--expanded-mlp-tuning-grid`, final-estimator bagging
+  flags, and `--technical-final-estimator-strategy`, allowing project YAML generation
+  without manual edits for expanded MLP tuning or bagged final models.
+- `project run-technical` now uses `models.technical_final_estimator_strategy`
+  (default `single`) instead of always mirroring the final bundle estimator strategy.
 - Torch MLP tuning is now unified across the registry-backed binary/meta paths and the
   direct multiclass path, reducing drift between torch training modes.
 - Torch MLP implementations now support tunable `activation` and `use_batchnorm`
