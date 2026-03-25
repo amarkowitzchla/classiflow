@@ -24,6 +24,7 @@ class TorchLinearClassifier(TorchSoftmaxRegressionClassifier):
         random_state: int = 42,
         device: str = "cpu",
         num_workers: int | None = None,
+        gpu_index_batching: bool = True,
         temperature_scaling: bool = False,
     ):
         resolved_workers = default_torch_num_workers() if num_workers is None else num_workers
@@ -45,6 +46,7 @@ class TorchLinearClassifier(TorchSoftmaxRegressionClassifier):
             num_workers=resolved_workers,
             class_weight=class_weight,
             val_fraction=0.0,
+            gpu_index_batching=gpu_index_batching,
             temperature_scaling=temperature_scaling,
         )
 
@@ -78,6 +80,7 @@ class TorchMLPClassifier(TorchMLPMulticlassClassifier):
         random_state: int = 42,
         device: str = "cpu",
         num_workers: int | None = None,
+        gpu_index_batching: bool = True,
         temperature_scaling: bool = False,
     ):
         resolved_workers = default_torch_num_workers() if num_workers is None else num_workers
@@ -99,6 +102,7 @@ class TorchMLPClassifier(TorchMLPMulticlassClassifier):
             num_workers=resolved_workers,
             class_weight=class_weight,
             val_fraction=0.0,
+            gpu_index_batching=gpu_index_batching,
             temperature_scaling=temperature_scaling,
         )
 

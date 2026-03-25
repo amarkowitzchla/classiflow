@@ -61,3 +61,14 @@ def test_torch_mlp_gridsearch_pipeline() -> None:
     proba = grid.best_estimator_.predict_proba(X)
     assert proba.shape == (X.shape[0], 3)
     assert np.allclose(proba.sum(axis=1), 1.0, atol=1e-4)
+
+
+def test_torch_mlp_exposes_gpu_index_batching_param() -> None:
+    clf = TorchMLPClassifier(
+        epochs=2,
+        batch_size=16,
+        device="cpu",
+        gpu_index_batching=False,
+        random_state=17,
+    )
+    assert clf.get_params()["gpu_index_batching"] is False

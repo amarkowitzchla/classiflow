@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any, Optional
 
 import numpy as np
@@ -23,6 +24,15 @@ from classiflow.backends.torch.modules import (
 from classiflow.backends.torch.utils import resolve_device, resolve_dtype, set_seed, make_dataloader
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _CudaTensorBatches:
+    """GPU-resident train/validation tensors for CUDA batch-by-index training."""
+
+    X_train: torch.Tensor
+    y_train: torch.Tensor
+    X_val: Optional[torch.Tensor]
 
 
 class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
@@ -46,6 +56,7 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         num_workers: int | None = None,
         class_weight: str | dict[str, float] | None = "balanced",
         val_fraction: float = 0.1,
+        gpu_index_batching: bool = True,
         temperature_scaling: bool = False,
         temperature_val_fraction: float = 0.1,
     ):
@@ -65,6 +76,7 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         self.num_workers = default_torch_num_workers() if num_workers is None else num_workers
         self.class_weight = class_weight
         self.val_fraction = val_fraction
+        self.gpu_index_batching = gpu_index_batching
         self.temperature_scaling = temperature_scaling
         self.temperature_val_fraction = temperature_val_fraction
 
@@ -124,16 +136,19 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         epochs_no_improve = 0
         use_cuda_transfer = bool(self._device is not None and self._device.type == "cuda")
         metric_name = self._validation_metric_name()
-        train_loader = make_dataloader(
-            X_train,
-            y_train,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.num_workers,
-            worker_seed=self.seed,
-            pin_memory=use_cuda_transfer,
-            persistent_workers=True,
-        )
+        cuda_batches = self._prepare_cuda_batches(X_train, y_train, X_val, y_val)
+        train_loader = None
+        if cuda_batches is None:
+            train_loader = make_dataloader(
+                X_train,
+                y_train,
+                batch_size=self.batch_size,
+                shuffle=True,
+                num_workers=self.num_workers,
+                worker_seed=self.seed,
+                pin_memory=use_cuda_transfer,
+                persistent_workers=True,
+            )
         if X_val is None or y_val is None:
             logger.info(
                 "%s training %d epochs (no validation split; early stopping disabled)",
@@ -151,14 +166,29 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
 
         for epoch in range(self.epochs):
             self.model.train()
-            for xb, yb in train_loader:
-                xb = xb.to(self._device, dtype=self._dtype, non_blocking=use_cuda_transfer)
-                yb = self._prepare_target(yb.to(self._device, non_blocking=use_cuda_transfer))
-                optimizer.zero_grad()
-                logits = self.model(xb)
-                loss = loss_fn(logits, yb)
-                loss.backward()
-                optimizer.step()
+            if cuda_batches is not None:
+                n_train = int(cuda_batches.y_train.shape[0])
+                perm = torch.randperm(n_train, device=self._device)
+                for start in range(0, n_train, self.batch_size):
+                    end = min(start + self.batch_size, n_train)
+                    idx = perm[start:end]
+                    xb = cuda_batches.X_train.index_select(0, idx)
+                    yb = self._prepare_target(cuda_batches.y_train.index_select(0, idx))
+                    optimizer.zero_grad()
+                    logits = self.model(xb)
+                    loss = loss_fn(logits, yb)
+                    loss.backward()
+                    optimizer.step()
+            else:
+                assert train_loader is not None
+                for xb, yb in train_loader:
+                    xb = xb.to(self._device, dtype=self._dtype, non_blocking=use_cuda_transfer)
+                    yb = self._prepare_target(yb.to(self._device, non_blocking=use_cuda_transfer))
+                    optimizer.zero_grad()
+                    logits = self.model(xb)
+                    loss = loss_fn(logits, yb)
+                    loss.backward()
+                    optimizer.step()
 
             if X_val is None or y_val is None:
                 logger.info(
@@ -171,9 +201,13 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
 
             self.model.eval()
             with torch.no_grad():
-                xb = torch.from_numpy(X_val).to(
-                    self._device, dtype=self._dtype, non_blocking=use_cuda_transfer
-                )
+                if cuda_batches is not None:
+                    assert cuda_batches.X_val is not None
+                    xb = cuda_batches.X_val
+                else:
+                    xb = torch.from_numpy(X_val).to(
+                        self._device, dtype=self._dtype, non_blocking=use_cuda_transfer
+                    )
                 logits = self.model(xb)
                 metric = self._validation_metric(logits, y_val)
 
@@ -209,6 +243,49 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
 
         if best_state is not None:
             self.model.load_state_dict(best_state)
+
+    def _prepare_cuda_batches(
+        self,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        X_val: Optional[np.ndarray],
+        y_val: Optional[np.ndarray],
+    ) -> Optional[_CudaTensorBatches]:
+        """Stage train/validation arrays on CUDA and batch by GPU index when feasible."""
+        if not self.gpu_index_batching or self._device is None or self._device.type != "cuda":
+            return None
+
+        train_tensor: Optional[torch.Tensor] = None
+        train_labels: Optional[torch.Tensor] = None
+        val_tensor: Optional[torch.Tensor] = None
+        try:
+            train_tensor = torch.as_tensor(X_train, dtype=self._dtype, device=self._device)
+            train_labels = torch.as_tensor(y_train, dtype=torch.long, device=self._device)
+            if X_val is not None and y_val is not None:
+                val_tensor = torch.as_tensor(X_val, dtype=self._dtype, device=self._device)
+            logger.info(
+                "%s staging train/validation tensors on CUDA for GPU index batching",
+                self.__class__.__name__,
+            )
+            return _CudaTensorBatches(
+                X_train=train_tensor,
+                y_train=train_labels,
+                X_val=val_tensor,
+            )
+        except RuntimeError as exc:
+            if "out of memory" not in str(exc).lower():
+                raise
+            logger.warning(
+                "%s CUDA tensor staging failed (%s); falling back to CPU DataLoader batches.",
+                self.__class__.__name__,
+                exc,
+            )
+            del train_tensor
+            del train_labels
+            del val_tensor
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            return None
 
     def _validation_metric(self, logits: torch.Tensor, y_val: np.ndarray) -> float:
         raise NotImplementedError
@@ -344,6 +421,8 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)
+        if not hasattr(self, "gpu_index_batching"):
+            self.gpu_index_batching = True
         if not hasattr(self, "temperature_scaling"):
             self.temperature_scaling = False
         if not hasattr(self, "temperature_val_fraction"):

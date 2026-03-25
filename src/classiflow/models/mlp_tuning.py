@@ -40,12 +40,12 @@ def build_torch_mlp_param_grid(
     else:
         epochs = [100, 200] if not expanded else [50, 100, 200]
         batch_sizes = [256] if not expanded else [128, 256, 512]
-        hidden_dims = [64, 128] if not expanded else [256, 512, 768]
+        hidden_dims = [64, 128] if not expanded else [256, 512]
         n_layers = [1, 2, 3] if not expanded else [2, 3, 4]
-        dropouts = [0.2, 0.4] if not expanded else [0.1, 0.2, 0.3]
-        learning_rates = [5e-4, 1e-3] if not expanded else [1e-4, 5e-4, 1e-3]
-        weight_decays = [1e-4, 1e-3] if not expanded else [1e-6, 1e-5, 1e-4]
-        activations = ["relu"] if not expanded else ["relu", "elu"]
+        dropouts = [0.2, 0.4] if not expanded else [0.1, 0.2]
+        learning_rates = [5e-4, 1e-3] if not expanded else [1e-4, 1e-3]
+        weight_decays = [1e-4, 1e-3] if not expanded else [1e-5, 1e-4]
+        activations = ["relu"]
         batchnorm = [False] if not expanded else [False, True]
 
     return {
