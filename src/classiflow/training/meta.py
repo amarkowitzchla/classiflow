@@ -10,7 +10,7 @@ from collections import defaultdict
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import StratifiedKFold, RepeatedStratifiedKFold, GridSearchCV
+from sklearn.model_selection import StratifiedKFold, RepeatedStratifiedKFold, GridSearchCV, ParameterGrid
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.base import clone
 from sklearn.preprocessing import label_binarize, StandardScaler, LabelEncoder
@@ -34,6 +34,7 @@ from classiflow.io import load_data, load_data_with_groups, validate_data
 from classiflow.tasks import TaskBuilder, load_composite_tasks
 from classiflow.models import AdaptiveSMOTE
 from classiflow.backends.registry import get_backend, get_model_set
+from classiflow.backends.torch_progress import torch_fit_progress
 from classiflow.metrics.scorers import get_scorers, SCORER_ORDER
 from classiflow.metrics.binary import compute_binary_metrics
 from classiflow.metrics.calibration import compute_probability_quality
@@ -642,7 +643,10 @@ def _train_binary_tasks(
             )
 
             try:
-                grid.fit(X_bin, y_bin)
+                total_fits = len(ParameterGrid(param_grids[model_name])) * n_inner_total_task + 1
+                label = f"{task_name} fold={fold} variant={variant} model={model_name}"
+                with torch_fit_progress(label=label, total=total_fits):
+                    grid.fit(X_bin, y_bin)
             except Exception as e:
                 logger.warning(f"Grid fit failed for {task_name}/{model_name}: {e}")
                 continue

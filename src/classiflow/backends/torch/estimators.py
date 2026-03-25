@@ -21,6 +21,7 @@ from classiflow.backends.torch.modules import (
     MulticlassLinear,
     MulticlassMLP,
 )
+from classiflow.backends.torch_progress import next_torch_fit_progress
 from classiflow.backends.torch.utils import resolve_device, resolve_dtype, set_seed, make_dataloader
 
 logger = logging.getLogger(__name__)
@@ -255,6 +256,15 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         if not self.gpu_index_batching or self._device is None or self._device.type != "cuda":
             return None
 
+        feature_bytes = self._estimate_cuda_tensor_bytes(X_train, y_train, X_val, y_val)
+        logger.warning(
+            "%s staging tensors on CUDA for GPU index batching; approx %.1f MiB of VRAM "
+            "will be reserved for train/validation tensors for this fit, excluding model "
+            "weights, gradients, optimizer state, and activations.",
+            self.__class__.__name__,
+            feature_bytes / (1024 ** 2),
+        )
+
         train_tensor: Optional[torch.Tensor] = None
         train_labels: Optional[torch.Tensor] = None
         val_tensor: Optional[torch.Tensor] = None
@@ -286,6 +296,23 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             return None
+
+    def _estimate_cuda_tensor_bytes(
+        self,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        X_val: Optional[np.ndarray],
+        y_val: Optional[np.ndarray],
+    ) -> int:
+        """Estimate CUDA tensor storage required for staged train/validation arrays."""
+        feature_itemsize = torch.empty((), dtype=self._dtype).element_size()
+        label_itemsize = torch.empty((), dtype=torch.long).element_size()
+        total = int(np.prod(X_train.shape)) * feature_itemsize + int(np.prod(y_train.shape)) * label_itemsize
+        if X_val is not None:
+            total += int(np.prod(X_val.shape)) * feature_itemsize
+        if y_val is not None:
+            total += int(np.prod(y_val.shape)) * label_itemsize
+        return total
 
     def _validation_metric(self, logits: torch.Tensor, y_val: np.ndarray) -> float:
         raise NotImplementedError
@@ -354,6 +381,15 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         set_seed(self.seed)
         X, y_encoded = self._prepare(X, y)
         self._setup_device()
+        progress = next_torch_fit_progress()
+        if progress is not None:
+            logger.info(
+                "%s fit %d/%d (%s)",
+                self.__class__.__name__,
+                progress.current,
+                progress.total,
+                progress.label,
+            )
 
         self.model = self._build_model(self._input_dim, self._num_classes).to(self._device, dtype=self._dtype)
         try:

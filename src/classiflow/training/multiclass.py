@@ -22,7 +22,7 @@ from sklearn.metrics import (
     average_precision_score,
     make_scorer,
 )
-from sklearn.model_selection import StratifiedKFold, RepeatedStratifiedKFold, GridSearchCV
+from sklearn.model_selection import StratifiedKFold, RepeatedStratifiedKFold, GridSearchCV, ParameterGrid
 from sklearn.preprocessing import StandardScaler, label_binarize
 
 from classiflow.config import MulticlassConfig
@@ -30,6 +30,7 @@ from classiflow.io import load_data, load_data_with_groups, validate_data
 from classiflow.lineage.hashing import get_file_metadata
 from classiflow.lineage.manifest import create_training_manifest
 from classiflow.models import AdaptiveSMOTE, get_estimators, get_param_grids, resolve_device
+from classiflow.backends.torch_progress import torch_fit_progress
 from classiflow.metrics.decision import compute_decision_metrics
 from classiflow.metrics.calibration import compute_probability_quality
 from classiflow.plots import (
@@ -486,7 +487,10 @@ def _run_multiclass_variant(
         )
 
         try:
-            grid.fit(X_tr, y_tr)
+            total_fits = len(ParameterGrid(param_grids[model_name])) * n_inner_total + 1
+            label = f"multiclass fold={fold} variant={variant} model={model_name}"
+            with torch_fit_progress(label=label, total=total_fits):
+                grid.fit(X_tr, y_tr)
         except Exception as exc:
             logger.warning(f"Grid fit failed for {model_name}: {exc}")
             continue

@@ -38,15 +38,15 @@ def build_torch_mlp_param_grid(
         activations = ["relu"] if not expanded else ["relu", "elu"]
         batchnorm = [False] if not expanded else [False, True]
     else:
-        epochs = [100, 200] if not expanded else [50, 100, 200]
-        batch_sizes = [256] if not expanded else [128, 256, 512]
+        epochs = [100, 200] if not expanded else [50, 100]
+        batch_sizes = [256] if not expanded else [256, 512]
         hidden_dims = [64, 128] if not expanded else [256, 512]
-        n_layers = [1, 2, 3] if not expanded else [2, 3, 4]
+        n_layers = [1, 2, 3] if not expanded else [3, 4]
         dropouts = [0.2, 0.4] if not expanded else [0.1, 0.2]
         learning_rates = [5e-4, 1e-3] if not expanded else [1e-4, 1e-3]
         weight_decays = [1e-4, 1e-3] if not expanded else [1e-5, 1e-4]
         activations = ["relu"]
-        batchnorm = [False] if not expanded else [False, True]
+        batchnorm = [False] if not expanded else [True]
 
     return {
         "lr": _unique_in_order(learning_rates),
