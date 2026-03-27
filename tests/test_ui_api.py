@@ -168,6 +168,91 @@ override:
         b'\x00\x01\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82'
     )
 
+    # Create independent_test phase with bag-member summary
+    test_run_dir = runs_dir / "independent_test" / "run002"
+    (test_run_dir / "metrics").mkdir(parents=True)
+
+    (test_run_dir / "run.json").write_text(json.dumps({
+        "run_id": "uuid-002",
+        "timestamp": "2024-01-15T12:00:00",
+        "package_version": "0.1.0",
+        "training_data_path": "/path/to/train.csv",
+        "training_data_hash": "abc123",
+        "training_data_row_count": 100,
+        "config": {
+            "label_col": "target",
+            "models": {
+                "final_estimator_strategy": "bagged",
+            },
+        },
+        "task_type": "multiclass",
+        "python_version": "3.11.0",
+        "feature_list": ["feature1", "feature2"],
+    }))
+
+    (test_run_dir / "lineage.json").write_text(json.dumps({
+        "phase": "INDEPENDENT_TEST",
+        "run_id": "run002",
+        "timestamp_local": "2024-01-15T12:00:00",
+        "classiflow_version": "0.1.0",
+        "command": "classiflow project run-test",
+    }))
+
+    (test_run_dir / "metrics.json").write_text(json.dumps({
+        "overall": {
+            "accuracy": 0.88,
+            "balanced_accuracy": 0.87,
+            "f1_macro": 0.86,
+        },
+    }))
+
+    (test_run_dir / "bagging_summary.json").write_text(json.dumps({
+        "strategy": "bagged",
+        "member_count": 3,
+        "estimator_type": "sklearn.linear_model.LogisticRegression",
+        "evaluation_available": True,
+        "metrics_csv_path": "metrics/bag_member_metrics.csv",
+        "members": [
+            {
+                "member_index": 1,
+                "estimator_type": "sklearn.linear_model.LogisticRegression",
+                "accuracy": 0.84,
+                "balanced_accuracy": 0.83,
+                "f1_macro": 0.82,
+                "mcc": 0.76,
+                "roc_auc_macro": 0.91,
+                "agreement_with_ensemble": 0.92,
+            },
+            {
+                "member_index": 2,
+                "estimator_type": "sklearn.linear_model.LogisticRegression",
+                "accuracy": 0.86,
+                "balanced_accuracy": 0.85,
+                "f1_macro": 0.84,
+                "mcc": 0.78,
+                "roc_auc_macro": 0.92,
+                "agreement_with_ensemble": 0.94,
+            },
+            {
+                "member_index": 3,
+                "estimator_type": "sklearn.linear_model.LogisticRegression",
+                "accuracy": 0.82,
+                "balanced_accuracy": 0.81,
+                "f1_macro": 0.8,
+                "mcc": 0.74,
+                "roc_auc_macro": 0.9,
+                "agreement_with_ensemble": 0.9,
+            },
+        ],
+    }))
+
+    (test_run_dir / "metrics" / "bag_member_metrics.csv").write_text(
+        "member_index,accuracy,balanced_accuracy,f1_macro,mcc,roc_auc_macro,agreement_with_ensemble\n"
+        "1,0.84,0.83,0.82,0.76,0.91,0.92\n"
+        "2,0.86,0.85,0.84,0.78,0.92,0.94\n"
+        "3,0.82,0.81,0.80,0.74,0.90,0.90\n"
+    )
+
     yield projects_root
 
     # Cleanup
@@ -276,6 +361,15 @@ class TestRunEndpoints:
         assert data["phase"] == "technical_validation"
         assert data["task_type"] == "meta"
         assert data["metrics"]["primary"]["balanced_accuracy"] == 0.85
+
+    def test_get_run_includes_bagging(self, test_client):
+        run_key = "TEST_PROJECT__test_project:independent_test:run002"
+        response = test_client.get(f"/api/runs/{run_key}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["bagging"]["member_count"] == 3
+        assert data["bagging"]["metrics_csv_path"] == "metrics/bag_member_metrics.csv"
+        assert len(data["bagging"]["members"]) == 3
 
     def test_get_run_not_found(self, test_client):
         response = test_client.get("/api/runs/nonexistent:phase:run")

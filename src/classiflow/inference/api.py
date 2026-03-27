@@ -10,6 +10,10 @@ import pandas as pd
 import numpy as np
 
 from classiflow.inference.config import InferenceConfig
+from classiflow.inference.bagging import (
+    get_bagging_member_count,
+    iter_single_member_models,
+)
 from classiflow.inference.loader import ArtifactLoader
 from classiflow.inference.preprocess import FeatureAligner, validate_input_data
 from classiflow.inference.predict import (
@@ -154,7 +158,7 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
 
     # Run predictions
     logger.info("\n[3/7] Running predictions...")
-    predictions = _run_predictions(loader, X, metadata, config)
+    predictions, prediction_context = _run_predictions(loader, X, metadata, config)
     if run_type == "binary" and "predicted_label" not in predictions.columns:
         label_series = None
         if config.label_col and config.label_col in metadata.columns:
@@ -184,6 +188,17 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
     logger.info(f"  Predictions shape: {final_predictions.shape}")
 
     results["predictions"] = final_predictions
+
+    bagging = _compute_bagging_details(
+        prediction_context=prediction_context,
+        X=X,
+        predictions=final_predictions,
+        label_col=config.label_col,
+        positive_class=positive_class,
+    )
+    if bagging:
+        results["bagging"] = bagging
+        logger.info(f"  Bag members available: {bagging.get('member_count', 0)}")
 
     # Compute metrics (if labels provided)
     metrics = None
@@ -233,6 +248,15 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
     # Predictions CSV
     pred_path = writer.write_predictions(final_predictions, "predictions.csv")
     output_files["predictions_csv"] = pred_path
+
+    if bagging:
+        bagging_files = writer.write_bagging_summary(bagging)
+        output_files.update(bagging_files)
+        bag_member_csv = bagging_files.get("bag_member_metrics_csv")
+        if bag_member_csv is not None:
+            results["bagging"]["metrics_csv_path"] = str(
+                bag_member_csv.relative_to(config.output_dir)
+            )
 
     if calibration_curves:
         written_curves = writer.write_calibration_curves(calibration_curves)
@@ -294,9 +318,10 @@ def _run_predictions(
     X: pd.DataFrame,
     metadata: pd.DataFrame,
     config: InferenceConfig,
-) -> pd.DataFrame:
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Run predictions based on run type."""
     run_type = loader.run_type
+    context: Dict[str, Any] = {"run_type": run_type}
 
     if run_type == "hierarchical":
         # Hierarchical predictions
@@ -341,6 +366,7 @@ def _run_predictions(
 
         # Combine
         predictions = pd.concat([binary_predictions, meta_predictions], axis=1)
+        context.update({"pipes": pipes, "best_models": best_models})
 
     elif run_type == "multiclass":
         try:
@@ -350,6 +376,7 @@ def _run_predictions(
 
         predictor = MulticlassPredictor(model, classes)
         predictions = predictor.predict(X)
+        context.update({"model": model, "classes": classes})
 
     elif run_type in ("binary", "legacy"):
         # Binary task predictions only (or legacy format)
@@ -391,10 +418,188 @@ def _run_predictions(
             # No meta-classifier, binary predictions only
             pass
 
+        context.update({"pipes": pipes, "best_models": best_models})
+
     else:
         raise ValueError(f"Unsupported run type: {run_type}")
 
-    return predictions
+    return predictions, context
+
+
+def _compute_bagging_details(
+    prediction_context: Dict[str, Any],
+    X: pd.DataFrame,
+    predictions: pd.DataFrame,
+    label_col: Optional[str],
+    positive_class: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Build bag-member metrics for bagged direct estimators."""
+    run_type = prediction_context.get("run_type")
+    label_series = (
+        predictions[label_col]
+        if label_col and label_col in predictions.columns
+        else None
+    )
+
+    if run_type == "multiclass":
+        model = prediction_context.get("model")
+        classes = prediction_context.get("classes") or []
+        member_count = get_bagging_member_count(model)
+        if not member_count:
+            return None
+
+        members = []
+        for member_index, member_model, estimator_type in iter_single_member_models(model):
+            member_predictions = MulticlassPredictor(member_model, classes).predict(X)
+            members.append(
+                _summarize_bag_member(
+                    member_index=member_index,
+                    estimator_type=estimator_type,
+                    member_predictions=member_predictions,
+                    ensemble_predictions=predictions,
+                    label_series=label_series,
+                )
+            )
+
+        return {
+            "strategy": "bagged",
+            "member_count": member_count,
+            "estimator_type": members[0]["estimator_type"] if members else None,
+            "evaluation_available": label_series is not None,
+            "members": members,
+        }
+
+    if run_type == "binary":
+        pipes = prediction_context.get("pipes") or {}
+        best_models = prediction_context.get("best_models") or {}
+        if len(best_models) != 1:
+            return None
+
+        task_name, model_name = next(iter(best_models.items()))
+        pipe_key = f"{task_name}__{model_name}"
+        model = pipes.get(pipe_key)
+        member_count = get_bagging_member_count(model)
+        if not member_count:
+            return None
+
+        if label_series is None:
+            return {
+                "strategy": "bagged",
+                "member_count": member_count,
+                "task_name": task_name,
+                "evaluation_available": False,
+                "members": [],
+            }
+
+        members = []
+        for member_index, member_model, estimator_type in iter_single_member_models(model):
+            member_predictions = BinaryPredictor(
+                {pipe_key: member_model},
+                {task_name: model_name},
+                [task_name],
+            ).predict(X)
+            member_predictions = add_binary_prediction_columns(
+                member_predictions,
+                labels=label_series,
+                positive_class=positive_class,
+            )
+            members.append(
+                _summarize_bag_member(
+                    member_index=member_index,
+                    estimator_type=estimator_type,
+                    member_predictions=member_predictions,
+                    ensemble_predictions=predictions,
+                    label_series=label_series,
+                )
+            )
+
+        return {
+            "strategy": "bagged",
+            "member_count": member_count,
+            "task_name": task_name,
+            "estimator_type": members[0]["estimator_type"] if members else None,
+            "evaluation_available": True,
+            "members": members,
+        }
+
+    return None
+
+
+def _summarize_bag_member(
+    member_index: int,
+    estimator_type: str,
+    member_predictions: pd.DataFrame,
+    ensemble_predictions: pd.DataFrame,
+    label_series: Optional[pd.Series],
+) -> Dict[str, Any]:
+    """Summarize one bag member for UI display."""
+    row: Dict[str, Any] = {
+        "member_index": member_index,
+        "estimator_type": estimator_type,
+    }
+
+    if "predicted_label" in member_predictions.columns and "predicted_label" in ensemble_predictions.columns:
+        member_labels = member_predictions["predicted_label"].astype(str).to_numpy()
+        ensemble_labels = ensemble_predictions["predicted_label"].astype(str).to_numpy()
+        if len(member_labels) and len(member_labels) == len(ensemble_labels):
+            row["agreement_with_ensemble"] = float(np.mean(member_labels == ensemble_labels))
+
+    if label_series is None or "predicted_label" not in member_predictions.columns:
+        return row
+
+    proba_cols = [
+        c
+        for c in member_predictions.columns
+        if c.startswith("predicted_proba_") and c != "predicted_proba"
+    ]
+    class_names = [c.replace("predicted_proba_", "") for c in proba_cols]
+    y_proba = member_predictions[proba_cols].to_numpy() if proba_cols else None
+    overall = compute_classification_metrics(
+        label_series.to_numpy(),
+        member_predictions["predicted_label"].to_numpy(),
+        y_proba,
+        class_names if class_names else None,
+    )
+    row.update(_flatten_bag_member_metrics(overall))
+    return row
+
+
+def _flatten_bag_member_metrics(metrics: Dict[str, Any]) -> Dict[str, Any]:
+    """Flatten nested metrics into a compact row for CSV/UI rendering."""
+    roc_auc = metrics.get("roc_auc") if isinstance(metrics.get("roc_auc"), dict) else {}
+    return {
+        "n_samples": _int_or_none(metrics.get("n_samples")),
+        "accuracy": _float_or_none(metrics.get("accuracy")),
+        "balanced_accuracy": _float_or_none(metrics.get("balanced_accuracy")),
+        "f1_macro": _float_or_none(metrics.get("f1_macro")),
+        "mcc": _float_or_none(metrics.get("mcc")),
+        "log_loss": _float_or_none(metrics.get("log_loss")),
+        "roc_auc_macro": _float_or_none(roc_auc.get("macro")),
+        "roc_auc_micro": _float_or_none(roc_auc.get("micro")),
+    }
+
+
+def _float_or_none(value: Any) -> Optional[float]:
+    """Convert numeric values to finite floats."""
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if np.isnan(numeric) or np.isinf(numeric):
+        return None
+    return numeric
+
+
+def _int_or_none(value: Any) -> Optional[int]:
+    """Convert numeric values to ints when possible."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _compute_metrics(

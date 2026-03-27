@@ -107,6 +107,42 @@ class PlotManifestResponse(BaseModel):
     classiflow_version: Optional[str] = Field(default=None, description="Version that generated the manifest")
 
 
+class BagMemberMetrics(BaseModel):
+    """Metrics for a single bag member."""
+
+    member_index: int = Field(..., description="1-based bag member index")
+    estimator_type: Optional[str] = Field(default=None, description="Concrete estimator class")
+    n_samples: Optional[int] = Field(default=None, description="Evaluated sample count")
+    accuracy: Optional[float] = Field(default=None, description="Accuracy for this member")
+    balanced_accuracy: Optional[float] = Field(default=None, description="Balanced accuracy for this member")
+    f1_macro: Optional[float] = Field(default=None, description="Macro F1 for this member")
+    mcc: Optional[float] = Field(default=None, description="Matthews correlation coefficient")
+    log_loss: Optional[float] = Field(default=None, description="Log loss for this member")
+    roc_auc_macro: Optional[float] = Field(default=None, description="Macro ROC AUC")
+    roc_auc_micro: Optional[float] = Field(default=None, description="Micro ROC AUC")
+    agreement_with_ensemble: Optional[float] = Field(
+        default=None, description="Fraction of predictions matching the ensemble output"
+    )
+
+
+class BaggingDetail(BaseModel):
+    """Bagged-estimator member details for a run."""
+
+    strategy: str = Field(default="bagged", description="Estimator strategy")
+    member_count: int = Field(default=0, description="Number of fitted bag members")
+    estimator_type: Optional[str] = Field(default=None, description="Base estimator class")
+    task_name: Optional[str] = Field(default=None, description="Binary task name when applicable")
+    evaluation_available: bool = Field(
+        default=False, description="Whether member-level evaluation metrics are available"
+    )
+    metrics_csv_path: Optional[str] = Field(
+        default=None, description="Relative path to exported bag member metrics CSV"
+    )
+    members: list[BagMemberMetrics] = Field(
+        default_factory=list, description="Per-member metrics rows"
+    )
+
+
 class RunDetail(BaseModel):
     """Full run details."""
 
@@ -123,6 +159,9 @@ class RunDetail(BaseModel):
     lineage: Optional[dict[str, Any]] = Field(default=None, description="Lineage metadata")
     artifact_count: int = Field(default=0, description="Number of artifacts")
     artifacts: list[Artifact] = Field(default_factory=list, description="Run artifacts")
+    bagging: Optional[BaggingDetail] = Field(
+        default=None, description="Bagged-estimator member metrics when available"
+    )
     plot_manifest: Optional[PlotManifestResponse] = Field(
         default=None, description="Plot data manifest for interactive charts"
     )

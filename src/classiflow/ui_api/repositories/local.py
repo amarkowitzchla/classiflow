@@ -10,6 +10,7 @@ from typing import Optional
 from classiflow.ui_api.models import (
     Artifact,
     ArtifactKind,
+    BaggingDetail,
     DecisionBadge,
     GateStatus,
     MetricsSummary,
@@ -346,6 +347,7 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
         parts = run_key.split(":")
         artifacts = []
         plot_manifest = None
+        bagging = None
         if len(parts) == 3:
             project_id, phase, run_id = parts
             scanned_arts = self.scanner.get_artifacts(project_id, phase, run_id)
@@ -353,6 +355,7 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
 
             # Load plot manifest if available
             plot_manifest = self._load_plot_manifest(project_id, phase, run_id)
+            bagging = self._load_bagging_detail(project_id, phase, run_id)
 
         return RunDetail(
             run_key=m.run_key,
@@ -368,6 +371,7 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
             lineage=m.lineage if m.lineage else None,
             artifact_count=scanned.artifact_count,
             artifacts=artifacts,
+            bagging=bagging,
             plot_manifest=plot_manifest,
         )
 
@@ -393,6 +397,27 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
                 generated_at=datetime.fromisoformat(data["generated_at"]) if data.get("generated_at") else None,
                 classiflow_version=data.get("classiflow_version"),
             )
+        except Exception:
+            return None
+
+    def _load_bagging_detail(
+        self,
+        project_id: str,
+        phase: str,
+        run_id: str,
+    ) -> Optional[BaggingDetail]:
+        """Load bag-member summary for a run if available."""
+        summary_path = self.scanner.resolve_artifact_path(
+            project_id, phase, run_id, "bagging_summary.json"
+        )
+        if summary_path is None:
+            return None
+
+        try:
+            payload = json.loads(summary_path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                return None
+            return BaggingDetail.model_validate(payload)
         except Exception:
             return None
 

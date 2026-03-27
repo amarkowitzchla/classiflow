@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import math
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime
@@ -61,6 +63,33 @@ class InferenceReportWriter:
         predictions.to_csv(output_path, index=False)
         logger.info(f"Wrote predictions to {output_path}")
         return output_path
+
+    def write_bagging_summary(
+        self,
+        bagging: Dict[str, Any],
+        filename: str = "bagging_summary.json",
+    ) -> Dict[str, Path]:
+        """Write bag-member summary artifacts when available."""
+        written: Dict[str, Path] = {}
+        if not bagging:
+            return written
+
+        payload = dict(bagging)
+        members = payload.get("members") or []
+        if members:
+            csv_path = self.metrics_csv_dir / "bag_member_metrics.csv"
+            pd.DataFrame(members).to_csv(csv_path, index=False)
+            payload["metrics_csv_path"] = str(csv_path.relative_to(self.output_dir))
+            written["bag_member_metrics_csv"] = csv_path
+
+        output_path = self.output_dir / filename
+        output_path.write_text(
+            json.dumps(_sanitize_json_value(payload), indent=2),
+            encoding="utf-8",
+        )
+        logger.info(f"Wrote bagging summary to {output_path}")
+        written["bagging_summary_json"] = output_path
+        return written
 
     def write_calibration_curve(
         self,
@@ -428,3 +457,18 @@ class InferenceReportWriter:
             df.to_csv(self.metrics_csv_dir / "overall_metrics.csv", index=False)
 
         # ... (similar for other sections)
+
+
+def _sanitize_json_value(value: Any) -> Any:
+    """Convert pandas/numpy values into JSON-safe primitives."""
+    if isinstance(value, dict):
+        return {str(k): _sanitize_json_value(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_json_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_sanitize_json_value(item) for item in value]
+    if isinstance(value, np.generic):
+        return _sanitize_json_value(value.item())
+    if isinstance(value, float):
+        return None if math.isnan(value) or math.isinf(value) else value
+    return value

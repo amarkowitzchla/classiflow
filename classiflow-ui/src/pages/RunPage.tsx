@@ -10,7 +10,7 @@ import { Comments } from '../components/Comments';
 import { InteractivePlotSection } from '../components/charts';
 import type { RunDetail, MetricsSummary } from '../types/api';
 
-type TabId = 'metrics' | 'charts' | 'artifacts' | 'config' | 'lineage';
+type TabId = 'metrics' | 'charts' | 'bagging' | 'artifacts' | 'config' | 'lineage';
 
 export function RunPage() {
   const { projectId, phase, runId } = useParams<{
@@ -45,6 +45,9 @@ export function RunPage() {
   const tabs: { id: TabId; label: string; icon: typeof BarChart2 }[] = [
     { id: 'metrics', label: 'Metrics', icon: BarChart2 },
     { id: 'charts', label: 'Charts', icon: TrendingUp },
+    ...(run.bagging && run.bagging.member_count > 0
+      ? [{ id: 'bagging' as const, label: `Bag Members (${run.bagging.member_count})`, icon: BarChart2 }]
+      : []),
     { id: 'artifacts', label: `Artifacts (${run.artifact_count})`, icon: FileText },
     { id: 'config', label: 'Config', icon: Settings },
     { id: 'lineage', label: 'Lineage', icon: GitBranch },
@@ -128,6 +131,9 @@ export function RunPage() {
             plotManifest={run.plot_manifest}
             artifacts={run.artifacts}
           />
+        )}
+        {activeTab === 'bagging' && run.bagging && (
+          <BaggingTab bagging={run.bagging} artifacts={run.artifacts} />
         )}
         {activeTab === 'artifacts' && <ArtifactsTab run={run} />}
         {activeTab === 'config' && <ConfigTab config={run.config} features={run.feature_list} />}
@@ -327,6 +333,102 @@ function ArtifactsTab({ run }: ArtifactsTabProps) {
   }
 
   return <ArtifactList artifacts={run.artifacts} columns={2} />;
+}
+
+interface BaggingTabProps {
+  bagging: NonNullable<RunDetail['bagging']>;
+  artifacts: RunDetail['artifacts'];
+}
+
+function BaggingTab({ bagging, artifacts }: BaggingTabProps) {
+  const metricsArtifact = bagging.metrics_csv_path
+    ? artifacts.find((artifact) => artifact.relative_path === bagging.metrics_csv_path)
+    : undefined;
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <MetricCard label="Bag Members" value={bagging.member_count} precision={0} />
+        <MetricCard label="Scored Members" value={bagging.members.length} precision={0} />
+      </div>
+
+      <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-2">
+        <p className="text-sm text-gray-600">
+          Strategy: <span className="font-medium text-gray-900">{bagging.strategy}</span>
+        </p>
+        {bagging.estimator_type && (
+          <p className="text-sm text-gray-600">
+            Estimator: <span className="font-mono text-gray-900">{bagging.estimator_type}</span>
+          </p>
+        )}
+        {bagging.task_name && (
+          <p className="text-sm text-gray-600">
+            Task: <span className="font-medium text-gray-900">{bagging.task_name}</span>
+          </p>
+        )}
+        {metricsArtifact?.download_url && (
+          <a
+            href={metricsArtifact.download_url}
+            className="inline-flex text-sm text-blue-600 hover:underline"
+          >
+            Download bag member metrics CSV
+          </a>
+        )}
+      </div>
+
+      {bagging.members.length > 0 ? (
+        <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr>
+                <th className="text-left">Member</th>
+                <th className="text-right">Accuracy</th>
+                <th className="text-right">Balanced Acc.</th>
+                <th className="text-right">F1 Macro</th>
+                <th className="text-right">MCC</th>
+                <th className="text-right">ROC AUC</th>
+                <th className="text-right">Agreement</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bagging.members.map((member) => (
+                <tr key={member.member_index}>
+                  <td className="font-medium">
+                    #{member.member_index}
+                    {member.estimator_type && (
+                      <div className="text-xs text-gray-500 font-mono">{member.estimator_type}</div>
+                    )}
+                  </td>
+                  <td className="text-right">
+                    <MetricValue value={member.accuracy} precision={4} />
+                  </td>
+                  <td className="text-right">
+                    <MetricValue value={member.balanced_accuracy} precision={4} />
+                  </td>
+                  <td className="text-right">
+                    <MetricValue value={member.f1_macro} precision={4} />
+                  </td>
+                  <td className="text-right">
+                    <MetricValue value={member.mcc} precision={4} />
+                  </td>
+                  <td className="text-right">
+                    <MetricValue value={member.roc_auc_macro} precision={4} />
+                  </td>
+                  <td className="text-right">
+                    <MetricValue value={member.agreement_with_ensemble} precision={4} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="text-gray-500">
+          Member-level evaluation metrics are not available for this run.
+        </p>
+      )}
+    </div>
+  );
 }
 
 interface ConfigTabProps {

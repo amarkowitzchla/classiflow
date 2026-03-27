@@ -2046,6 +2046,12 @@ def run_independent_test(
     calibration_curve_path = run_dir / "calibration_curve.csv"
     if calibration_curve_path.exists():
         test_notes.append(f"Calibration curve exported as {calibration_curve_path.name}")
+    bagging_summary_path = run_dir / "bagging_summary.json"
+    bag_member_metrics_path = run_dir / "metrics" / "bag_member_metrics.csv"
+    if bagging_summary_path.exists():
+        test_notes.append(f"Bag member summary exported as {bagging_summary_path.name}")
+    if bag_member_metrics_path.exists():
+        test_notes.append(f"Bag member metrics exported as metrics/{bag_member_metrics_path.name}")
 
     # Add note about final model source
     test_notes.append(f"Model bundle: {bundle_path.name}")
@@ -2066,7 +2072,11 @@ def run_independent_test(
             "test_manifest_hash": test_entry.sha256,
         },
         root=paths.root,
-        outputs=[metrics_path],
+        outputs=[
+            path
+            for path in [metrics_path, bagging_summary_path, bag_member_metrics_path]
+            if path.exists()
+        ],
     )
     with open(run_dir / "lineage.json", "w", encoding="utf-8") as handle:
         json.dump(lineage, handle, indent=2)

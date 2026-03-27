@@ -42,6 +42,30 @@ export interface PlotManifest {
   classiflow_version: string | null;
 }
 
+export interface BagMemberMetrics {
+  member_index: number;
+  estimator_type: string | null;
+  n_samples: number | null;
+  accuracy: number | null;
+  balanced_accuracy: number | null;
+  f1_macro: number | null;
+  mcc: number | null;
+  log_loss: number | null;
+  roc_auc_macro: number | null;
+  roc_auc_micro: number | null;
+  agreement_with_ensemble: number | null;
+}
+
+export interface BaggingDetail {
+  strategy: string;
+  member_count: number;
+  estimator_type: string | null;
+  task_name: string | null;
+  evaluation_available: boolean;
+  metrics_csv_path: string | null;
+  members: BagMemberMetrics[];
+}
+
 export interface RunDetail {
   run_key: string;
   run_id: string;
@@ -56,6 +80,7 @@ export interface RunDetail {
   lineage: Record<string, unknown> | null;
   artifact_count: number;
   artifacts: Artifact[];
+  bagging: BaggingDetail | null;
   plot_manifest: PlotManifest | null;
 }
 
