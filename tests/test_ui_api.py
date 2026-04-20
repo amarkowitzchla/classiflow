@@ -9,10 +9,12 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
+import anyio
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from classiflow.ui_api.app import create_app
+from classiflow.ui_api.app import SPAStaticFiles, create_app, mount_static
 from classiflow.ui_api.config import UIConfig, StorageMode
 from classiflow.ui_api.scanner import LocalFilesystemScanner
 from classiflow.ui_api.repositories.sqlite import SQLiteCommentReviewRepository
@@ -516,6 +518,59 @@ class TestReviewEndpoints:
         data = response.json()
         assert data["status"] == "approved"
         assert data["notes"] == "Updated"
+
+
+class TestStaticFrontendServing:
+    """Tests for static frontend serving behavior."""
+
+    def test_index_html_is_not_cached(self, tmp_path):
+        static_dir = tmp_path / "dist"
+        static_dir.mkdir()
+        (static_dir / "index.html").write_text("<!doctype html><html><body>ui</body></html>")
+
+        app = FastAPI()
+        mount_static(app, static_dir)
+        client = TestClient(app)
+
+        response = client.get("/")
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-store"
+
+    def test_spa_fallback_is_not_cached(self, tmp_path):
+        static_dir = tmp_path / "dist"
+        static_dir.mkdir()
+        (static_dir / "index.html").write_text("<!doctype html><html><body>ui</body></html>")
+        static_files = SPAStaticFiles(directory=static_dir, html=True)
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/runs/some-run",
+            "root_path": "",
+            "scheme": "http",
+            "headers": [(b"accept", b"text/html")],
+            "query_string": b"",
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+        }
+
+        response = anyio.run(static_files.get_response, "runs/some-run", scope)
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-store"
+
+    def test_static_assets_keep_default_cache_headers(self, tmp_path):
+        static_dir = tmp_path / "dist"
+        assets_dir = static_dir / "assets"
+        assets_dir.mkdir(parents=True)
+        (static_dir / "index.html").write_text("<!doctype html><html><body>ui</body></html>")
+        (assets_dir / "app.js").write_text("console.log('ui');")
+
+        app = FastAPI()
+        mount_static(app, static_dir)
+        client = TestClient(app)
+
+        response = client.get("/assets/app.js")
+        assert response.status_code == 200
+        assert response.headers.get("cache-control") != "no-store"
 
 
 class TestScanner:

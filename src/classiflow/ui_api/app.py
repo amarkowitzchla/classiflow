@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import Request
 
 import classiflow
@@ -45,9 +46,30 @@ logger = logging.getLogger(__name__)
 class SPAStaticFiles(StaticFiles):
     """Static files with SPA fallback for client-side routes."""
 
+    @staticmethod
+    def _mark_html_uncacheable(response: Response) -> Response:
+        """Prevent browsers from caching the SPA shell across rebuilds."""
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @staticmethod
+    def _is_html_response(path: str, response: Response) -> bool:
+        content_type = response.headers.get("content-type", "")
+        return response.media_type == "text/html" or content_type.startswith("text/html") or (
+            path in {"", "/", "index.html"} or path.endswith(".html")
+        )
+
     async def get_response(self, path: str, scope):
-        response = await super().get_response(path, scope)
+        try:
+            response = await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            response = Response(status_code=404)
+
         if response.status_code != 404:
+            if self._is_html_response(path, response):
+                return self._mark_html_uncacheable(response)
             return response
 
         request = Request(scope)
@@ -55,7 +77,10 @@ class SPAStaticFiles(StaticFiles):
         if "." in path and "text/html" not in accept:
             return response
 
-        return await super().get_response("index.html", scope)
+        fallback = await super().get_response("index.html", scope)
+        if fallback.status_code == 200:
+            return self._mark_html_uncacheable(fallback)
+        return fallback
 
 
 def create_app(config: Optional[UIConfig] = None) -> FastAPI:
