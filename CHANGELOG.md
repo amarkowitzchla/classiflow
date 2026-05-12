@@ -62,6 +62,10 @@ Guidelines:
   `backend/device/torch_*` keys for new configs.
 - `project bootstrap` now supports explicit runtime selection with `--engine`, `--device`, and
   `--show-options`, and emits mode/engine-aware minimal YAML.
+- `project bootstrap` now supports meta custom task wiring with `--tasks-json` and `--tasks-only`:
+  - persisted in `project.yaml` as `task.tasks_json` and `task.tasks_only`
+  - validated as meta-only options (`--tasks-only` requires `--tasks-json`)
+  - forwarded by `project run-technical` into meta training (`MetaConfig.tasks_json/tasks_only`)
 - Multiclass project runtime selection is explicit via `multiclass.backend`
   (`sklearn_cpu`, `torch_*`, `hybrid_sklearn_meta_torch_base`).
 - Legacy project configs are normalized to the new schema with warnings; use
@@ -150,6 +154,9 @@ Guidelines:
 ### Fixed
 - Prevented hierarchical early stopping from using outer validation data; inner CV now respects patient groups.
 - Removed in-sample fallback for meta OOF features and drop missing OOF rows during meta training.
+- Removed validation-label-conditioned meta feature gating in `train-meta`:
+  validation task scores are now computed for all rows, and outer-validation feature construction
+  no longer uses `y_va` to decide score population.
 - Guarded against label/patient leakage via explicit `feature_cols`.
 - Fixed binary probability calibration quality computation:
   - `compute_probability_quality` now correctly computes binary Brier score/log-loss/ECE instead of returning `NaN` due to binary `label_binarize` shape mismatch.

@@ -42,3 +42,18 @@ def test_group_inner_cv_conflicting_labels_raises():
             random_state=0,
             context="test",
         )
+
+
+def test_curve_data_guard_skips_probability_shape_mismatch(caplog):
+    y_true = np.array([0, 1])
+    y_proba = np.full((2, 3), 1 / 3)
+
+    result = hier._compute_roc_pr_curve_data(
+        y_true,
+        y_proba,
+        n_classes=2,
+        context="test fold",
+    )
+
+    assert result is None
+    assert "Skipping test fold averaged ROC/PR curve data" in caplog.text

@@ -14,6 +14,7 @@
 
 Use `--mode multiclass` in `bootstrap` for direct multiclass training.
 Provide `--patient-col` (or `--patient-id-col`) with `--no-patient-stratified` unset to enable patient-level stratification for binary, meta, multiclass, or hierarchical modes.
+For meta mode, use `--tasks-json` (and optional `--tasks-only`) to control custom task sets in project technical validation.
 
 For end-to-end examples with all options per training mode, see `docs/PROJECT_FULL_CYCLE.md`.
 
@@ -75,6 +76,22 @@ multiclass:
 ```
 
 `multi_class: auto` selects multinomial for multiclass problems with saga. If you still hit convergence issues, increase `logreg.max_iter` or relax `logreg.tol`.
+
+## Meta Custom Tasks
+
+Use custom tasks JSON during project bootstrap:
+
+```bash
+classiflow project bootstrap \
+  --train-manifest data/train.csv \
+  --name "Meta Custom" \
+  --mode meta \
+  --label-col MOLECULAR \
+  --tasks-json data/tasks.json \
+  --tasks-only
+```
+
+This persists `task.tasks_json` and `task.tasks_only` in `project.yaml`, and `classiflow project run-technical` forwards them to meta training.
 
 ## Hierarchical Mode
 

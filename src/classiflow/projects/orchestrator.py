@@ -67,6 +67,13 @@ def _git_hash(cwd: Path) -> Optional[str]:
 
 
 def _config_hash(data: Dict) -> str:
+    # Keep hash stability for legacy configs that do not use custom meta task files.
+    task_cfg = data.get("task")
+    if isinstance(task_cfg, dict) and task_cfg.get("tasks_json") in {None, ""}:
+        task_cfg.pop("tasks_json", None)
+        if task_cfg.get("tasks_only") is False:
+            task_cfg.pop("tasks_only", None)
+
     payload = json.dumps(data, sort_keys=True, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -91,6 +98,12 @@ def _project_torch_temperature_scaling_enabled(config: ProjectConfig) -> bool:
     if config.execution.engine not in {"torch", "hybrid"}:
         return False
     return enabled != "false"
+
+
+def _resolve_project_path(project_root: Path, config_path: Optional[str]) -> Optional[Path]:
+    if config_path is None:
+        return None
+    return _resolve_manifest(project_root, config_path)
 
 
 def _lineage_payload(
@@ -519,10 +532,19 @@ def run_technical_validation(
         )
         train_binary_task(train_config)
     elif config.task.mode == "meta":
+        tasks_json_path = _resolve_project_path(paths.root, config.task.tasks_json)
+        if config.task.tasks_only and tasks_json_path is None:
+            raise ValueError("task.tasks_only requires task.tasks_json in project.yaml")
+        if tasks_json_path is not None and not tasks_json_path.exists():
+            raise ValueError(
+                f"Configured task.tasks_json does not exist: {tasks_json_path}"
+            )
         train_config = MetaConfig(
             data_csv=train_manifest,
             label_col=config.key_columns.label,
             patient_col=config.key_columns.patient_id if config.task.patient_stratified else None,
+            tasks_json=tasks_json_path,
+            tasks_only=config.task.tasks_only,
             outdir=run_dir,
             outer_folds=config.validation.nested_cv.outer_folds,
             inner_splits=config.validation.nested_cv.inner_folds,
@@ -940,6 +962,66 @@ def _select_best_multiclass_config(
         "sampler": best.get("sampler", "none"),
         "params": params,
     }
+
+
+def _final_selected_model_entry(task_name: str, config_payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Build a compact selected-model summary for final bundle metadata."""
+    model_name = config_payload.get("model_name")
+    if not model_name:
+        return None
+    entry: Dict[str, Any] = {
+        "task_name": config_payload.get("task_name", task_name),
+        "model_name": model_name,
+        "sampler": config_payload.get("sampler"),
+        "params": config_payload.get("params", {}),
+    }
+    if config_payload.get("mean_score") is not None:
+        entry["mean_score"] = config_payload.get("mean_score")
+    return entry
+
+
+def _write_final_model_summary(
+    *,
+    run_dir: Path,
+    project_id: str,
+    run_id: str,
+    task_type: str,
+    effective_config: ProjectConfig,
+    technical_run: Path,
+    sampler: Optional[str],
+    selected_models: List[Dict[str, Any]],
+    meta_model: Optional[Dict[str, Any]],
+) -> Path:
+    """Write UI-friendly final bundle model/config selection metadata."""
+    execution = effective_config.execution.model_dump(mode="python")
+    strategy = {
+        "final_estimator_strategy": effective_config.models.final_estimator_strategy,
+        "technical_final_estimator_strategy": effective_config.models.technical_final_estimator_strategy,
+        "bagging_n_estimators": effective_config.models.bagging_n_estimators,
+        "bagging_max_samples": effective_config.models.bagging_max_samples,
+        "bagging_max_features": effective_config.models.bagging_max_features,
+        "bagging_bootstrap": effective_config.models.bagging_bootstrap,
+        "bagging_bootstrap_features": effective_config.models.bagging_bootstrap_features,
+    }
+    payload = {
+        "run_id": run_id,
+        "run_key": f"{project_id}:final_model:{run_id}",
+        "task_type": task_type,
+        "bundle_path": "model_bundle.zip",
+        "technical_run": str(technical_run),
+        "sampler": sampler,
+        "train_from_scratch": True,
+        "selection_metric": effective_config.models.selection_metric,
+        "selection_direction": effective_config.models.selection_direction,
+        "execution": execution,
+        "strategy": strategy,
+        "selected_models": selected_models,
+        "meta_model": meta_model,
+    }
+    summary_path = run_dir / "final_model_summary.json"
+    with open(summary_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, default=str)
+    return summary_path
 
 
 def _filter_model_params(estimator, params: Dict[str, object]) -> Dict[str, object]:
@@ -1744,6 +1826,8 @@ def build_final_model(
 
     task_definitions: Dict[str, Any] = {}
     best_models: Dict[str, str] = {}
+    selected_final_models: List[Dict[str, Any]] = []
+    selected_meta_model: Optional[Dict[str, Any]] = None
 
     # Mode-specific training
     if effective_config.task.mode == "meta":
@@ -1776,6 +1860,23 @@ def build_final_model(
 
         # Train final model
         result = train_final_meta_model(final_config)
+        selected_final_models = [
+            entry
+            for entry in (
+                _final_selected_model_entry(task_name, cfg.to_dict())
+                for task_name, cfg in binary_configs.items()
+            )
+            if entry is not None
+        ]
+        if meta_config is not None:
+            selected_meta_model = _final_selected_model_entry("meta", meta_config.to_dict())
+        if selected_meta_model is None:
+            selected_meta_model = {
+                "task_name": "meta",
+                "model_name": "LogisticRegression",
+                "params": {"class_weight": "balanced"},
+                "sampler": sampler,
+            }
 
         if not result.success:
             raise ValueError(
@@ -1801,6 +1902,8 @@ def build_final_model(
         pos_label = _train_final_binary(effective_config, train_manifest, run_dir, best_cfg)
         task_definitions = {"binary_task": f"positive_class={pos_label}"}
         best_models = {"binary_task": best_cfg["model_name"]}
+        entry = _final_selected_model_entry("binary_task", best_cfg)
+        selected_final_models = [entry] if entry is not None else []
 
     elif effective_config.task.mode == "multiclass":
         logger.info("\n[2/4] Training final multiclass model (from scratch)...")
@@ -1813,6 +1916,8 @@ def build_final_model(
         if sampler:
             best_cfg["sampler"] = sampler
         _train_final_multiclass(effective_config, train_manifest, run_dir, best_cfg)
+        entry = _final_selected_model_entry("multiclass", best_cfg)
+        selected_final_models = [entry] if entry is not None else []
 
     else:
         logger.info("\n[2/4] Training final hierarchical model...")
@@ -1847,6 +1952,18 @@ def build_final_model(
     )
     manifest.save(run_dir / "run.json")
 
+    final_summary_path = _write_final_model_summary(
+        run_dir=run_dir,
+        project_id=paths.root.name,
+        run_id=run_id,
+        task_type=effective_config.task.mode,
+        effective_config=effective_config,
+        technical_run=technical_run,
+        sampler=sampler,
+        selected_models=selected_final_models,
+        meta_model=selected_meta_model,
+    )
+
     # Create bundle
     logger.info("\n[4/4] Creating model bundle...")
     from classiflow.bundles.create import create_bundle
@@ -1873,7 +1990,7 @@ def build_final_model(
             "train_from_scratch": True,
         },
         root=paths.root,
-        outputs=[bundle_path, run_dir / "run.json", run_dir / "sanity_checks.json"],
+        outputs=[bundle_path, run_dir / "run.json", run_dir / "sanity_checks.json", final_summary_path],
     )
     with open(run_dir / "lineage.json", "w", encoding="utf-8") as handle:
         json.dump(lineage, handle, indent=2)

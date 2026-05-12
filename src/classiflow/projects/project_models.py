@@ -200,6 +200,8 @@ class TaskConfig(BaseModel):
     mode: TaskMode = "meta"
     patient_stratified: bool = True
     hierarchy_path: Optional[str] = None
+    tasks_json: Optional[str] = None
+    tasks_only: bool = False
 
 
 class NestedCVConfig(BaseModel):
@@ -463,6 +465,15 @@ class ProjectConfig(BaseModel):
         engine = self.execution.engine
         mode = self.task.mode
 
+        if self.task.tasks_only and not self.task.tasks_json:
+            raise ValueError(
+                "task.tasks_only requires task.tasks_json to be set."
+            )
+        if mode != "meta" and (self.task.tasks_json is not None or self.task.tasks_only):
+            raise ValueError(
+                "task.tasks_json and task.tasks_only are only supported when task.mode=meta."
+            )
+
         if engine == "sklearn":
             if self.execution.device is not None:
                 raise ValueError(
@@ -647,6 +658,9 @@ class ProjectConfig(BaseModel):
             "execution": dump["execution"],
         }
 
+        task_cfg = result["task"]
+        if task_cfg.get("tasks_only") is False:
+            task_cfg.pop("tasks_only", None)
         # Calibration settings are used across workflows (meta/binary/multiclass/hierarchical),
         # so keep this block in minimal configs as well.
         result["calibration"] = dump["calibration"]
@@ -687,6 +701,8 @@ class ProjectConfig(BaseModel):
         bagging_max_features: float = 1.0,
         bagging_bootstrap: bool = True,
         bagging_bootstrap_features: bool = False,
+        tasks_json: Optional[str] = None,
+        tasks_only: bool = False,
     ) -> "ProjectConfig":
         """Create a mode/engine-aware scaffold configuration."""
         execution: Dict[str, Any] = {"engine": engine}
@@ -751,6 +767,8 @@ class ProjectConfig(BaseModel):
                 "mode": mode,
                 "patient_stratified": True,
                 "hierarchy_path": hierarchy_path,
+                "tasks_json": tasks_json,
+                "tasks_only": tasks_only,
             },
             "execution": execution,
             "models": models,

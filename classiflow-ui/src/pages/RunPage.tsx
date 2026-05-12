@@ -4,7 +4,7 @@ import { ArrowLeft, BarChart2, FileText, GitBranch, Settings, XCircle, Clock, Tr
 import { formatDistanceToNow } from 'date-fns';
 import { clsx } from 'clsx';
 import { useRun } from '../hooks/useApi';
-import { MetricValue, MetricCard } from '../components/MetricValue';
+import { FinalModelSummary, MetricValue, MetricCard } from '../components/MetricValue';
 import { ArtifactList } from '../components/ArtifactViewer';
 import { Comments } from '../components/Comments';
 import { InteractivePlotSection } from '../components/charts';
@@ -98,6 +98,10 @@ export function RunPage() {
             />
           ))}
         </div>
+      )}
+
+      {run.selected_final_model && (
+        <FinalModelSummary summary={run.selected_final_model} />
       )}
 
       {/* Tabs */}

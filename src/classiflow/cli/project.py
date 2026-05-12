@@ -119,6 +119,7 @@ def _append_project_yaml_hints(project_yaml: Path, mode: str, engine: str) -> No
     if mode == "meta":
         hint_lines.append("# - calibration.enabled (auto|true|false)")
         hint_lines.append("# - calibration.method (sigmoid|isotonic|temperature)")
+        hint_lines.append("# - task.tasks_json / task.tasks_only for custom task sets")
     if mode == "multiclass":
         hint_lines.append("# - multiclass.backend and multiclass.sklearn.logreg.*")
         hint_lines.append("# - calibration.enabled and calibration.method (temperature for torch learners)")
@@ -294,6 +295,16 @@ def bootstrap_project(
     ),
     hierarchy: Optional[str] = typer.Option(None, "--hierarchy", help="Hierarchy column/path"),
     label_col: Optional[str] = typer.Option(None, "--label-col", help="Label column name"),
+    tasks_json: Optional[Path] = typer.Option(
+        None,
+        "--tasks-json",
+        help="Optional JSON with custom/composite tasks (meta mode only).",
+    ),
+    tasks_only: bool = typer.Option(
+        False,
+        "--tasks-only",
+        help="If set, use only tasks from JSON (skip auto OvR/pairwise; meta mode only).",
+    ),
     sample_id_col: Optional[str] = typer.Option(
         None, "--sample-id-col", help="Sample ID column name"
     ),
@@ -390,6 +401,29 @@ def bootstrap_project(
     if name is None:
         raise typer.BadParameter("--name is required unless --show-options is used")
 
+    # Support direct Python invocation in tests/callers where Typer OptionInfo
+    # objects may remain as defaults.
+    if not isinstance(tasks_json, (Path, type(None))):
+        tasks_json = None
+    if not isinstance(tasks_only, bool):
+        tasks_only = False
+    if not isinstance(expanded_mlp_tuning_grid, bool):
+        expanded_mlp_tuning_grid = False
+    if not isinstance(final_estimator_strategy, str):
+        final_estimator_strategy = "single"
+    if not isinstance(technical_final_estimator_strategy, str):
+        technical_final_estimator_strategy = "single"
+    if not isinstance(bagging_n_estimators, int):
+        bagging_n_estimators = 10
+    if not isinstance(bagging_max_samples, (int, float)):
+        bagging_max_samples = 1.0
+    if not isinstance(bagging_max_features, (int, float)):
+        bagging_max_features = 1.0
+    if not isinstance(bagging_bootstrap, bool):
+        bagging_bootstrap = True
+    if not isinstance(bagging_bootstrap_features, bool):
+        bagging_bootstrap_features = False
+
     project_id = choose_project_id(name, test_id)
     root = project_root(out_dir, project_id, name)
     paths = ProjectPaths(root)
@@ -442,6 +476,13 @@ def bootstrap_project(
             inferred_mode = "meta"
     selected_mode = inferred_mode if mode == "auto" else mode.lower()
     selected_engine = engine.lower()
+
+    if tasks_only and tasks_json is None:
+        raise typer.BadParameter("--tasks-only requires --tasks-json")
+    if selected_mode != "meta" and (tasks_json is not None or tasks_only):
+        raise typer.BadParameter(
+            "--tasks-json/--tasks-only are only supported when --mode meta"
+        )
 
     if selected_engine not in {"sklearn", "torch", "hybrid"}:
         raise typer.BadParameter("engine must be one of: sklearn, torch, hybrid")
@@ -497,6 +538,8 @@ def bootstrap_project(
         bagging_max_features=bagging_max_features,
         bagging_bootstrap=bagging_bootstrap,
         bagging_bootstrap_features=bagging_bootstrap_features,
+        tasks_json=str(tasks_json.resolve()) if tasks_json is not None else None,
+        tasks_only=tasks_only,
     )
     config.task.patient_stratified = not no_patient_stratified
     config.key_columns.slide_id = key_columns["slide_id"]

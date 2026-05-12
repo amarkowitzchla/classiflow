@@ -66,6 +66,30 @@ export interface BaggingDetail {
   members: BagMemberMetrics[];
 }
 
+export interface SelectedModelConfig {
+  task_name: string;
+  model_name: string;
+  sampler: string | null;
+  mean_score: number | null;
+  params: Record<string, unknown>;
+}
+
+export interface SelectedFinalModelSummary {
+  run_id: string;
+  run_key: string;
+  task_type: string | null;
+  bundle_path: string | null;
+  technical_run: string | null;
+  sampler: string | null;
+  train_from_scratch: boolean;
+  selection_metric: string | null;
+  selection_direction: string | null;
+  execution: Record<string, unknown>;
+  strategy: Record<string, unknown>;
+  selected_models: SelectedModelConfig[];
+  meta_model: SelectedModelConfig | null;
+}
+
 export interface RunDetail {
   run_key: string;
   run_id: string;
@@ -81,6 +105,7 @@ export interface RunDetail {
   artifact_count: number;
   artifacts: Artifact[];
   bagging: BaggingDetail | null;
+  selected_final_model: SelectedFinalModelSummary | null;
   plot_manifest: PlotManifest | null;
 }
 
@@ -171,6 +196,8 @@ export interface ProjectDashboard {
   updated_at: string | null;
   registry: RegistrySummary;
   promotion: PromotionSummary;
+  model_settings: Record<string, unknown>;
+  selected_final_model: SelectedFinalModelSummary | null;
   phases: Record<string, RunBrief[]>;
   artifact_highlights: Artifact[];
 }

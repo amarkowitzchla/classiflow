@@ -255,6 +255,86 @@ override:
         "3,0.82,0.81,0.80,0.74,0.90,0.90\n"
     )
 
+    # Create final_model phase with selected final-bundle summary
+    final_run_dir = runs_dir / "final_model" / "run003"
+    (final_run_dir / "registry").mkdir(parents=True)
+
+    (final_run_dir / "run.json").write_text(json.dumps({
+        "run_id": "uuid-003",
+        "timestamp": "2024-01-15T13:00:00",
+        "package_version": "0.1.0",
+        "training_data_path": "/path/to/train.csv",
+        "training_data_hash": "abc123",
+        "training_data_row_count": 100,
+        "config": {
+            "task": {"mode": "multiclass"},
+            "execution": {"engine": "torch", "device": "mps", "model_set": "torch_fast"},
+            "models": {
+                "selection_metric": "f1",
+                "selection_direction": "max",
+                "final_estimator_strategy": "bagged",
+                "bagging_n_estimators": 15,
+                "bagging_max_samples": 0.8,
+            },
+            "final_model": {
+                "sampler": "none",
+                "technical_run": str(tech_val_dir),
+                "train_from_scratch": True,
+            },
+        },
+        "task_type": "multiclass",
+        "python_version": "3.11.0",
+        "feature_list": ["feature1", "feature2"],
+    }))
+
+    (final_run_dir / "lineage.json").write_text(json.dumps({
+        "phase": "FINAL_MODEL",
+        "run_id": "run003",
+        "timestamp_local": "2024-01-15T13:00:00",
+        "classiflow_version": "0.1.0",
+        "command": "classiflow project build-bundle",
+    }))
+
+    (final_run_dir / "registry" / "selected_binary_configs.json").write_text(json.dumps({
+        "multiclass": {
+            "task_name": "multiclass",
+            "model_name": "torch_mlp",
+            "sampler": "none",
+            "mean_score": 0.91,
+            "params": {"hidden_dim": 256, "n_layers": 3, "dropout": 0.2},
+        },
+    }))
+
+    (final_run_dir / "final_model_summary.json").write_text(json.dumps({
+        "run_id": "run003",
+        "run_key": "TEST_PROJECT__test_project:final_model:run003",
+        "task_type": "multiclass",
+        "bundle_path": "model_bundle.zip",
+        "technical_run": str(tech_val_dir),
+        "sampler": "none",
+        "train_from_scratch": True,
+        "selection_metric": "f1",
+        "selection_direction": "max",
+        "execution": {"engine": "torch", "device": "mps", "model_set": "torch_fast"},
+        "strategy": {
+            "final_estimator_strategy": "bagged",
+            "bagging_n_estimators": 15,
+            "bagging_max_samples": 0.8,
+        },
+        "selected_models": [
+            {
+                "task_name": "multiclass",
+                "model_name": "torch_mlp",
+                "sampler": "none",
+                "mean_score": 0.91,
+                "params": {"hidden_dim": 256, "n_layers": 3, "dropout": 0.2},
+            },
+        ],
+        "meta_model": None,
+    }))
+
+    (final_run_dir / "model_bundle.zip").write_bytes(b"bundle")
+
     yield projects_root
 
     # Cleanup
@@ -337,6 +417,9 @@ class TestProjectEndpoints:
         assert data["model_settings"]["final_estimator_strategy"] == "single"
         assert data["model_settings"]["technical_final_estimator_strategy"] == "single"
         assert data["model_settings"]["bagging_n_estimators"] == 15
+        assert data["selected_final_model"]["run_id"] == "run003"
+        assert data["selected_final_model"]["selected_models"][0]["model_name"] == "torch_mlp"
+        assert data["selected_final_model"]["strategy"]["bagging_max_samples"] == 0.8
         assert "technical_validation" in data["phases"]
 
     def test_get_project_not_found(self, test_client):
@@ -372,6 +455,16 @@ class TestRunEndpoints:
         assert data["bagging"]["member_count"] == 3
         assert data["bagging"]["metrics_csv_path"] == "metrics/bag_member_metrics.csv"
         assert len(data["bagging"]["members"]) == 3
+
+    def test_get_final_run_includes_selected_model(self, test_client):
+        run_key = "TEST_PROJECT__test_project:final_model:run003"
+        response = test_client.get(f"/api/runs/{run_key}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["selected_final_model"]["run_id"] == "run003"
+        assert data["selected_final_model"]["task_type"] == "multiclass"
+        assert data["selected_final_model"]["selected_models"][0]["task_name"] == "multiclass"
+        assert data["selected_final_model"]["selected_models"][0]["params"]["hidden_dim"] == 256
 
     def test_get_run_not_found(self, test_client):
         response = test_client.get("/api/runs/nonexistent:phase:run")

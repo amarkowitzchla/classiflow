@@ -3,7 +3,7 @@ import { ArrowLeft, Database, XCircle, FileText, Clock } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useProject } from '../hooks/useApi';
 import { DecisionBadge } from '../components/DecisionBadge';
-import { MetricValue } from '../components/MetricValue';
+import { FinalModelSummary, MetricValue } from '../components/MetricValue';
 import { ArtifactList } from '../components/ArtifactViewer';
 import { Comments } from '../components/Comments';
 import { PromotionGates } from '../components/PromotionGate';
@@ -84,6 +84,10 @@ export function ProjectPage() {
             </div>
           )}
         </section>
+      )}
+
+      {project.selected_final_model && (
+        <FinalModelSummary summary={project.selected_final_model} linkToRun />
       )}
 
       {/* Registry Summary */}
