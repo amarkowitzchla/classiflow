@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from typing import Dict, Any, List, Optional
 import numpy as np
 import pandas as pd
@@ -22,6 +23,24 @@ from sklearn.preprocessing import label_binarize
 
 from classiflow.metrics.decision import compute_decision_metrics
 logger = logging.getLogger(__name__)
+
+
+def _as_str_array(values: np.ndarray) -> np.ndarray:
+    """Normalize labels for sklearn metrics so numeric/string class names align."""
+    return np.array([str(v) for v in values], dtype=object)
+
+
+def _ordered_union(*label_groups: List[str]) -> List[str]:
+    """Return labels in first-seen order without duplicates."""
+    labels: List[str] = []
+    seen = set()
+    for group in label_groups:
+        for label in group:
+            label = str(label)
+            if label not in seen:
+                labels.append(label)
+                seen.add(label)
+    return labels
 
 
 def compute_classification_metrics(
@@ -57,18 +76,34 @@ def compute_classification_metrics(
 
     # Filter to valid samples (remove NaN labels)
     valid_mask = ~(pd.isna(y_true) | pd.isna(y_pred))
-    y_true_clean = np.array(y_true)[valid_mask]
-    y_pred_clean = np.array(y_pred)[valid_mask]
+    y_true_clean = _as_str_array(np.array(y_true)[valid_mask])
+    y_pred_clean = _as_str_array(np.array(y_pred)[valid_mask])
 
     if len(y_true_clean) == 0:
         return {"error": "No valid samples for evaluation"}
 
     n_samples = len(y_true_clean)
     metrics["n_samples"] = n_samples
+    metrics_warnings: List[str] = []
 
     # Overall metrics
     metrics["accuracy"] = float(accuracy_score(y_true_clean, y_pred_clean))
-    metrics["balanced_accuracy"] = float(balanced_accuracy_score(y_true_clean, y_pred_clean))
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always", UserWarning)
+        metrics["balanced_accuracy"] = float(
+            balanced_accuracy_score(y_true_clean, y_pred_clean)
+        )
+    for caught_warning in caught_warnings:
+        warning_message = str(caught_warning.message)
+        if "y_pred contains classes not in y_true" in warning_message:
+            warning = (
+                "Predicted labels include classes absent from the test labels; "
+                "balanced accuracy was computed with zero support for those classes."
+            )
+            logger.warning(warning)
+            metrics_warnings.append(warning)
+        else:
+            warnings.warn(caught_warning.message, category=caught_warning.category)
 
     # Macro/weighted/micro F1
     for avg in ["macro", "weighted", "micro"]:
@@ -83,13 +118,28 @@ def compute_classification_metrics(
     # Per-class metrics
     if class_names is None:
         class_names = sorted(list(set(y_true_clean) | set(y_pred_clean)))
+    else:
+        class_names = [str(c) for c in class_names]
+
+    observed_classes = sorted(list(set(y_true_clean) | set(y_pred_clean)))
+    missing_observed = sorted(set(observed_classes) - set(class_names))
+    if missing_observed:
+        warning = (
+            "Observed test labels/predictions are missing from the model class list: "
+            f"{missing_observed}. Including them for discrete metrics; probability metrics "
+            "will only use available probability columns."
+        )
+        logger.warning(warning)
+        metrics_warnings.append(warning)
+
+    metric_class_names = _ordered_union(class_names, observed_classes)
 
     precision, recall, f1, support = precision_recall_fscore_support(
-        y_true_clean, y_pred_clean, labels=class_names, average=None, zero_division=0
+        y_true_clean, y_pred_clean, labels=metric_class_names, average=None, zero_division=0
     )
 
     per_class = []
-    for i, cls in enumerate(class_names):
+    for i, cls in enumerate(metric_class_names):
         per_class.append({
             "class": str(cls),
             "precision": float(precision[i]),
@@ -101,13 +151,13 @@ def compute_classification_metrics(
     metrics["per_class"] = per_class
 
     # Confusion matrix
-    cm = confusion_matrix(y_true_clean, y_pred_clean, labels=class_names)
+    cm = confusion_matrix(y_true_clean, y_pred_clean, labels=metric_class_names)
     metrics["confusion_matrix"] = {
-        "labels": [str(c) for c in class_names],
+        "labels": [str(c) for c in metric_class_names],
         "matrix": cm.tolist(),
     }
 
-    decision_metrics = compute_decision_metrics(y_true_clean, y_pred_clean, class_names)
+    decision_metrics = compute_decision_metrics(y_true_clean, y_pred_clean, metric_class_names)
     metrics.update(decision_metrics)
     metrics["recall"] = decision_metrics.get("sensitivity")
     metrics["precision"] = decision_metrics.get("ppv")
@@ -115,21 +165,48 @@ def compute_classification_metrics(
     # ROC AUC (if probabilities provided)
     if y_proba is not None:
         y_proba_clean = y_proba[valid_mask]
-        roc_metrics = compute_roc_auc(y_true_clean, y_proba_clean, class_names)
-        metrics["roc_auc"] = roc_metrics
+        proba_eval_mask = np.isin(y_true_clean, class_names)
+        if not proba_eval_mask.any():
+            warning = (
+                "Skipping probability metrics because no observed test labels are present "
+                f"in the model class list: class_names={class_names}"
+            )
+            logger.warning(warning)
+            metrics_warnings.append(warning)
+        elif y_proba_clean.shape[1] == len(class_names):
+            if not proba_eval_mask.all():
+                excluded = int((~proba_eval_mask).sum())
+                warning = (
+                    "Excluding samples with labels absent from the model class list "
+                    f"from probability metrics: n_excluded={excluded}"
+                )
+                logger.warning(warning)
+                metrics_warnings.append(warning)
+            roc_metrics = compute_roc_auc(
+                y_true_clean[proba_eval_mask],
+                y_proba_clean[proba_eval_mask],
+                class_names,
+            )
+            metrics["roc_auc"] = roc_metrics
+        else:
+            warning = (
+                "Skipping ROC AUC because probability columns do not match the model "
+                f"class list: y_proba_columns={y_proba_clean.shape[1]} "
+                f"class_names={len(class_names)}"
+            )
+            logger.warning(warning)
+            metrics_warnings.append(warning)
 
     # Log loss (if probabilities provided)
     if y_proba is not None:
         try:
             y_proba_clean = y_proba[valid_mask]
-            # Filter to classes present in y_true
-            class_set = set(class_names)
-            keep_idx = [i for i, t in enumerate(y_true_clean) if t in class_set]
+            keep_idx = np.flatnonzero(np.isin(y_true_clean, class_names))
 
             if len(keep_idx) > 0:
                 metrics["log_loss"] = float(
                     log_loss(
-                        [y_true_clean[i] for i in keep_idx],
+                        y_true_clean[keep_idx],
                         y_proba_clean[keep_idx],
                         labels=class_names,
                     )
@@ -137,6 +214,9 @@ def compute_classification_metrics(
         except Exception as e:
             logger.warning(f"Failed to compute log loss: {e}")
             metrics["log_loss"] = np.nan
+
+    if metrics_warnings:
+        metrics["warnings"] = metrics_warnings
 
     return metrics
 
@@ -195,6 +275,12 @@ def compute_roc_auc(
                 "auc": np.nan,
                 "note": "No positive samples in test set",
             })
+        elif np.unique(y_bin[:, i]).size < 2:
+            per_class.append({
+                "class": str(cls),
+                "auc": np.nan,
+                "note": "Need both positive and negative samples in test set",
+            })
         else:
             try:
                 fpr, tpr, _ = roc_curve(y_bin[:, i], y_proba[:, i])
@@ -222,8 +308,14 @@ def compute_roc_auc(
     # Micro-average (only for multiclass)
     if n_classes > 2:
         try:
-            fpr_micro, tpr_micro, _ = roc_curve(y_bin.ravel(), y_proba.ravel())
-            roc_metrics["micro"] = float(auc(fpr_micro, tpr_micro))
+            if np.unique(y_bin.ravel()).size < 2:
+                roc_metrics["micro"] = np.nan
+                roc_metrics["micro_note"] = (
+                    "Need both positive and negative labels for micro-average AUC"
+                )
+            else:
+                fpr_micro, tpr_micro, _ = roc_curve(y_bin.ravel(), y_proba.ravel())
+                roc_metrics["micro"] = float(auc(fpr_micro, tpr_micro))
         except Exception as e:
             logger.warning(f"Failed to compute micro-average AUC: {e}")
             roc_metrics["micro"] = np.nan

@@ -170,20 +170,30 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
         )
 
     # Add metadata columns (ID, true label)
-    final_predictions = pd.concat([metadata, predictions], axis=1)
-
-    if config.label_col in final_predictions.columns:
-        final_predictions["y_true"] = final_predictions[config.label_col]
-    else:
-        final_predictions["y_true"] = np.nan
-
-    if config.id_col and config.id_col in final_predictions.columns:
-        final_predictions["sample_id"] = final_predictions[config.id_col]
-    else:
-        final_predictions["sample_id"] = final_predictions.index.astype(str)
-
-    final_predictions["split"] = "independent_test"
-    final_predictions["fold_id"] = loader.fold
+    y_true_values = (
+        metadata[config.label_col].to_numpy()
+        if config.label_col and config.label_col in metadata.columns
+        else np.full(len(metadata), np.nan, dtype=object)
+    )
+    sample_id_values = (
+        metadata[config.id_col].to_numpy()
+        if config.id_col and config.id_col in metadata.columns
+        else metadata.index.astype(str).to_numpy()
+    )
+    derived_cols = ["y_true", "sample_id", "split", "fold_id"]
+    metadata_out = metadata.drop(
+        columns=[c for c in derived_cols if c in metadata.columns],
+        errors="ignore",
+    )
+    predictions_out = predictions.drop(
+        columns=[c for c in derived_cols if c in predictions.columns],
+        errors="ignore",
+    )
+    final_predictions = pd.concat([metadata_out, predictions_out], axis=1).copy()
+    final_predictions.loc[:, "y_true"] = y_true_values
+    final_predictions.loc[:, "sample_id"] = sample_id_values
+    final_predictions.loc[:, "split"] = "independent_test"
+    final_predictions.loc[:, "fold_id"] = loader.fold
 
     logger.info(f"  Predictions shape: {final_predictions.shape}")
 
