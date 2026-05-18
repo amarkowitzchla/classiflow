@@ -87,3 +87,27 @@ def test_curve_data_uses_fallback_when_sklearn_curve_raises(monkeypatch):
     )
 
     assert result is not None
+
+
+def test_curve_data_returns_none_when_binary_fold_has_single_class():
+    y_true = np.ones(6, dtype=int)
+    y_proba = np.array(
+        [
+            [0.05, 0.95],
+            [0.02, 0.98],
+            [0.10, 0.90],
+            [0.08, 0.92],
+            [0.03, 0.97],
+            [0.07, 0.93],
+        ],
+        dtype=float,
+    )
+
+    result = hier._compute_roc_pr_curve_data(
+        y_true,
+        y_proba,
+        n_classes=2,
+        context="single-class binary fold",
+    )
+
+    assert result is None

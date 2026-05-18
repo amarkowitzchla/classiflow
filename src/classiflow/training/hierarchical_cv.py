@@ -37,6 +37,7 @@ from classiflow.plots import (
     plot_roc_curve,
 )
 from classiflow.plots.hierarchical import (
+    CurveDataUnavailableError,
     safe_average_precision_score,
     safe_precision_recall_curve,
     safe_roc_curve,
@@ -88,7 +89,7 @@ def _compute_roc_pr_curve_data(
     y_proba: np.ndarray,
     n_classes: int,
     context: str,
-) -> tuple[np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, float]:
+) -> tuple[np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, float] | None:
     """Compute averaged-plot ROC/PR data."""
     y_true_arr = np.asarray(y_true)
     y_proba_arr = np.asarray(y_proba)
@@ -106,37 +107,45 @@ def _compute_roc_pr_curve_data(
             f"y_proba_columns={y_proba_arr.shape[1]} n_classes={n_classes}"
         )
 
-    if n_classes == 2:
-        y_bin = (y_true_arr == 1).astype(int)
-        fpr, tpr, _ = safe_roc_curve(
-            y_bin, y_proba_arr[:, 1], context=f"{context} binary ROC/PR"
-        )
-        prec, rec, _ = safe_precision_recall_curve(
-            y_bin, y_proba_arr[:, 1], context=f"{context} binary ROC/PR"
-        )
-        roc_auc_val = auc(fpr, tpr)
-        ap_val = safe_average_precision_score(
-            y_bin, y_proba_arr[:, 1], context=f"{context} binary ROC/PR"
-        )
-    else:
-        y_bin = label_binarize(y_true_arr, classes=list(range(n_classes)))
-        if y_bin.ndim == 1:
-            y_bin = np.column_stack([1 - y_bin, y_bin])
-        if y_bin.shape != y_proba_arr.shape:
-            raise ValueError(
-                "binarized label/probability shape mismatch: "
-                f"y_bin={y_bin.shape} y_proba={y_proba_arr.shape}"
+    try:
+        if n_classes == 2:
+            y_bin = (y_true_arr == 1).astype(int)
+            fpr, tpr, _ = safe_roc_curve(
+                y_bin, y_proba_arr[:, 1], context=f"{context} binary ROC/PR"
             )
-        fpr, tpr, _ = safe_roc_curve(
-            y_bin.ravel(), y_proba_arr.ravel(), context=f"{context} micro ROC"
+            prec, rec, _ = safe_precision_recall_curve(
+                y_bin, y_proba_arr[:, 1], context=f"{context} binary ROC/PR"
+            )
+            roc_auc_val = auc(fpr, tpr)
+            ap_val = safe_average_precision_score(
+                y_bin, y_proba_arr[:, 1], context=f"{context} binary ROC/PR"
+            )
+        else:
+            y_bin = label_binarize(y_true_arr, classes=list(range(n_classes)))
+            if y_bin.ndim == 1:
+                y_bin = np.column_stack([1 - y_bin, y_bin])
+            if y_bin.shape != y_proba_arr.shape:
+                raise ValueError(
+                    "binarized label/probability shape mismatch: "
+                    f"y_bin={y_bin.shape} y_proba={y_proba_arr.shape}"
+                )
+            fpr, tpr, _ = safe_roc_curve(
+                y_bin.ravel(), y_proba_arr.ravel(), context=f"{context} micro ROC"
+            )
+            prec, rec, _ = safe_precision_recall_curve(
+                y_bin.ravel(), y_proba_arr.ravel(), context=f"{context} micro PR"
+            )
+            roc_auc_val = auc(fpr, tpr)
+            ap_val = safe_average_precision_score(
+                y_bin.ravel(), y_proba_arr.ravel(), context=f"{context} micro PR"
+            )
+    except CurveDataUnavailableError as exc:
+        logger.warning(
+            "Skipping %s averaged ROC/PR curve data because curves are undefined: %s",
+            context,
+            exc,
         )
-        prec, rec, _ = safe_precision_recall_curve(
-            y_bin.ravel(), y_proba_arr.ravel(), context=f"{context} micro PR"
-        )
-        roc_auc_val = auc(fpr, tpr)
-        ap_val = safe_average_precision_score(
-            y_bin.ravel(), y_proba_arr.ravel(), context=f"{context} micro PR"
-        )
+        return None
 
     return fpr, tpr, float(roc_auc_val), rec, prec, float(ap_val)
 
@@ -778,18 +787,20 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
                 )
 
         # Store ROC/PR data for averaging
-        fpr, tpr, roc_auc_val, rec, prec, ap_val = _compute_roc_pr_curve_data(
+        l1_curve_data = _compute_roc_pr_curve_data(
             y_l1_va_enc,
             y_l1_proba,
             len(l1_classes),
             f"Level-1 fold {fold_id}",
         )
-        all_l1_roc_data["fpr"].append(fpr)
-        all_l1_roc_data["tpr"].append(tpr)
-        all_l1_roc_data["auc"].append(roc_auc_val)
-        all_l1_pr_data["rec"].append(rec)
-        all_l1_pr_data["prec"].append(prec)
-        all_l1_pr_data["ap"].append(ap_val)
+        if l1_curve_data is not None:
+            fpr, tpr, roc_auc_val, rec, prec, ap_val = l1_curve_data
+            all_l1_roc_data["fpr"].append(fpr)
+            all_l1_roc_data["tpr"].append(tpr)
+            all_l1_roc_data["auc"].append(roc_auc_val)
+            all_l1_pr_data["rec"].append(rec)
+            all_l1_pr_data["prec"].append(prec)
+            all_l1_pr_data["ap"].append(ap_val)
 
         prob_metrics, prob_curves = compute_probability_quality(
             y_true=[str(v) for v in y_l1_va.tolist()],
@@ -1032,18 +1043,20 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
                     )
 
                     # Store ROC/PR data for averaging
-                    fpr_b, tpr_b, roc_auc_b, rec_b, prec_b, ap_b = _compute_roc_pr_curve_data(
+                    l2_curve_data = _compute_roc_pr_curve_data(
                         y_l2_va_b_enc,
                         y_l2_proba_b,
                         n_l2_b,
                         f"Level-2 {l1_val} fold {fold_id}",
                     )
-                    all_l2_roc_data[l1_val]["fpr"].append(fpr_b)
-                    all_l2_roc_data[l1_val]["tpr"].append(tpr_b)
-                    all_l2_roc_data[l1_val]["auc"].append(roc_auc_b)
-                    all_l2_pr_data[l1_val]["rec"].append(rec_b)
-                    all_l2_pr_data[l1_val]["prec"].append(prec_b)
-                    all_l2_pr_data[l1_val]["ap"].append(ap_b)
+                    if l2_curve_data is not None:
+                        fpr_b, tpr_b, roc_auc_b, rec_b, prec_b, ap_b = l2_curve_data
+                        all_l2_roc_data[l1_val]["fpr"].append(fpr_b)
+                        all_l2_roc_data[l1_val]["tpr"].append(tpr_b)
+                        all_l2_roc_data[l1_val]["auc"].append(roc_auc_b)
+                        all_l2_pr_data[l1_val]["rec"].append(rec_b)
+                        all_l2_pr_data[l1_val]["prec"].append(prec_b)
+                        all_l2_pr_data[l1_val]["ap"].append(ap_b)
 
             # ========== Pipeline evaluation ==========
             any_branch_trained = any(branch_trained.get(l1, False) for l1 in l1_classes)
