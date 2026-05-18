@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import yaml
+from classiflow.projects.project_models import ThresholdsConfig
 
 logger = logging.getLogger(__name__)
 
@@ -69,19 +70,6 @@ class DatasetInfo:
     feature_columns: list[str] = field(default_factory=list)
     label_distribution: dict[str, int] = field(default_factory=dict)
     dirty: bool = False
-
-
-@dataclass
-class ThresholdsConfig:
-    """Promotion thresholds configuration."""
-
-    technical_validation: dict[str, Any] = field(default_factory=dict)
-    independent_test: dict[str, Any] = field(default_factory=dict)
-    promotion_logic: str = "ALL_REQUIRED_AND_STABILITY"
-    promotion: dict[str, Any] = field(default_factory=dict)
-    allow_override: bool = True
-    require_comment: bool = True
-    require_approver: bool = True
 
 
 @dataclass
@@ -239,31 +227,12 @@ def parse_datasets_registry(project_dir: Path) -> dict[str, DatasetInfo]:
     return result
 
 
-def parse_thresholds(project_dir: Path) -> ThresholdsConfig:
-    """Parse registry/thresholds.yaml."""
+def parse_thresholds(project_dir: Path) -> Optional[ThresholdsConfig]:
+    """Parse registry/thresholds.yaml using the canonical promotion schema."""
     path = project_dir / "registry" / "thresholds.yaml"
     if not path.exists():
-        return ThresholdsConfig()
-
-    data = _safe_load_yaml(path)
-    if not data:
-        return ThresholdsConfig()
-
-    config = ThresholdsConfig()
-
-    # Phase thresholds
-    config.technical_validation = data.get("technical_validation", {})
-    config.independent_test = data.get("independent_test", {})
-    config.promotion_logic = data.get("promotion_logic", "ALL_REQUIRED_AND_STABILITY")
-    config.promotion = data.get("promotion", {})
-
-    # Override settings
-    override = data.get("override", {})
-    config.allow_override = override.get("allow_override", True)
-    config.require_comment = override.get("require_comment", True)
-    config.require_approver = override.get("require_approver", True)
-
-    return config
+        return None
+    return ThresholdsConfig.load(path)
 
 
 def parse_decision(project_dir: Path) -> Optional[DecisionResult]:

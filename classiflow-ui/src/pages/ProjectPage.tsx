@@ -3,11 +3,12 @@ import { ArrowLeft, Database, XCircle, FileText, Clock } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useProject } from '../hooks/useApi';
 import { DecisionBadge } from '../components/DecisionBadge';
+import { GateBadges } from '../components/GateBadges';
 import { FinalModelSummary, MetricValue } from '../components/MetricValue';
 import { ArtifactList } from '../components/ArtifactViewer';
 import { Comments } from '../components/Comments';
 import { PromotionGates } from '../components/PromotionGate';
-import type { RunBrief } from '../types/api';
+import type { GateStatus, RunBrief } from '../types/api';
 
 export function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -29,6 +30,27 @@ export function ProjectPage() {
     );
   }
 
+  const gateStatus: Record<string, GateStatus> = {
+    technical_validation: project.promotion.gates.technical_validation
+      ? (project.promotion.gates.technical_validation.passed ? 'PASS' : 'FAIL')
+      : 'PENDING',
+    independent_test: project.promotion.gates.independent_test
+      ? (project.promotion.gates.independent_test.passed ? 'PASS' : 'FAIL')
+      : 'PENDING',
+  };
+  const gateResults = Object.values(project.promotion.gates);
+  const liveDecision = gateResults.length === 0
+    ? 'PENDING'
+    : gateResults.every((gate) => gate.passed)
+      ? 'PASS'
+      : 'FAIL';
+  const showDecisionMismatch =
+    gateResults.length > 0 &&
+    !project.promotion.override_enabled &&
+    project.promotion.decision !== 'PENDING' &&
+    project.promotion.decision !== 'OVERRIDE' &&
+    project.promotion.decision !== liveDecision;
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -41,15 +63,26 @@ export function ProjectPage() {
           Back to projects
         </Link>
 
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between gap-6">
           <div>
-            <div className="flex items-center space-x-3">
+            <div className="flex flex-wrap items-center gap-3">
               <h1 className="text-2xl font-bold text-gray-900">{project.name}</h1>
-              <DecisionBadge decision={project.promotion.decision} size="lg" />
+              <GateBadges gateStatus={gateStatus} />
+              <div className="inline-flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-600">
+                <span className="font-medium text-gray-500">Recorded Decision</span>
+                <DecisionBadge decision={project.promotion.decision} size="md" />
+              </div>
             </div>
             <p className="text-gray-500 mt-1">{project.id}</p>
             {project.description && (
               <p className="text-gray-600 mt-2">{project.description}</p>
+            )}
+            {showDecisionMismatch && (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Stored promotion decision is <strong>{project.promotion.decision}</strong>, but the
+                current gate evaluation is <strong>{liveDecision}</strong>. Re-run promotion or
+                update `promotion/decision.yaml` after correcting the underlying run outputs.
+              </div>
             )}
           </div>
           <div className="text-right text-sm text-gray-500">

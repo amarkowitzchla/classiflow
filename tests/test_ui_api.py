@@ -96,6 +96,11 @@ datasets:
 updated_at: '2024-01-15T10:00:00'
 """)
 
+    thresholds_yaml = registry_dir / "thresholds.yaml"
+    thresholds_yaml.write_text("""
+promotion_gate_template: clinical_conservative
+""")
+
     # Create promotion directory
     promotion_dir = project_dir / "promotion"
     promotion_dir.mkdir()
@@ -155,6 +160,8 @@ override:
         "summary": {
             "balanced_accuracy": 0.85,
             "f1_macro": 0.82,
+            "sensitivity": 0.86,
+            "mcc": 0.65,
         },
         "per_fold": {
             "balanced_accuracy": [0.84, 0.85, 0.86],
@@ -391,6 +398,8 @@ class TestProjectEndpoints:
         project = data["items"][0]
         assert project["id"] == "TEST_PROJECT__test_project"
         assert project["name"] == "Test Project"
+        assert project["gate_status"]["technical_validation"] == "PASS"
+        assert project["gate_status"]["independent_test"] == "FAIL"
 
     def test_list_projects_with_search(self, test_client):
         response = test_client.get("/api/projects?q=test")
@@ -410,6 +419,9 @@ class TestProjectEndpoints:
         assert data["id"] == "TEST_PROJECT__test_project"
         assert data["name"] == "Test Project"
         assert data["promotion"]["decision"] == "PASS"
+        assert data["registry"]["thresholds"]["promotion_gate_template"] == "clinical_conservative"
+        assert data["promotion"]["gates"]["technical_validation"]["passed"] is True
+        assert data["promotion"]["gates"]["independent_test"]["passed"] is False
         assert data["model_settings"]["engine"] == "torch"
         assert data["model_settings"]["device"] == "mps"
         assert data["model_settings"]["model_set"] == "torch_fast"
@@ -684,6 +696,19 @@ class TestScanner:
         assert run is not None
         assert run.manifest.run_id == "run001"
         assert run.metrics["summary"]["balanced_accuracy"] == 0.85
+
+    def test_compute_gate_results_uses_shared_promotion_evaluator(self, temp_projects_dir):
+        scanner = LocalFilesystemScanner(temp_projects_dir)
+        scanner.scan_projects()
+
+        gates = scanner.compute_gate_results("TEST_PROJECT__test_project")
+
+        assert gates["technical_validation"].passed is True
+        assert gates["independent_test"].passed is False
+        assert any(
+            check.metric == "Sensitivity" and check.passed is False
+            for check in gates["independent_test"].checks
+        )
 
     def test_artifact_id_stability(self, temp_projects_dir):
         scanner = LocalFilesystemScanner(temp_projects_dir)

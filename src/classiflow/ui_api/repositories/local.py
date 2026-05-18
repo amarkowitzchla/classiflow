@@ -208,12 +208,15 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
                 "row_count": ds.row_count,
             }
         if project.thresholds:
-            registry.thresholds = {
-                "technical_validation": project.thresholds.technical_validation,
-                "independent_test": project.thresholds.independent_test,
-                "promotion_logic": project.thresholds.promotion_logic,
-                "promotion": project.thresholds.promotion,
-            }
+            if hasattr(project.thresholds, "model_dump"):
+                registry.thresholds = project.thresholds.model_dump(mode="python")
+            else:
+                registry.thresholds = {
+                    "technical_validation": project.thresholds.technical_validation,
+                    "independent_test": project.thresholds.independent_test,
+                    "promotion_logic": project.thresholds.promotion_logic,
+                    "promotion": project.thresholds.promotion,
+                }
 
         # Build promotion summary with detailed gate results
         promotion = PromotionSummary()

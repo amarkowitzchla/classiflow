@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
@@ -29,6 +30,106 @@ from classiflow.inference.plots import generate_all_plots
 from classiflow.inference.reports import InferenceReportWriter
 
 logger = logging.getLogger(__name__)
+
+
+def _infer_hierarchical_secondary_label_col(loader: ArtifactLoader) -> Optional[str]:
+    """Infer the hierarchical secondary label column from training artifacts."""
+    training_config = {}
+    if loader.manifest and isinstance(loader.manifest.training_config, dict):
+        training_config = loader.manifest.training_config
+
+    task_config = training_config.get("task")
+    if isinstance(task_config, dict):
+        hierarchy_path = task_config.get("hierarchy_path")
+        if hierarchy_path:
+            return str(hierarchy_path)
+
+    label_l2 = training_config.get("label_l2")
+    if label_l2:
+        return str(label_l2)
+
+    for config_path in [loader.base_dir / "training_config.json", loader.fold_dir / "training_config.json"]:
+        if not config_path.exists():
+            continue
+        try:
+            config_data = json.loads(config_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        task_config = config_data.get("task")
+        if isinstance(task_config, dict):
+            hierarchy_path = task_config.get("hierarchy_path")
+            if hierarchy_path:
+                return str(hierarchy_path)
+        label_l2 = config_data.get("label_l2")
+        if label_l2:
+            return str(label_l2)
+
+    return None
+
+
+def _build_true_labels(
+    metadata: pd.DataFrame,
+    run_type: str,
+    label_col: Optional[str],
+    label_col_secondary: Optional[str] = None,
+) -> np.ndarray:
+    """Build the evaluation truth labels, combining hierarchical levels when needed."""
+    if not label_col or label_col not in metadata.columns:
+        return np.full(len(metadata), np.nan, dtype=object)
+
+    primary = metadata[label_col]
+    if run_type != "hierarchical":
+        return primary.to_numpy()
+
+    primary_non_null = primary.dropna().astype(str)
+    if not primary_non_null.empty and primary_non_null.str.contains("::", regex=False).any():
+        return primary.to_numpy()
+
+    if not label_col_secondary or label_col_secondary not in metadata.columns:
+        return primary.to_numpy()
+
+    secondary = metadata[label_col_secondary]
+    combined = primary.astype(object).copy()
+    valid_mask = ~(pd.isna(primary) | pd.isna(secondary))
+    combined.loc[valid_mask] = (
+        primary.loc[valid_mask].astype(str)
+        + "::"
+        + secondary.loc[valid_mask].astype(str)
+    )
+    return combined.to_numpy()
+
+
+def _truth_values(predictions: pd.DataFrame, label_col: str) -> np.ndarray:
+    """Return the normalized truth vector for metric and plot generation."""
+    if "y_true" in predictions.columns:
+        return predictions["y_true"].to_numpy()
+    if label_col in predictions.columns:
+        return predictions[label_col].to_numpy()
+    return np.full(len(predictions), np.nan, dtype=object)
+
+
+def _prediction_probability_columns(predictions: pd.DataFrame) -> list[str]:
+    """Return direct prediction probability columns, excluding hierarchical helper outputs."""
+    return [
+        col
+        for col in predictions.columns
+        if col.startswith("predicted_proba_")
+        and col != "predicted_proba"
+        and not col.startswith("predicted_proba_L1_")
+        and not col.startswith("predicted_proba_L2_")
+        and not col.startswith("predicted_proba_L3_")
+    ]
+
+
+def _observed_classes(*label_arrays: np.ndarray) -> list[str]:
+    """Return sorted class labels excluding missing values."""
+    values = set()
+    for labels in label_arrays:
+        for value in labels:
+            if pd.isna(value):
+                continue
+            values.add(str(value))
+    return sorted(values)
 
 
 def run_inference(config: InferenceConfig) -> Dict[str, Any]:
@@ -96,6 +197,13 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
 
     logger.info(f"  Detected run type: {run_type}")
 
+    secondary_label_col = config.label_col_secondary
+    if run_type == "hierarchical" and not secondary_label_col:
+        secondary_label_col = _infer_hierarchical_secondary_label_col(loader)
+        if secondary_label_col:
+            config.label_col_secondary = secondary_label_col
+            results["config"] = config.to_dict()
+
     positive_class = None
     if loader.manifest and loader.manifest.task_definitions:
         task_def = loader.manifest.task_definitions.get("binary_task")
@@ -133,6 +241,8 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
             required_features.remove(config.id_col)
         if config.label_col and config.label_col in required_features:
             required_features.remove(config.label_col)
+        if secondary_label_col and secondary_label_col in required_features:
+            required_features.remove(secondary_label_col)
 
     logger.info(f"  Required features: {len(required_features)}")
 
@@ -147,6 +257,7 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
         df_raw,
         id_col=config.id_col,
         label_col=config.label_col,
+        label_col_secondary=secondary_label_col,
     )
 
     if align_warnings:
@@ -170,10 +281,11 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
         )
 
     # Add metadata columns (ID, true label)
-    y_true_values = (
-        metadata[config.label_col].to_numpy()
-        if config.label_col and config.label_col in metadata.columns
-        else np.full(len(metadata), np.nan, dtype=object)
+    y_true_values = _build_true_labels(
+        metadata,
+        run_type=run_type,
+        label_col=config.label_col,
+        label_col_secondary=secondary_label_col,
     )
     sample_id_values = (
         metadata[config.id_col].to_numpy()
@@ -622,24 +734,20 @@ def _compute_metrics(
     metrics: Dict[str, Any] = {}
     calibration_curves: Dict[str, pd.DataFrame] = {}
 
-    y_true = predictions[label_col].values
+    y_true = _truth_values(predictions, label_col)
 
     # Overall multiclass metrics (if predicted_label exists)
     if "predicted_label" in predictions.columns:
         y_pred = predictions["predicted_label"].values
 
         # Get probability columns
-        proba_cols = [
-            c
-            for c in predictions.columns
-            if c.startswith("predicted_proba_") and c != "predicted_proba"
-        ]
+        proba_cols = _prediction_probability_columns(predictions)
 
         if proba_cols:
             class_names = [c.replace("predicted_proba_", "") for c in proba_cols]
             y_proba = predictions[proba_cols].values
         else:
-            class_names = sorted(list(set(y_true) | set(y_pred)))
+            class_names = _observed_classes(y_true, y_pred)
             y_proba = None
 
         overall_metrics = compute_classification_metrics(y_true, y_pred, y_proba, class_names)
@@ -768,6 +876,13 @@ def _compute_metrics(
 
         # L1 metrics
         if "predicted_label_L1" in predictions.columns:
+            y_true_l1 = np.array(
+                [
+                    np.nan if pd.isna(value) else str(value).split("::", 1)[0]
+                    for value in y_true
+                ],
+                dtype=object,
+            )
             y_pred_l1 = predictions["predicted_label_L1"].values
             l1_proba_cols = [c for c in predictions.columns if c.startswith("predicted_proba_L1_")]
 
@@ -775,11 +890,13 @@ def _compute_metrics(
                 l1_classes = [c.replace("predicted_proba_L1_", "") for c in l1_proba_cols]
                 y_proba_l1 = predictions[l1_proba_cols].values
             else:
-                l1_classes = sorted(list(set(y_true) | set(y_pred_l1)))
+                y_true_l1_classes = pd.Series(y_true_l1).dropna().astype(str).unique().tolist()
+                y_pred_l1_classes = pd.Series(y_pred_l1).dropna().astype(str).unique().tolist()
+                l1_classes = sorted(set(y_true_l1_classes) | set(y_pred_l1_classes))
                 y_proba_l1 = None
 
             hier_metrics["L1"] = compute_classification_metrics(
-                y_true, y_pred_l1, y_proba_l1, l1_classes
+                y_true_l1, y_pred_l1, y_proba_l1, l1_classes
             )
 
         # L2 metrics (if applicable)
@@ -798,24 +915,20 @@ def _generate_plots(
     max_roc_classes: int = 10,
 ) -> Dict[str, Path]:
     """Generate plots for predictions."""
-    y_true = predictions[label_col].values
+    y_true = _truth_values(predictions, label_col)
 
     # Use predicted_label if available
     if "predicted_label" in predictions.columns:
         y_pred = predictions["predicted_label"].values
 
         # Get probabilities
-        proba_cols = [
-            c
-            for c in predictions.columns
-            if c.startswith("predicted_proba_") and c != "predicted_proba"
-        ]
+        proba_cols = _prediction_probability_columns(predictions)
 
         if proba_cols:
             class_names = [c.replace("predicted_proba_", "") for c in proba_cols]
             y_proba = predictions[proba_cols].values
         else:
-            class_names = sorted(list(set(y_true) | set(y_pred)))
+            class_names = _observed_classes(y_true, y_pred)
             y_proba = None
 
         plot_paths = generate_all_plots(

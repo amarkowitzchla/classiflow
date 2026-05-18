@@ -2117,6 +2117,9 @@ def run_independent_test(
             output_dir=run_dir,
             id_col=config.key_columns.sample_id,
             label_col=config.key_columns.label,
+            label_col_secondary=(
+                config.task.hierarchy_path if config.task.mode == "hierarchical" else None
+            ),
             include_excel=True,
             include_plots=True,
             verbose=1,
