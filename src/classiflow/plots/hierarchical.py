@@ -22,6 +22,160 @@ from sklearn.metrics import (
 logger = logging.getLogger(__name__)
 
 
+def _prepare_binary_curve_inputs(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    context: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Sanitize binary curve inputs before sklearn/manual curve computation."""
+    y_true_arr = np.asarray(y_true).reshape(-1)
+    y_score_arr = np.asarray(y_score, dtype=np.float64).reshape(-1)
+
+    if y_true_arr.size != y_score_arr.size:
+        size = min(y_true_arr.size, y_score_arr.size)
+        logger.warning(
+            "Trimming mismatched curve inputs for %s: y_true=%s y_score=%s -> %s",
+            context,
+            y_true_arr.size,
+            y_score_arr.size,
+            size,
+        )
+        y_true_arr = y_true_arr[:size]
+        y_score_arr = y_score_arr[:size]
+
+    finite_mask = np.isfinite(y_score_arr)
+    if not np.all(finite_mask):
+        dropped = int((~finite_mask).sum())
+        logger.warning(
+            "Dropping %s non-finite score values for %s before curve computation.",
+            dropped,
+            context,
+        )
+        y_true_arr = y_true_arr[finite_mask]
+        y_score_arr = y_score_arr[finite_mask]
+
+    if y_true_arr.size == 0:
+        raise ValueError(f"No valid samples available for {context}")
+
+    y_true_bin = np.asarray(y_true_arr).astype(np.int8, copy=False)
+    unique = np.unique(y_true_bin)
+    if unique.size < 2:
+        raise ValueError(
+            f"{context} requires both positive and negative classes; observed {unique.tolist()}"
+        )
+
+    return y_true_bin, y_score_arr
+
+
+def _manual_binary_clf_curve(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    context: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute binary cumulative FP/TP counts without sklearn internals."""
+    y_true_bin, y_score_arr = _prepare_binary_curve_inputs(y_true, y_score, context)
+    sort_idx = np.argsort(y_score_arr, kind="mergesort")[::-1]
+    y_true_sorted = y_true_bin[sort_idx]
+    y_score_sorted = y_score_arr[sort_idx]
+
+    tps = np.cumsum(y_true_sorted, dtype=np.float64)
+    fps = np.cumsum(1 - y_true_sorted, dtype=np.float64)
+
+    distinct_value_indices = np.where(np.diff(y_score_sorted))[0]
+    threshold_indices = np.r_[distinct_value_indices, y_true_sorted.size - 1]
+    return fps[threshold_indices], tps[threshold_indices], y_score_sorted[threshold_indices]
+
+
+def safe_roc_curve(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    context: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Compute ROC curve with fallback for sklearn edge-case IndexError.
+
+    A small number of sklearn/numpy combinations can raise IndexError inside
+    roc_curve for valid 1D arrays; this helper retries via a manual path.
+    """
+    y_true_bin, y_score_arr = _prepare_binary_curve_inputs(y_true, y_score, context)
+    try:
+        return roc_curve(y_true_bin, y_score_arr)
+    except IndexError as exc:
+        logger.warning(
+            "Falling back to manual ROC computation for %s due to sklearn IndexError: %s",
+            context,
+            exc,
+        )
+        fps, tps, thresholds = _manual_binary_clf_curve(y_true_bin, y_score_arr, context)
+        fps = np.r_[0.0, fps]
+        tps = np.r_[0.0, tps]
+        thresholds = np.r_[np.inf, thresholds]
+
+        negatives = fps[-1]
+        positives = tps[-1]
+        if negatives <= 0 or positives <= 0:
+            raise ValueError(f"Cannot compute ROC for {context}: positives={positives}, negatives={negatives}")
+        return fps / negatives, tps / positives, thresholds
+
+
+def safe_precision_recall_curve(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    context: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Compute PR curve with fallback for sklearn edge-case IndexError.
+    """
+    y_true_bin, y_score_arr = _prepare_binary_curve_inputs(y_true, y_score, context)
+    try:
+        return precision_recall_curve(y_true_bin, y_score_arr)
+    except IndexError as exc:
+        logger.warning(
+            "Falling back to manual PR computation for %s due to sklearn IndexError: %s",
+            context,
+            exc,
+        )
+        fps, tps, thresholds = _manual_binary_clf_curve(y_true_bin, y_score_arr, context)
+        positives = tps[-1]
+        precision = np.divide(
+            tps,
+            tps + fps,
+            out=np.ones_like(tps, dtype=np.float64),
+            where=(tps + fps) != 0,
+        )
+        recall = tps / positives
+
+        sl = slice(None, None, -1)
+        precision = np.r_[precision[sl], 1.0]
+        recall = np.r_[recall[sl], 0.0]
+        thresholds = thresholds[sl]
+        return precision, recall, thresholds
+
+
+def safe_average_precision_score(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    context: str,
+) -> float:
+    """
+    Compute AP with fallback when sklearn average_precision_score fails.
+    """
+    y_true_bin, y_score_arr = _prepare_binary_curve_inputs(y_true, y_score, context)
+    try:
+        return float(average_precision_score(y_true_bin, y_score_arr))
+    except IndexError as exc:
+        logger.warning(
+            "Falling back to manual AP computation for %s due to sklearn IndexError: %s",
+            context,
+            exc,
+        )
+        precision, recall, _ = safe_precision_recall_curve(y_true_bin, y_score_arr, context)
+        recall_inc = recall[::-1]
+        precision_inc = precision[::-1]
+        deltas = np.clip(np.diff(recall_inc), 0.0, None)
+        return float(np.sum(deltas * precision_inc[1:]))
+
+
 def plot_roc_curve(
     y_true: np.ndarray,
     y_proba: np.ndarray,
@@ -62,7 +216,7 @@ def plot_roc_curve(
         scores = y_proba[:, pos_idx]
         y_bin = (y_true == pos_idx).astype(int)
 
-        fpr, tpr, _ = roc_curve(y_bin, scores)
+        fpr, tpr, _ = safe_roc_curve(y_bin, scores, context=f"{title} binary ROC")
         roc_auc = auc(fpr, tpr)
 
         plt.plot(fpr, tpr, lw=2, label=f"{classes[pos_idx]} (AUC={roc_auc:.3f})")
@@ -77,12 +231,16 @@ def plot_roc_curve(
         for i, cls in enumerate(classes):
             if np.unique(y_bin[:, i]).size < 2:
                 continue
-            fpr_i, tpr_i, _ = roc_curve(y_bin[:, i], y_proba[:, i])
+            fpr_i, tpr_i, _ = safe_roc_curve(
+                y_bin[:, i], y_proba[:, i], context=f"{title} ROC class={cls}"
+            )
             roc_auc_i = auc(fpr_i, tpr_i)
             plt.plot(fpr_i, tpr_i, lw=1.5, label=f"{cls} (AUC={roc_auc_i:.3f})")
 
         # Micro-average
-        fpr_micro, tpr_micro, _ = roc_curve(y_bin.ravel(), y_proba.ravel())
+        fpr_micro, tpr_micro, _ = safe_roc_curve(
+            y_bin.ravel(), y_proba.ravel(), context=f"{title} ROC micro-average"
+        )
         roc_auc_micro = auc(fpr_micro, tpr_micro)
         plt.plot(
             fpr_micro,
@@ -145,8 +303,8 @@ def plot_pr_curve(
         scores = y_proba[:, pos_idx]
         y_bin = (y_true == pos_idx).astype(int)
 
-        prec, rec, _ = precision_recall_curve(y_bin, scores)
-        ap = average_precision_score(y_bin, scores)
+        prec, rec, _ = safe_precision_recall_curve(y_bin, scores, context=f"{title} binary PR")
+        ap = safe_average_precision_score(y_bin, scores, context=f"{title} binary PR")
 
         plt.plot(rec, prec, lw=2, label=f"{classes[pos_idx]} (AP={ap:.3f})")
 
@@ -160,15 +318,21 @@ def plot_pr_curve(
         for i, cls in enumerate(classes):
             if np.unique(y_bin[:, i]).size < 2:
                 continue
-            prec_i, rec_i, _ = precision_recall_curve(y_bin[:, i], y_proba[:, i])
-            ap_i = average_precision_score(y_bin[:, i], y_proba[:, i])
+            prec_i, rec_i, _ = safe_precision_recall_curve(
+                y_bin[:, i], y_proba[:, i], context=f"{title} PR class={cls}"
+            )
+            ap_i = safe_average_precision_score(
+                y_bin[:, i], y_proba[:, i], context=f"{title} PR class={cls}"
+            )
             plt.plot(rec_i, prec_i, lw=1.5, label=f"{cls} (AP={ap_i:.3f})")
 
         # Micro-average
-        prec_micro, rec_micro, _ = precision_recall_curve(
-            y_bin.ravel(), y_proba.ravel()
+        prec_micro, rec_micro, _ = safe_precision_recall_curve(
+            y_bin.ravel(), y_proba.ravel(), context=f"{title} PR micro-average"
         )
-        ap_micro = average_precision_score(y_bin, y_proba, average="micro")
+        ap_micro = safe_average_precision_score(
+            y_bin.ravel(), y_proba.ravel(), context=f"{title} PR micro-average"
+        )
         plt.plot(
             rec_micro,
             prec_micro,
