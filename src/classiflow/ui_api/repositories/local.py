@@ -353,6 +353,7 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
             per_class=metrics.get("per_class", []),
             confusion_matrix=metrics.get("confusion_matrix"),
             roc_auc=metrics.get("roc_auc"),
+            hierarchical=metrics.get("hierarchical", {}),
         )
 
         # Get artifacts

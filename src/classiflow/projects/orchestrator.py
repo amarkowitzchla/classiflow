@@ -100,6 +100,43 @@ def _project_torch_temperature_scaling_enabled(config: ProjectConfig) -> bool:
     return enabled != "false"
 
 
+def _effective_execution_payload(
+    config: ProjectConfig,
+    *,
+    task_mode: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Return execution metadata that reflects the runtime actually used.
+
+    Hierarchical workflows currently run through the dedicated torch MLP stack
+    regardless of `execution.engine` in project config. Persisting the effective
+    runtime here keeps run metadata and UI summaries truthful.
+    """
+    execution: Dict[str, Any] = dict(config.execution.model_dump(mode="python"))
+    mode = task_mode or config.task.mode
+
+    if mode == "hierarchical":
+        execution["engine"] = "torch"
+        execution["device"] = execution.get("device") or config.device or "auto"
+        execution["model_set"] = execution.get("model_set") or "hierarchical_torch"
+
+        torch_cfg = execution.get("torch")
+        if not isinstance(torch_cfg, dict):
+            execution["torch"] = {
+                "dtype": config.torch_dtype,
+                "num_workers": config.torch_num_workers,
+                "require_device": config.require_torch_device,
+            }
+        else:
+            normalized_torch_cfg = dict(torch_cfg)
+            normalized_torch_cfg.setdefault("dtype", config.torch_dtype)
+            normalized_torch_cfg.setdefault("num_workers", config.torch_num_workers)
+            normalized_torch_cfg.setdefault("require_device", config.require_torch_device)
+            execution["torch"] = normalized_torch_cfg
+
+    return execution
+
+
 def _resolve_project_path(project_root: Path, config_path: Optional[str]) -> Optional[Path]:
     if config_path is None:
         return None
@@ -282,6 +319,90 @@ def _technical_metrics_from_run(
     summary.update(pq_summary)
     per_fold.update(pq_per_fold)
     return summary, per_fold
+
+
+def _summarize_hierarchical_level_metrics(df: pd.DataFrame) -> Dict[str, Any]:
+    """Summarize one hierarchical level into summary/per_fold metric blocks."""
+    if df.empty:
+        return {}
+
+    exclude_cols = {"fold", "phase", "task", "model_name", "sampler", "level", "gate"}
+    numeric_cols = [
+        col
+        for col in df.columns
+        if col not in exclude_cols and pd.api.types.is_numeric_dtype(df[col])
+    ]
+
+    summary: Dict[str, float] = {}
+    per_fold: Dict[str, List[float]] = {}
+    for col in numeric_cols:
+        values = df[col].dropna().astype(float).tolist()
+        if not values:
+            continue
+        metric_name = normalize_metric_name(col)
+        summary[metric_name] = float(np.mean(values))
+        per_fold[metric_name] = values
+
+    result: Dict[str, Any] = {}
+    if summary:
+        result["summary"] = summary
+    if per_fold:
+        result["per_fold"] = per_fold
+    return result
+
+
+def _technical_hierarchical_metrics_from_run(run_dir: Path) -> Dict[str, Any]:
+    """
+    Extract L1/L2 hierarchical metrics for technical-validation UI payloads.
+
+    This intentionally reads the current run's canonical hierarchical metrics file.
+    """
+    metrics_path = run_dir / "metrics_outer_eval.csv"
+    if not metrics_path.exists():
+        return {}
+
+    try:
+        df = pd.read_csv(metrics_path)
+    except Exception as exc:
+        logger.warning("Failed to parse hierarchical metrics from %s: %s", metrics_path, exc)
+        return {}
+
+    if df.empty or "level" not in df.columns:
+        return {}
+
+    if "phase" in df.columns:
+        val_df = df[df["phase"] == "val"]
+        if not val_df.empty:
+            df = val_df
+
+    result: Dict[str, Any] = {}
+
+    l1_df = df[df["level"] == "L1"]
+    l1_metrics = _summarize_hierarchical_level_metrics(l1_df)
+    if l1_metrics:
+        result["L1"] = l1_metrics
+
+    l2_rows = df[df["level"].astype(str).str.startswith("L2_oracle_")]
+    l2_metrics = _summarize_hierarchical_level_metrics(l2_rows)
+    if l2_metrics:
+        result["L2"] = l2_metrics
+
+    l2_by_branch: Dict[str, Any] = {}
+    if not l2_rows.empty:
+        for level_name, branch_df in l2_rows.groupby("level", sort=True):
+            branch_name = str(level_name).replace("L2_oracle_", "", 1)
+            branch_metrics = _summarize_hierarchical_level_metrics(branch_df)
+            if branch_metrics:
+                l2_by_branch[branch_name] = branch_metrics
+    if l2_by_branch:
+        result["L2_by_branch"] = l2_by_branch
+
+    pipeline_df = df[df["level"] == "pipeline"]
+    pipeline_metrics = _summarize_hierarchical_level_metrics(pipeline_df)
+    if pipeline_metrics:
+        result["pipeline"] = pipeline_metrics
+
+    return result
 
 
 def _probability_quality_metrics_from_manifest(
@@ -739,9 +860,15 @@ def run_technical_validation(
     with open(run_dir / "lineage.json", "w", encoding="utf-8") as handle:
         json.dump(lineage, handle, indent=2)
 
+    metrics_payload: Dict[str, Any] = {"summary": summary, "per_fold": per_fold}
+    if config.task.mode == "hierarchical":
+        hierarchical_metrics = _technical_hierarchical_metrics_from_run(run_dir)
+        if hierarchical_metrics:
+            metrics_payload["hierarchical"] = hierarchical_metrics
+
     metrics_path = run_dir / "metrics_summary.json"
     with open(metrics_path, "w", encoding="utf-8") as handle:
-        json.dump({"summary": summary, "per_fold": per_fold}, handle, indent=2)
+        json.dump(metrics_payload, handle, indent=2)
 
     return run_dir
 
@@ -993,7 +1120,7 @@ def _write_final_model_summary(
     meta_model: Optional[Dict[str, Any]],
 ) -> Path:
     """Write UI-friendly final bundle model/config selection metadata."""
-    execution = effective_config.execution.model_dump(mode="python")
+    execution = _effective_execution_payload(effective_config, task_mode=task_type)
     strategy = {
         "final_estimator_strategy": effective_config.models.final_estimator_strategy,
         "technical_final_estimator_strategy": effective_config.models.technical_final_estimator_strategy,
@@ -1926,6 +2053,17 @@ def build_final_model(
 
     # Create training manifest
     logger.info("\n[3/4] Creating training manifest...")
+    manifest_config = effective_config.model_dump(mode="python")
+    manifest_config["execution"] = _effective_execution_payload(
+        effective_config,
+        task_mode=effective_config.task.mode,
+    )
+    manifest_config["final_model"] = {
+        "sampler": sampler,
+        "technical_run": str(technical_run),
+        "train_from_scratch": True,
+    }
+
     manifest = TrainingRunManifest(
         run_id=run_id,
         timestamp=datetime.now().isoformat(),
@@ -1934,14 +2072,7 @@ def build_final_model(
         training_data_hash=train_entry.sha256,
         training_data_size_bytes=train_entry.size_bytes,
         training_data_row_count=train_entry.stats.rows,
-        config={
-            **effective_config.model_dump(mode="python"),
-            "final_model": {
-                "sampler": sampler,
-                "technical_run": str(technical_run),
-                "train_from_scratch": True,
-            },
-        },
+        config=manifest_config,
         task_type=effective_config.task.mode,
         python_version=platform.python_version(),
         hostname=platform.node(),

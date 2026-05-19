@@ -5,6 +5,29 @@ export type GateStatus = 'PASS' | 'FAIL' | 'PENDING';
 export type ArtifactKind = 'image' | 'report' | 'metrics' | 'model' | 'data' | 'config' | 'other';
 export type ReviewStatus = 'pending' | 'approved' | 'rejected' | 'needs_changes';
 
+export interface HierarchicalLevelMetrics {
+  summary?: Record<string, number | null>;
+  per_fold?: Record<string, Array<number | null>>;
+  per_class?: Array<{
+    class: string;
+    precision: number | null;
+    recall: number | null;
+    f1: number | null;
+    support: number | null;
+  }>;
+  confusion_matrix?: {
+    labels: string[];
+    matrix: Array<Array<number | null>>;
+  };
+  roc_auc?: {
+    per_class: Array<{ class: string; auc: number | null }>;
+    macro: number | null;
+    micro: number | null;
+  };
+  warnings?: string[];
+  error?: string;
+}
+
 export interface MetricsSummary {
   primary: Record<string, number | null>;
   per_fold: Record<string, Array<number | null>>;
@@ -24,6 +47,7 @@ export interface MetricsSummary {
     macro: number | null;
     micro: number | null;
   };
+  hierarchical?: Record<string, HierarchicalLevelMetrics>;
 }
 
 export interface RunBrief {

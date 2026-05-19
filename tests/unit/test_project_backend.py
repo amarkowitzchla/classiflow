@@ -419,3 +419,74 @@ def test_filter_model_params_maps_between_single_and_bagged_estimators():
 
     assert orchestrator._filter_model_params(bagged, {"C": 2.0}) == {"estimator__C": 2.0}
     assert orchestrator._filter_model_params(single, {"estimator__C": 2.0}) == {"C": 2.0}
+
+
+def test_effective_execution_payload_marks_hierarchical_runs_as_torch() -> None:
+    config = ProjectConfig.model_validate(
+        {
+            "project": {"id": "H001", "name": "HierExecution"},
+            "data": {"train": {"manifest": "train.csv"}},
+            "key_columns": {"label": "Family_code"},
+            "task": {
+                "mode": "hierarchical",
+                "patient_stratified": False,
+                "hierarchy_path": "Class_v12_code",
+            },
+        }
+    )
+
+    execution = orchestrator._effective_execution_payload(config)
+
+    assert execution["engine"] == "torch"
+    assert execution["device"] == "auto"
+    assert execution["model_set"] == "hierarchical_torch"
+    assert isinstance(execution["torch"], dict)
+    assert execution["torch"]["dtype"] == "float32"
+    assert execution["torch"]["num_workers"] == default_torch_num_workers()
+    assert execution["torch"]["require_device"] is False
+
+
+def test_effective_execution_payload_preserves_non_hierarchical_execution() -> None:
+    config = ProjectConfig.model_validate(
+        {
+            "project": {"id": "M001", "name": "MetaExecution"},
+            "data": {"train": {"manifest": "train.csv"}},
+            "key_columns": {"label": "label"},
+            "task": {"mode": "meta", "patient_stratified": False},
+            "execution": {
+                "engine": "torch",
+                "device": "cpu",
+                "model_set": "torch_fast",
+                "torch": {"dtype": "float16", "num_workers": 2, "require_device": True},
+            },
+        }
+    )
+
+    execution = orchestrator._effective_execution_payload(config)
+
+    assert execution["engine"] == "torch"
+    assert execution["device"] == "cpu"
+    assert execution["model_set"] == "torch_fast"
+    assert execution["torch"]["dtype"] == "float16"
+    assert execution["torch"]["num_workers"] == 2
+    assert execution["torch"]["require_device"] is True
+
+
+def test_technical_hierarchical_metrics_from_run_extracts_l1_and_l2(tmp_path: Path) -> None:
+    pd.DataFrame(
+        [
+            {"fold": 1, "level": "L1", "accuracy": 0.9, "f1_macro": 0.88},
+            {"fold": 2, "level": "L1", "accuracy": 0.8, "f1_macro": 0.78},
+            {"fold": 1, "level": "L2_oracle_A", "accuracy": 0.7, "f1_macro": 0.68},
+            {"fold": 2, "level": "L2_oracle_A", "accuracy": 0.9, "f1_macro": 0.89},
+            {"fold": 1, "level": "L2_oracle_B", "accuracy": 0.6, "f1_macro": 0.58},
+            {"fold": 2, "level": "pipeline", "accuracy": 0.75, "f1_macro": 0.72},
+        ]
+    ).to_csv(tmp_path / "metrics_outer_eval.csv", index=False)
+
+    metrics = orchestrator._technical_hierarchical_metrics_from_run(tmp_path)
+
+    assert metrics["L1"]["summary"]["accuracy"] == pytest.approx(0.85)
+    assert metrics["L2"]["summary"]["accuracy"] == pytest.approx((0.7 + 0.9 + 0.6) / 3)
+    assert metrics["L2_by_branch"]["A"]["summary"]["f1_macro"] == pytest.approx((0.68 + 0.89) / 2)
+    assert metrics["pipeline"]["summary"]["accuracy"] == pytest.approx(0.75)

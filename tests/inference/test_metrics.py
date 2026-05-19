@@ -84,6 +84,7 @@ def test_compute_metrics_prefers_y_true_for_hierarchical_runs():
             "y_true": ["A::A1", "B::B2"],
             "predicted_label": ["A::A1", "B::B2"],
             "predicted_label_L1": ["A", "B"],
+            "predicted_label_L2": ["A1", "B2"],
             "predicted_proba_A::A1": [0.95, 0.05],
             "predicted_proba_B::B2": [0.05, 0.95],
             "predicted_proba_L1_A": [0.95, 0.05],
@@ -98,7 +99,8 @@ def test_compute_metrics_prefers_y_true_for_hierarchical_runs():
     )
 
     assert metrics["overall"]["accuracy"] == 1.0
-    assert metrics["hierarchical"]["L1"]["accuracy"] == 1.0
+    assert metrics["hierarchical"]["L1"]["summary"]["accuracy"] == 1.0
+    assert metrics["hierarchical"]["L2"]["summary"]["accuracy"] == 1.0
 
 
 def test_compute_metrics_ignores_l1_probabilities_for_overall_hierarchical_metrics():
@@ -121,3 +123,25 @@ def test_compute_metrics_ignores_l1_probabilities_for_overall_hierarchical_metri
 
     assert metrics["overall"]["accuracy"] == 1.0
     assert "probability_quality" not in metrics["overall"]
+    assert metrics["hierarchical"]["L1"]["summary"]["accuracy"] == 1.0
+
+
+def test_compute_metrics_with_missing_l2_labels_keeps_l1_and_skips_l2():
+    predictions = pd.DataFrame(
+        {
+            "label_l1": ["A", "B"],
+            "y_true": ["A", "B"],
+            "predicted_label": ["A", "B"],
+            "predicted_label_L1": ["A", "B"],
+            "predicted_label_L2": [None, None],
+        }
+    )
+
+    metrics, _ = _compute_metrics(
+        predictions,
+        label_col="label_l1",
+        run_type="hierarchical",
+    )
+
+    assert metrics["hierarchical"]["L1"]["summary"]["accuracy"] == 1.0
+    assert metrics["hierarchical"]["L2"]["error"] == "No valid samples for evaluation"

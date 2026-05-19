@@ -79,6 +79,10 @@ class MetricsSummary(BaseModel):
         default=None, description="Confusion matrix data"
     )
     roc_auc: Optional[dict[str, Any]] = Field(default=None, description="ROC AUC data")
+    hierarchical: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Hierarchical metrics grouped by level (e.g., L1/L2)",
+    )
 
 
 class RunBrief(BaseModel):

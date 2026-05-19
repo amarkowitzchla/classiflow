@@ -108,6 +108,50 @@ def _truth_values(predictions: pd.DataFrame, label_col: str) -> np.ndarray:
     return np.full(len(predictions), np.nan, dtype=object)
 
 
+def _hierarchical_level_values(labels: np.ndarray, level_index: int) -> np.ndarray:
+    """Extract one hierarchy level (0-based) from combined labels like 'L1::L2'."""
+    values: list[object] = []
+    for value in labels:
+        if pd.isna(value):
+            values.append(np.nan)
+            continue
+        parts = str(value).split("::")
+        if level_index >= len(parts):
+            values.append(np.nan)
+            continue
+        level_value = parts[level_index].strip()
+        values.append(level_value if level_value else np.nan)
+    return np.asarray(values, dtype=object)
+
+
+def _hierarchical_level_payload(level_metrics: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize level metrics into a UI-friendly shape."""
+    if not isinstance(level_metrics, dict):
+        return {}
+
+    summary: Dict[str, float] = {}
+    for key, value in level_metrics.items():
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float, np.floating, np.integer)):
+            numeric = float(value)
+            if np.isfinite(numeric):
+                summary[key] = numeric
+
+    payload: Dict[str, Any] = {}
+    if summary:
+        payload["summary"] = summary
+
+    for key in ("per_class", "confusion_matrix", "roc_auc", "warnings"):
+        if key in level_metrics:
+            payload[key] = level_metrics[key]
+
+    if "error" in level_metrics and not payload:
+        payload["error"] = level_metrics["error"]
+
+    return payload
+
+
 def _prediction_probability_columns(predictions: pd.DataFrame) -> list[str]:
     """Return direct prediction probability columns, excluding hierarchical helper outputs."""
     return [
@@ -876,13 +920,7 @@ def _compute_metrics(
 
         # L1 metrics
         if "predicted_label_L1" in predictions.columns:
-            y_true_l1 = np.array(
-                [
-                    np.nan if pd.isna(value) else str(value).split("::", 1)[0]
-                    for value in y_true
-                ],
-                dtype=object,
-            )
+            y_true_l1 = _hierarchical_level_values(y_true, level_index=0)
             y_pred_l1 = predictions["predicted_label_L1"].values
             l1_proba_cols = [c for c in predictions.columns if c.startswith("predicted_proba_L1_")]
 
@@ -895,12 +933,39 @@ def _compute_metrics(
                 l1_classes = sorted(set(y_true_l1_classes) | set(y_pred_l1_classes))
                 y_proba_l1 = None
 
-            hier_metrics["L1"] = compute_classification_metrics(
+            l1_metrics = compute_classification_metrics(
                 y_true_l1, y_pred_l1, y_proba_l1, l1_classes
             )
+            l1_payload = _hierarchical_level_payload(l1_metrics)
+            if l1_payload:
+                hier_metrics["L1"] = l1_payload
 
-        # L2 metrics (if applicable)
-        # ... (would require L2 ground truth)
+        # L2 metrics
+        if "predicted_label_L2" in predictions.columns:
+            y_true_l2 = _hierarchical_level_values(y_true, level_index=1)
+            y_pred_l2 = predictions["predicted_label_L2"].values
+            l2_proba_cols = [c for c in predictions.columns if c.startswith("predicted_proba_L2_")]
+
+            if l2_proba_cols:
+                l2_classes = [c.replace("predicted_proba_L2_", "") for c in l2_proba_cols]
+                y_proba_l2 = predictions[l2_proba_cols].values
+            else:
+                y_true_l2_classes = pd.Series(y_true_l2).dropna().astype(str).unique().tolist()
+                y_pred_l2_classes = pd.Series(y_pred_l2).dropna().astype(str).unique().tolist()
+                l2_classes = sorted(set(y_true_l2_classes) | set(y_pred_l2_classes))
+                y_proba_l2 = None
+
+            l2_metrics = compute_classification_metrics(
+                y_true_l2, y_pred_l2, y_proba_l2, l2_classes
+            )
+            l2_payload = _hierarchical_level_payload(l2_metrics)
+            if l2_payload:
+                hier_metrics["L2"] = l2_payload
+
+        if "overall" in metrics:
+            pipeline_payload = _hierarchical_level_payload(metrics["overall"])
+            if pipeline_payload:
+                hier_metrics["pipeline"] = pipeline_payload
 
         if hier_metrics:
             metrics["hierarchical"] = hier_metrics

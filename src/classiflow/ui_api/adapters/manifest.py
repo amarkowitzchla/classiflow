@@ -359,6 +359,7 @@ def parse_metrics(run_dir: Path, phase: str) -> dict[str, Any]:
         "per_class": [],
         "confusion_matrix": None,
         "roc_auc": None,
+        "hierarchical": {},
     }
 
     # For technical_validation, try CSV first (more complete)
@@ -381,6 +382,9 @@ def parse_metrics(run_dir: Path, phase: str) -> dict[str, Any]:
             for key, value in data.get("per_fold", {}).items():
                 if key not in result["per_fold"]:
                     result["per_fold"][key] = value
+            hierarchical = data.get("hierarchical")
+            if isinstance(hierarchical, dict):
+                result["hierarchical"] = hierarchical
         except (json.JSONDecodeError, OSError) as e:
             logger.warning(f"Failed to parse metrics_summary.json: {e}")
 
@@ -438,6 +442,10 @@ def parse_metrics(run_dir: Path, phase: str) -> dict[str, Any]:
                 result["roc_auc"] = roc_auc
             elif roc_auc is not None:
                 result["roc_auc"] = roc_auc
+
+            hierarchical = data.get("hierarchical")
+            if isinstance(hierarchical, dict):
+                result["hierarchical"] = hierarchical
 
         except (json.JSONDecodeError, OSError) as e:
             logger.warning(f"Failed to parse metrics.json: {e}")
