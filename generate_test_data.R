@@ -1,0 +1,467 @@
+suppressPackageStartupMessages({
+  required_pkgs <- c("mlbench", "rsample", "jsonlite")
+  missing_pkgs <- required_pkgs[!vapply(required_pkgs, requireNamespace, logical(1), quietly = TRUE)]
+  if (length(missing_pkgs) > 0) {
+    stop(
+      "Missing required package(s): ",
+      paste(missing_pkgs, collapse = ", "),
+      ". Install with install.packages(c(",
+      paste(sprintf('"%s"', missing_pkgs), collapse = ", "),
+      "))."
+    )
+  }
+})
+
+OUT_DIR <- file.path("DB_test_classiflow", "data_stress_test")
+TRAIN_PROP <- 0.8
+BASE_SEED <- 42
+
+sanitize_id <- function(x) {
+  gsub("[^a-z0-9]+", "_", tolower(x))
+}
+
+rename_label_col <- function(df, label_col) {
+  if (!label_col %in% names(df)) {
+    stop("Label column '", label_col, "' not found.")
+  }
+  names(df)[names(df) == label_col] <- "label"
+  df
+}
+
+add_sample_id <- function(df, prefix) {
+  if ("sample_id" %in% names(df)) {
+    return(df)
+  }
+  df$sample_id <- sprintf("%s_%05d", prefix, seq_len(nrow(df)))
+  df
+}
+
+generate_patient_ids <- function(labels, seed = 42, min_per_patient = 2, max_per_patient = 4) {
+  set.seed(seed)
+  labels <- as.character(labels)
+  out <- rep(NA_character_, length(labels))
+  patient_counter <- 1L
+
+  for (cls in sort(unique(labels))) {
+    idx <- which(labels == cls)
+    idx <- sample(idx, length(idx))
+
+    while (length(idx) > 0) {
+      chunk_size <- sample(min_per_patient:max_per_patient, size = 1)
+      chunk_size <- min(chunk_size, length(idx))
+      chunk <- idx[seq_len(chunk_size)]
+      out[chunk] <- sprintf("P%05d", patient_counter)
+      patient_counter <- patient_counter + 1L
+      if (chunk_size == length(idx)) {
+        idx <- integer(0)
+      } else {
+        idx <- idx[-seq_len(chunk_size)]
+      }
+    }
+  }
+
+  out
+}
+
+group_stratified_split <- function(df, prop = 0.8, seed = 42) {
+  set.seed(seed)
+
+  by_patient <- unique(df[, c("patient_id", "label"), drop = FALSE])
+  label_counts <- tapply(by_patient$label, by_patient$patient_id, function(x) length(unique(x)))
+  if (any(label_counts > 1)) {
+    stop("Patient-label conflicts detected; cannot perform group-stratified split.")
+  }
+
+  train_patients <- character(0)
+  patient_by_label <- split(by_patient$patient_id, by_patient$label)
+  for (lbl in names(patient_by_label)) {
+    pids <- patient_by_label[[lbl]]
+    n <- length(pids)
+    n_train <- floor(n * prop)
+    n_train <- max(1L, n_train)
+    if (n > 1L) {
+      n_train <- min(n - 1L, n_train)
+    }
+    train_patients <- c(train_patients, sample(pids, size = n_train))
+  }
+
+  train <- df[df$patient_id %in% train_patients, , drop = FALSE]
+  test <- df[!df$patient_id %in% train_patients, , drop = FALSE]
+  list(train = train, test = test)
+}
+
+sample_stratified_split <- function(df, prop = 0.8, seed = 42) {
+  set.seed(seed)
+  split_obj <- rsample::initial_split(df, prop = prop, strata = "label")
+  list(
+    train = rsample::training(split_obj),
+    test = rsample::testing(split_obj)
+  )
+}
+
+write_split <- function(train, test, scenario_id, out_dir) {
+  train_path <- file.path(out_dir, paste0(scenario_id, "_TRAIN.csv"))
+  test_path <- file.path(out_dir, paste0(scenario_id, "_TEST.csv"))
+  utils::write.csv(train, train_path, row.names = FALSE, quote = FALSE)
+  utils::write.csv(test, test_path, row.names = FALSE, quote = FALSE)
+  list(train = train_path, test = test_path)
+}
+
+build_meta_tasks <- function(classes) {
+  classes <- as.character(classes)
+  tasks <- list()
+
+  for (cls in classes) {
+    task_name <- paste0(cls, "_vs_Rest")
+    tasks[[task_name]] <- list(pos = list(cls), neg = "rest")
+  }
+
+  if (length(classes) >= 2) {
+    pairs <- utils::combn(classes, 2, simplify = FALSE)
+    for (pair in pairs[seq_len(min(length(pairs), 6L))]) {
+      task_name <- paste0(pair[[1]], "_vs_", pair[[2]])
+      tasks[[task_name]] <- list(pos = list(pair[[1]]), neg = list(pair[[2]]))
+    }
+  }
+
+  if (length(classes) >= 3) {
+    tasks[["top2_vs_rest"]] <- list(pos = as.list(classes[1:2]), neg = "rest")
+  }
+
+  tasks
+}
+
+make_hierarchy_l1 <- function(label_l2, n_groups = 3L) {
+  classes <- sort(unique(as.character(label_l2)))
+  group_map <- setNames(
+    paste0("L1_GROUP_", ((seq_along(classes) - 1L) %% n_groups) + 1L),
+    classes
+  )
+  as.character(group_map[as.character(label_l2)])
+}
+
+build_bootstrap_flags <- function(mode, has_patient_id, has_hierarchy, tasks_file) {
+  flags <- c(
+    paste0("--mode ", mode),
+    "--label-col label"
+  )
+  if (has_hierarchy) {
+    flags <- c(flags, "--hierarchy label_l2")
+  }
+  if (has_patient_id) {
+    flags <- c(flags, "--patient-id-col patient_id")
+  }
+  if (!is.na(tasks_file) && nzchar(tasks_file)) {
+    flags <- c(flags, paste0("--tasks-json ", basename(tasks_file)))
+  }
+  paste(flags, collapse = " ")
+}
+
+scenario_builders <- list(
+  list(
+    id = "binary_sonar_balanced",
+    mode = "binary",
+    source = "mlbench::Sonar",
+    expected = "success",
+    split_strategy = "sample",
+    build = function(seed) {
+      data("Sonar", package = "mlbench")
+      df <- rename_label_col(Sonar, "Class")
+      df <- add_sample_id(df, "SON")
+      df$label <- as.factor(df$label)
+      list(df = df, notes = "Balanced binary baseline.")
+    }
+  ),
+  list(
+    id = "binary_pima_imbalanced",
+    mode = "binary",
+    source = "mlbench::PimaIndiansDiabetes",
+    expected = "success",
+    split_strategy = "sample",
+    build = function(seed) {
+      data("PimaIndiansDiabetes", package = "mlbench")
+      df <- rename_label_col(PimaIndiansDiabetes, "diabetes")
+      pos_idx <- which(df$label == "pos")
+      neg_idx <- which(df$label == "neg")
+      set.seed(seed)
+      keep_pos <- sample(pos_idx, size = min(60L, length(pos_idx)))
+      keep <- c(neg_idx, keep_pos)
+      df <- df[keep, , drop = FALSE]
+      df <- add_sample_id(df, "PIMA")
+      df$label <- as.factor(df$label)
+      list(df = df, notes = "Severe class imbalance for SMOTE/comparison behavior.")
+    }
+  ),
+  list(
+    id = "binary_ionosphere_patient_grouped",
+    mode = "binary",
+    source = "mlbench::Ionosphere",
+    expected = "success",
+    split_strategy = "group",
+    build = function(seed) {
+      data("Ionosphere", package = "mlbench")
+      df <- rename_label_col(Ionosphere, "Class")
+      df <- add_sample_id(df, "ION")
+      df$patient_id <- generate_patient_ids(df$label, seed = seed + 100L)
+      df$label <- as.factor(df$label)
+      list(df = df, notes = "Binary with patient grouping for leakage checks.")
+    }
+  ),
+  list(
+    id = "meta_iris_three_class",
+    mode = "meta",
+    source = "datasets::iris",
+    expected = "success",
+    split_strategy = "sample",
+    build = function(seed) {
+      df <- rename_label_col(iris, "Species")
+      df <- add_sample_id(df, "IRIS")
+      df$label <- as.factor(df$label)
+      list(
+        df = df,
+        tasks = build_meta_tasks(levels(df$label)),
+        notes = "Small 3-class meta baseline with tasks.json."
+      )
+    }
+  ),
+  list(
+    id = "meta_glass_six_class_patient_grouped",
+    mode = "meta",
+    source = "mlbench::Glass",
+    expected = "success",
+    split_strategy = "group",
+    build = function(seed) {
+      data("Glass", package = "mlbench")
+      df <- rename_label_col(Glass, "Type")
+      df <- add_sample_id(df, "GLS")
+      df$patient_id <- generate_patient_ids(df$label, seed = seed + 200L)
+      df$label <- as.factor(df$label)
+      list(
+        df = df,
+        tasks = build_meta_tasks(levels(df$label)),
+        notes = "Multi-class meta with natural class imbalance and patient grouping."
+      )
+    }
+  ),
+  list(
+    id = "multiclass_vehicle_four_class",
+    mode = "multiclass",
+    source = "mlbench::Vehicle",
+    expected = "success",
+    split_strategy = "sample",
+    build = function(seed) {
+      data("Vehicle", package = "mlbench")
+      df <- rename_label_col(Vehicle, "Class")
+      df <- add_sample_id(df, "VEH")
+      df$label <- as.factor(df$label)
+      list(df = df, notes = "Direct multiclass baseline (4 classes).")
+    }
+  ),
+  list(
+    id = "multiclass_dna_high_dimensional",
+    mode = "multiclass",
+    source = "mlbench::DNA",
+    expected = "success",
+    split_strategy = "sample",
+    build = function(seed) {
+      data("DNA", package = "mlbench")
+      df <- rename_label_col(DNA, "Class")
+      feature_cols <- setdiff(names(df), "label")
+      for (nm in feature_cols) {
+        if (!is.numeric(df[[nm]])) {
+          df[[nm]] <- as.integer(as.factor(df[[nm]]))
+        }
+      }
+      df <- add_sample_id(df, "DNA")
+      df$label <- as.factor(df$label)
+      list(df = df, notes = "High-dimensional multiclass dataset (180+ features).")
+    }
+  ),
+  list(
+    id = "multiclass_letter_26_class",
+    mode = "multiclass",
+    source = "mlbench::LetterRecognition",
+    expected = "success",
+    split_strategy = "sample",
+    build = function(seed) {
+      data("LetterRecognition", package = "mlbench")
+      df <- rename_label_col(LetterRecognition, "lettr")
+      df <- add_sample_id(df, "LTR")
+      df$label <- as.factor(df$label)
+      list(df = df, notes = "Large 26-class multiclass stress dataset.")
+    }
+  ),
+  list(
+    id = "multiclass_satellite_large_n",
+    mode = "multiclass",
+    source = "mlbench::Satellite",
+    expected = "success",
+    split_strategy = "sample",
+    build = function(seed) {
+      data("Satellite", package = "mlbench")
+      df <- rename_label_col(Satellite, "classes")
+      df <- add_sample_id(df, "SAT")
+      df$label <- as.factor(df$label)
+      list(df = df, notes = "Larger multiclass dataset for runtime/performance stress.")
+    }
+  ),
+  list(
+    id = "hierarchical_vowel_grouped",
+    mode = "hierarchical",
+    source = "mlbench::Vowel",
+    expected = "success",
+    split_strategy = "group",
+    build = function(seed) {
+      data("Vowel", package = "mlbench")
+      df <- rename_label_col(Vowel, "Class")
+      df <- add_sample_id(df, "VWL")
+      df$label_l2 <- as.character(df$label)
+      df$label <- make_hierarchy_l1(df$label_l2, n_groups = 3L)
+      df$patient_id <- generate_patient_ids(df$label, seed = seed + 300L)
+      df$label <- as.factor(df$label)
+      df$label_l2 <- as.factor(df$label_l2)
+      list(df = df, notes = "Hierarchical L1/L2 derived from real multiclass labels.")
+    }
+  ),
+  list(
+    id = "edge_breastcancer_no_numeric_features",
+    mode = "binary",
+    source = "mlbench::BreastCancer (derived edge)",
+    expected = "expected_fail_no_numeric_features",
+    split_strategy = "sample",
+    build = function(seed) {
+      data("BreastCancer", package = "mlbench")
+      df <- BreastCancer
+      names(df)[names(df) == "Id"] <- "sample_id"
+      df <- rename_label_col(df, "Class")
+      feature_cols <- setdiff(names(df), c("sample_id", "label"))
+      for (nm in feature_cols) {
+        df[[nm]] <- as.character(df[[nm]])
+      }
+      df$label <- as.factor(df$label)
+      list(df = df, notes = "Intentional failure case: no numeric feature columns.")
+    }
+  ),
+  list(
+    id = "edge_iris_patient_label_conflict",
+    mode = "meta",
+    source = "datasets::iris (derived edge)",
+    expected = "expected_fail_patient_label_conflict",
+    split_strategy = "sample",
+    build = function(seed) {
+      df <- rename_label_col(iris, "Species")
+      df <- add_sample_id(df, "IRX")
+      df$patient_id <- generate_patient_ids(df$label, seed = seed + 400L)
+
+      conflict_pid <- df$patient_id[1]
+      conflict_rows <- which(df$patient_id == conflict_pid)
+      if (length(conflict_rows) >= 2L) {
+        other_labels <- setdiff(levels(as.factor(df$label)), as.character(df$label[conflict_rows[1]]))
+        df$label[conflict_rows[2]] <- other_labels[1]
+      }
+      df$label <- as.factor(df$label)
+      list(df = df, notes = "Intentional failure case: same patient assigned multiple labels.")
+    }
+  )
+)
+
+main <- function(out_dir = OUT_DIR, train_prop = TRAIN_PROP, base_seed = BASE_SEED) {
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+  catalog_rows <- list()
+
+  for (i in seq_along(scenario_builders)) {
+    scenario <- scenario_builders[[i]]
+    scenario_seed <- base_seed + (i * 17L)
+    obj <- scenario$build(scenario_seed)
+    df <- obj$df
+
+    ordered_cols <- unique(c("sample_id", "patient_id", setdiff(names(df), c("sample_id", "patient_id"))))
+    ordered_cols <- ordered_cols[ordered_cols %in% names(df)]
+    df <- df[, ordered_cols, drop = FALSE]
+
+    split <- switch(
+      scenario$split_strategy,
+      group = group_stratified_split(df, prop = train_prop, seed = scenario_seed),
+      sample = sample_stratified_split(df, prop = train_prop, seed = scenario_seed),
+      stop("Unknown split strategy: ", scenario$split_strategy)
+    )
+
+    paths <- write_split(split$train, split$test, scenario$id, out_dir)
+
+    tasks_path <- NA_character_
+    if (!is.null(obj$tasks)) {
+      tasks_path <- file.path(out_dir, paste0(scenario$id, "_tasks.json"))
+      writeLines(
+        jsonlite::toJSON(obj$tasks, pretty = TRUE, auto_unbox = TRUE),
+        con = tasks_path
+      )
+    }
+
+    metadata <- list(
+      scenario_id = scenario$id,
+      mode = scenario$mode,
+      source = scenario$source,
+      expected = scenario$expected,
+      split_strategy = scenario$split_strategy,
+      train_rows = nrow(split$train),
+      test_rows = nrow(split$test),
+      total_rows = nrow(df),
+      num_features = sum(vapply(df, is.numeric, logical(1))),
+      num_classes = length(unique(df$label)),
+      has_patient_id = "patient_id" %in% names(df),
+      has_hierarchy = "label_l2" %in% names(df),
+      num_classes_l2 = if ("label_l2" %in% names(df)) length(unique(df$label_l2)) else NA_integer_,
+      train_file = paths$train,
+      test_file = paths$test,
+      tasks_file = tasks_path,
+      bootstrap_flags = build_bootstrap_flags(
+        mode = scenario$mode,
+        has_patient_id = "patient_id" %in% names(df),
+        has_hierarchy = "label_l2" %in% names(df),
+        tasks_file = tasks_path
+      ),
+      notes = obj$notes
+    )
+
+    writeLines(
+      jsonlite::toJSON(metadata, pretty = TRUE, auto_unbox = TRUE, na = "null"),
+      con = file.path(out_dir, paste0(scenario$id, "_scenario.json"))
+    )
+
+    catalog_rows[[length(catalog_rows) + 1L]] <- data.frame(
+      scenario_id = scenario$id,
+      mode = scenario$mode,
+      source = scenario$source,
+      expected = scenario$expected,
+      split_strategy = scenario$split_strategy,
+      train_rows = nrow(split$train),
+      test_rows = nrow(split$test),
+      total_rows = nrow(df),
+      num_features = sum(vapply(df, is.numeric, logical(1))),
+      num_classes = length(unique(df$label)),
+      has_patient_id = "patient_id" %in% names(df),
+      has_hierarchy = "label_l2" %in% names(df),
+      num_classes_l2 = ifelse("label_l2" %in% names(df), length(unique(df$label_l2)), NA_integer_),
+      train_file = basename(paths$train),
+      test_file = basename(paths$test),
+      tasks_file = ifelse(is.na(tasks_path), "", basename(tasks_path)),
+      bootstrap_flags = build_bootstrap_flags(
+        mode = scenario$mode,
+        has_patient_id = "patient_id" %in% names(df),
+        has_hierarchy = "label_l2" %in% names(df),
+        tasks_file = tasks_path
+      ),
+      notes = obj$notes,
+      stringsAsFactors = FALSE
+    )
+  }
+
+  catalog <- do.call(rbind, catalog_rows)
+  utils::write.csv(catalog, file.path(out_dir, "scenario_catalog.csv"), row.names = FALSE, quote = TRUE)
+
+  cat("Generated", nrow(catalog), "train/test scenarios in", out_dir, "\n")
+  cat("Catalog:", file.path(out_dir, "scenario_catalog.csv"), "\n")
+}
+
+main()

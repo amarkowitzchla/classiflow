@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -91,6 +91,11 @@ class FinalTrainConfig:
     # Task configuration
     mode: str  # "meta", "binary", "multiclass", "hierarchical"
     classes: Optional[List[str]] = None
+    feature_cols: Optional[List[str]] = None
+    sample_id_col: Optional[str] = None
+    patient_id_col: Optional[str] = None
+    slide_id_col: Optional[str] = None
+    specimen_id_col: Optional[str] = None
 
     # Selected configurations from technical validation
     selected_binary_configs: Dict[str, SelectedBinaryConfig] = field(default_factory=dict)
@@ -129,6 +134,11 @@ class FinalTrainConfig:
         data = {
             "train_manifest": str(self.train_manifest),
             "label_col": self.label_col,
+            "feature_cols": self.feature_cols,
+            "sample_id_col": self.sample_id_col,
+            "patient_id_col": self.patient_id_col,
+            "slide_id_col": self.slide_id_col,
+            "specimen_id_col": self.specimen_id_col,
             "mode": self.mode,
             "classes": self.classes,
             "sampler": self.sampler,
@@ -650,7 +660,10 @@ def build_meta_features_for_final(
 # -----------------------------------------------------------------------------
 
 
-def train_final_meta_model(config: FinalTrainConfig) -> FinalTrainResult:
+def train_final_meta_model(
+    config: FinalTrainConfig,
+    _allow_backend_fallback: bool = True,
+) -> FinalTrainResult:
     """
     Train final meta-classifier model from scratch on full training data.
 
@@ -700,7 +713,18 @@ def train_final_meta_model(config: FinalTrainConfig) -> FinalTrainResult:
 
     # Load data
     logger.info("\n[1/6] Loading training data...")
-    X_full, y_full = load_data(config.train_manifest, config.label_col)
+    exclude_cols = [
+        config.sample_id_col,
+        config.patient_id_col,
+        config.slide_id_col,
+        config.specimen_id_col,
+    ]
+    X_full, y_full = load_data(
+        config.train_manifest,
+        config.label_col,
+        feature_cols=config.feature_cols,
+        exclude_cols=exclude_cols,
+    )
 
     if config.classes:
         mask = y_full.isin(config.classes)
@@ -774,9 +798,17 @@ def train_final_meta_model(config: FinalTrainConfig) -> FinalTrainResult:
             logger.warning(f"  {task_name}: no config, using default {model_name}")
 
         if model_name not in estimators:
-            warnings.append(f"Model {model_name} not available for {task_name}")
-            logger.warning(f"  {task_name}: model {model_name} not available")
-            continue
+            fallback_name = list(estimators.keys())[0]
+            warnings.append(
+                f"Model {model_name} not available for {task_name}; "
+                f"falling back to {fallback_name}"
+            )
+            logger.warning(
+                f"  {task_name}: model {model_name} not available, "
+                f"falling back to {fallback_name}"
+            )
+            model_name = fallback_name
+            params = {}
 
         # Build pipeline
         estimator = estimators[model_name]
@@ -836,6 +868,20 @@ def train_final_meta_model(config: FinalTrainConfig) -> FinalTrainResult:
         sanity_path = config.outdir / "sanity_checks.json"
         with open(sanity_path, "w", encoding="utf-8") as f:
             json.dump([r.to_dict() for r in sanity_results], f, indent=2)
+
+        if _allow_backend_fallback and config.backend in {"torch", "hybrid"}:
+            logger.warning(
+                "Sanity checks failed with backend=%s. Retrying final training with "
+                "sklearn backend fallback.",
+                config.backend,
+            )
+            fallback_config = replace(
+                config,
+                backend="sklearn",
+                model_set=None,
+                device="cpu",
+            )
+            return train_final_meta_model(fallback_config, _allow_backend_fallback=False)
 
         error_msg = (
             f"SANITY CHECK FAILURE: {len(failures)} check(s) failed.\n"

@@ -25,6 +25,23 @@ def test_classification_metrics_warn_when_model_classes_miss_test_labels():
     assert metrics["confusion_matrix"]["matrix"][2][0] == 2
 
 
+def test_decision_metrics_average_over_test_supported_classes():
+    y_true = np.array(["A", "A", "A", "A"])
+    y_pred = np.array(["A", "B", "A", "B"])
+
+    metrics = compute_classification_metrics(
+        y_true,
+        y_pred,
+        y_proba=None,
+        class_names=["A", "B", "C"],
+    )
+
+    assert metrics["sensitivity"] == 0.5
+    assert any(
+        "classes absent from the test labels" in warning for warning in metrics["warnings"]
+    )
+
+
 def test_inference_plots_warn_and_continue_with_missing_test_labels(tmp_path):
     y_true = np.array(["A", "A"])
     y_pred = np.array(["B", "B"])

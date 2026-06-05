@@ -86,6 +86,10 @@ def compute_classification_metrics(
     metrics["n_samples"] = n_samples
     metrics_warnings: List[str] = []
 
+    def _add_warning(message: str) -> None:
+        if message not in metrics_warnings:
+            metrics_warnings.append(message)
+
     # Overall metrics
     metrics["accuracy"] = float(accuracy_score(y_true_clean, y_pred_clean))
     with warnings.catch_warnings(record=True) as caught_warnings:
@@ -101,7 +105,7 @@ def compute_classification_metrics(
                 "balanced accuracy was computed with zero support for those classes."
             )
             logger.warning(warning)
-            metrics_warnings.append(warning)
+            _add_warning(warning)
         else:
             warnings.warn(caught_warning.message, category=caught_warning.category)
 
@@ -130,9 +134,26 @@ def compute_classification_metrics(
             "will only use available probability columns."
         )
         logger.warning(warning)
-        metrics_warnings.append(warning)
+        _add_warning(warning)
 
     metric_class_names = _ordered_union(class_names, observed_classes)
+    observed_test_classes = set(y_true_clean.tolist())
+    classes_absent_from_test = [
+        cls for cls in class_names if cls not in observed_test_classes
+    ]
+    if classes_absent_from_test:
+        unique_absent = _ordered_union(classes_absent_from_test)
+        absent_preview = unique_absent[:20]
+        absent_suffix = ""
+        if len(unique_absent) > len(absent_preview):
+            absent_suffix = f" (+{len(unique_absent) - len(absent_preview)} more)"
+        warning = (
+            "Model class list includes classes absent from the test labels: "
+            f"{absent_preview}{absent_suffix}. Decision metrics (sensitivity/specificity/PPV/NPV) "
+            "are macro-averaged over classes with test support."
+        )
+        logger.warning(warning)
+        _add_warning(warning)
 
     precision, recall, f1, support = precision_recall_fscore_support(
         y_true_clean, y_pred_clean, labels=metric_class_names, average=None, zero_division=0
@@ -157,7 +178,12 @@ def compute_classification_metrics(
         "matrix": cm.tolist(),
     }
 
-    decision_metrics = compute_decision_metrics(y_true_clean, y_pred_clean, metric_class_names)
+    decision_metrics = compute_decision_metrics(
+        y_true_clean,
+        y_pred_clean,
+        metric_class_names,
+        averaging="observed",
+    )
     metrics.update(decision_metrics)
     metrics["recall"] = decision_metrics.get("sensitivity")
     metrics["precision"] = decision_metrics.get("ppv")
@@ -172,7 +198,7 @@ def compute_classification_metrics(
                 f"in the model class list: class_names={class_names}"
             )
             logger.warning(warning)
-            metrics_warnings.append(warning)
+            _add_warning(warning)
         elif y_proba_clean.shape[1] == len(class_names):
             if not proba_eval_mask.all():
                 excluded = int((~proba_eval_mask).sum())
@@ -181,7 +207,7 @@ def compute_classification_metrics(
                     f"from probability metrics: n_excluded={excluded}"
                 )
                 logger.warning(warning)
-                metrics_warnings.append(warning)
+                _add_warning(warning)
             roc_metrics = compute_roc_auc(
                 y_true_clean[proba_eval_mask],
                 y_proba_clean[proba_eval_mask],
@@ -195,7 +221,7 @@ def compute_classification_metrics(
                 f"class_names={len(class_names)}"
             )
             logger.warning(warning)
-            metrics_warnings.append(warning)
+            _add_warning(warning)
 
     # Log loss (if probabilities provided)
     if y_proba is not None:

@@ -621,6 +621,7 @@ def run_technical_validation(
         train_config = TrainConfig(
             data_csv=train_manifest,
             label_col=config.key_columns.label,
+            feature_cols=train_entry.data_schema.feature_columns,
             patient_col=config.key_columns.patient_id if config.task.patient_stratified else None,
             outdir=run_dir,
             outer_folds=config.validation.nested_cv.outer_folds,
@@ -663,6 +664,7 @@ def run_technical_validation(
         train_config = MetaConfig(
             data_csv=train_manifest,
             label_col=config.key_columns.label,
+            feature_cols=train_entry.data_schema.feature_columns,
             patient_col=config.key_columns.patient_id if config.task.patient_stratified else None,
             tasks_json=tasks_json_path,
             tasks_only=config.task.tasks_only,
@@ -709,6 +711,7 @@ def run_technical_validation(
         train_config = MulticlassConfig(
             data_csv=train_manifest,
             label_col=config.key_columns.label,
+            feature_cols=train_entry.data_schema.feature_columns,
             patient_col=config.key_columns.patient_id if config.task.patient_stratified else None,
             outdir=run_dir,
             outer_folds=config.validation.nested_cv.outer_folds,
@@ -1194,10 +1197,21 @@ def _train_final_binary(
     train_manifest: Path,
     outdir: Path,
     best_cfg: Dict[str, str],
+    feature_cols: Optional[List[str]] = None,
 ) -> str:
     from classiflow.io import load_data
 
-    X, y_raw = load_data(train_manifest, config.key_columns.label)
+    X, y_raw = load_data(
+        train_manifest,
+        config.key_columns.label,
+        feature_cols=feature_cols,
+        exclude_cols=[
+            config.key_columns.sample_id,
+            config.key_columns.patient_id,
+            config.key_columns.slide_id,
+            config.key_columns.specimen_id,
+        ],
+    )
     pos_label = y_raw.value_counts().idxmin()
     y = (y_raw == pos_label).astype(int)
 
@@ -1259,6 +1273,7 @@ def _train_final_meta(
     outdir: Path,
     best_cfg: Dict[str, str],
     technical_run: Optional[Path] = None,
+    feature_cols: Optional[List[str]] = None,
 ) -> None:
     """
     Train final meta-classifier for deployment.
@@ -1284,7 +1299,17 @@ def _train_final_meta(
     from classiflow.io import load_data
     from sklearn.calibration import CalibratedClassifierCV
 
-    X_full, y_full = load_data(train_manifest, config.key_columns.label)
+    X_full, y_full = load_data(
+        train_manifest,
+        config.key_columns.label,
+        feature_cols=feature_cols,
+        exclude_cols=[
+            config.key_columns.sample_id,
+            config.key_columns.patient_id,
+            config.key_columns.slide_id,
+            config.key_columns.specimen_id,
+        ],
+    )
     classes = sorted(y_full.unique().tolist())
     task_builder = TaskBuilder(classes).build_all_auto_tasks()
     tasks = task_builder.get_tasks()
@@ -1605,11 +1630,22 @@ def _train_final_multiclass(
     train_manifest: Path,
     outdir: Path,
     best_cfg: Dict[str, str],
+    feature_cols: Optional[List[str]] = None,
 ) -> None:
     from classiflow.io import load_data
     from classiflow.models import get_estimators, resolve_device
 
-    X_full, y_full = load_data(train_manifest, config.key_columns.label)
+    X_full, y_full = load_data(
+        train_manifest,
+        config.key_columns.label,
+        feature_cols=feature_cols,
+        exclude_cols=[
+            config.key_columns.sample_id,
+            config.key_columns.patient_id,
+            config.key_columns.slide_id,
+            config.key_columns.specimen_id,
+        ],
+    )
     classes = sorted(y_full.unique().tolist())
 
     logreg_params = {
@@ -1688,6 +1724,7 @@ def _train_final_hierarchical(
     train_manifest: Path,
     outdir: Path,
     metrics_path: Path,
+    feature_cols: Optional[List[str]] = None,
 ) -> None:
     import json as jsonlib
     import numpy as np
@@ -1702,7 +1739,19 @@ def _train_final_hierarchical(
     if label_l2 is None:
         raise ValueError("hierarchy_path required for hierarchical final model")
 
-    X_all = df.select_dtypes(include=[np.number]).values
+    if feature_cols:
+        X_all = df[feature_cols].to_numpy()
+    else:
+        exclude = {
+            config.key_columns.label,
+            config.task.hierarchy_path,
+            config.key_columns.sample_id,
+            config.key_columns.patient_id,
+            config.key_columns.slide_id,
+            config.key_columns.specimen_id,
+        }
+        safe_exclude = [col for col in exclude if col]
+        X_all = df.drop(columns=safe_exclude, errors="ignore").select_dtypes(include=[np.number]).values
     y_l1_all = df[label_l1].astype(str).values
     y_l2_all = df[label_l2].astype(str).values
 
@@ -1964,6 +2013,11 @@ def build_final_model(
         final_config = FinalTrainConfig(
             train_manifest=train_manifest,
             label_col=effective_config.key_columns.label,
+            feature_cols=train_entry.data_schema.feature_columns,
+            sample_id_col=effective_config.key_columns.sample_id,
+            patient_id_col=effective_config.key_columns.patient_id,
+            slide_id_col=effective_config.key_columns.slide_id,
+            specimen_id_col=effective_config.key_columns.specimen_id,
             mode="meta",
             classes=None,  # Use all classes from data
             selected_binary_configs=binary_configs,
@@ -2026,7 +2080,13 @@ def build_final_model(
         )
         if sampler:
             best_cfg["sampler"] = sampler
-        pos_label = _train_final_binary(effective_config, train_manifest, run_dir, best_cfg)
+        pos_label = _train_final_binary(
+            effective_config,
+            train_manifest,
+            run_dir,
+            best_cfg,
+            feature_cols=train_entry.data_schema.feature_columns,
+        )
         task_definitions = {"binary_task": f"positive_class={pos_label}"}
         best_models = {"binary_task": best_cfg["model_name"]}
         entry = _final_selected_model_entry("binary_task", best_cfg)
@@ -2042,14 +2102,26 @@ def build_final_model(
         )
         if sampler:
             best_cfg["sampler"] = sampler
-        _train_final_multiclass(effective_config, train_manifest, run_dir, best_cfg)
+        _train_final_multiclass(
+            effective_config,
+            train_manifest,
+            run_dir,
+            best_cfg,
+            feature_cols=train_entry.data_schema.feature_columns,
+        )
         entry = _final_selected_model_entry("multiclass", best_cfg)
         selected_final_models = [entry] if entry is not None else []
 
     else:
         logger.info("\n[2/4] Training final hierarchical model...")
         metrics_path = technical_run / "metrics_inner_cv.csv"
-        _train_final_hierarchical(effective_config, train_manifest, run_dir, metrics_path)
+        _train_final_hierarchical(
+            effective_config,
+            train_manifest,
+            run_dir,
+            metrics_path,
+            feature_cols=train_entry.data_schema.feature_columns,
+        )
 
     # Create training manifest
     logger.info("\n[3/4] Creating training manifest...")

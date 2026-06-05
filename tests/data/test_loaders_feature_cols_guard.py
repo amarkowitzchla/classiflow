@@ -40,3 +40,23 @@ def test_load_data_with_groups_rejects_label_or_patient(tmp_path):
             patient_col="patient_id",
             feature_cols=["label", "f1"],
         )
+
+
+def test_load_data_excludes_explicit_exclude_cols(tmp_path):
+    df = pd.DataFrame({
+        "label": ["A", "B", "A"],
+        "sample_id": [101, 102, 103],
+        "f1": [1.0, 2.0, 3.0],
+    })
+    path = tmp_path / "data.csv"
+    df.to_csv(path, index=False)
+
+    X, y = load_data(
+        path,
+        label_col="label",
+        feature_cols=["sample_id", "f1"],
+        exclude_cols=["sample_id"],
+    )
+
+    assert list(X.columns) == ["f1"]
+    assert len(y) == 3

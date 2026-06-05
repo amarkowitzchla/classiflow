@@ -59,7 +59,14 @@ def test_parse_metrics_reads_hierarchical_payload_from_metrics_json(tmp_path):
         textwrap.dedent(
             """\
             {
-              "overall": {"accuracy": 0.88, "f1_macro": 0.85},
+              "overall": {
+                "accuracy": 0.88,
+                "f1_macro": 0.85,
+                "sensitivity": 0.81,
+                "specificity": 0.93,
+                "ppv": 0.77,
+                "npv": 0.95
+              },
               "hierarchical": {
                 "L1": {"summary": {"accuracy": 0.9}},
                 "L2": {"summary": {"accuracy": 0.8}}
@@ -72,5 +79,9 @@ def test_parse_metrics_reads_hierarchical_payload_from_metrics_json(tmp_path):
     metrics = parse_metrics(tmp_path, "independent_test")
 
     assert metrics["summary"]["accuracy"] == pytest.approx(0.88)
+    assert metrics["summary"]["sensitivity"] == pytest.approx(0.81)
+    assert metrics["summary"]["specificity"] == pytest.approx(0.93)
+    assert metrics["summary"]["ppv"] == pytest.approx(0.77)
+    assert metrics["summary"]["npv"] == pytest.approx(0.95)
     assert metrics["hierarchical"]["L1"]["summary"]["accuracy"] == pytest.approx(0.9)
     assert metrics["hierarchical"]["L2"]["summary"]["accuracy"] == pytest.approx(0.8)

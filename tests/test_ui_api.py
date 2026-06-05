@@ -697,6 +697,30 @@ class TestScanner:
         assert run.manifest.run_id == "run001"
         assert run.metrics["summary"]["balanced_accuracy"] == 0.85
 
+    def test_get_run_refreshes_cache_when_metrics_change(self, temp_projects_dir):
+        scanner = LocalFilesystemScanner(temp_projects_dir)
+        scanner.scan_projects()
+        run_key = ("TEST_PROJECT__test_project", "technical_validation", "run001")
+        run = scanner.get_run(*run_key)
+        assert run is not None
+        assert run.metrics["summary"]["balanced_accuracy"] == 0.85
+
+        metrics_path = (
+            temp_projects_dir
+            / "TEST_PROJECT__test_project"
+            / "runs"
+            / "technical_validation"
+            / "run001"
+            / "metrics_summary.json"
+        )
+        payload = json.loads(metrics_path.read_text())
+        payload["summary"]["balanced_accuracy"] = 0.42
+        metrics_path.write_text(json.dumps(payload))
+
+        refreshed = scanner.get_run(*run_key)
+        assert refreshed is not None
+        assert refreshed.metrics["summary"]["balanced_accuracy"] == 0.42
+
     def test_compute_gate_results_uses_shared_promotion_evaluator(self, temp_projects_dir):
         scanner = LocalFilesystemScanner(temp_projects_dir)
         scanner.scan_projects()

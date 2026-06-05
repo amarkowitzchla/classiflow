@@ -53,6 +53,8 @@ export function RunPage() {
     { id: 'lineage', label: 'Lineage', icon: GitBranch },
   ];
 
+  const headlineCards = buildHeadlineCards(run.metrics);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -87,12 +89,12 @@ export function RunPage() {
       </div>
 
       {/* Headline Metrics */}
-      {Object.keys(run.metrics.primary).length > 0 && (
+      {headlineCards.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {Object.entries(run.metrics.primary).slice(0, 4).map(([key, value]) => (
+          {headlineCards.map(({ id, label, value }) => (
             <MetricCard
-              key={key}
-              label={formatMetricName(key)}
+              key={id}
+              label={label}
               value={value}
               precision={4}
             />
@@ -728,4 +730,34 @@ function normalizeConfusionMatrix(
     };
   }
   return null;
+}
+
+function buildHeadlineCards(metrics: MetricsSummary): Array<{ id: string; label: string; value: number | null }> {
+  const cards: Array<{ id: string; label: string; value: number | null }> = [];
+  const overallEntries = Object.entries(metrics.primary).slice(0, 4);
+  cards.push(
+    ...overallEntries.map(([key, value]) => ({
+      id: `overall-${key}`,
+      label: formatMetricName(key),
+      value,
+    }))
+  );
+
+  const l1Summary = metrics.hierarchical?.L1?.summary;
+  if (l1Summary) {
+    const l1MetricOrder = ['accuracy', 'balanced_accuracy', 'f1_macro'] as const;
+    for (const metricName of l1MetricOrder) {
+      const metricValue = l1Summary[metricName];
+      if (metricValue === undefined || metricValue === null) {
+        continue;
+      }
+      cards.push({
+        id: `l1-${metricName}`,
+        label: `L1 ${formatMetricName(metricName)}`,
+        value: metricValue,
+      });
+    }
+  }
+
+  return cards;
 }

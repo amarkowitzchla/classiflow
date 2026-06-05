@@ -108,6 +108,7 @@ class ScannedRun:
 
     manifest: RunManifestNormalized
     metrics: dict
+    cache_signature: int
     artifact_paths: list[str] = field(default_factory=list)
     artifact_count: int = 0
 
@@ -148,6 +149,42 @@ class LocalFilesystemScanner:
 
         self._project_cache: dict[str, ScannedProject] = {}
         self._run_cache: dict[str, ScannedRun] = {}
+
+    @staticmethod
+    def _run_cache_signature(run_dir: Path) -> int:
+        """
+        Return a lightweight signature used to invalidate stale run-cache entries.
+
+        Hash-like signature is based on mtime of core metadata/metrics files that
+        affect run detail payloads shown in UI.
+        """
+        candidates = [
+            run_dir / "run.json",
+            run_dir / "lineage.json",
+            run_dir / "metrics.json",
+            run_dir / "metrics_summary.json",
+            run_dir / "metrics_outer_binary_eval.csv",
+            run_dir / "metrics_outer_meta_eval.csv",
+            run_dir / "metrics_outer_multiclass_eval.csv",
+            run_dir / "metrics_outer_eval.csv",
+            run_dir / "metrics" / "overall_metrics.csv",
+            run_dir / "metrics" / "per_class_metrics.csv",
+            run_dir / "metrics" / "confusion_matrix.csv",
+        ]
+
+        mtimes: list[int] = []
+        try:
+            mtimes.append(run_dir.stat().st_mtime_ns)
+        except OSError:
+            pass
+        for path in candidates:
+            if not path.exists():
+                continue
+            try:
+                mtimes.append(path.stat().st_mtime_ns)
+            except OSError:
+                continue
+        return max(mtimes) if mtimes else 0
 
     def scan_projects(self, force: bool = False) -> list[ScannedProject]:
         """
@@ -269,16 +306,18 @@ class LocalFilesystemScanner:
     def get_run(self, project_id: str, phase: str, run_id: str) -> Optional[ScannedRun]:
         """Get a specific run."""
         run_key = f"{project_id}:{phase}:{run_id}"
-
-        if run_key in self._run_cache:
-            return self._run_cache[run_key]
-
         run_dir = self.projects_root / project_id / "runs" / phase / run_id
+
         if not run_dir.is_dir():
             return None
 
+        signature = self._run_cache_signature(run_dir)
+        cached = self._run_cache.get(run_key)
+        if cached and cached.cache_signature == signature:
+            return cached
+
         try:
-            scanned = self._scan_single_run(run_dir, project_id, phase)
+            scanned = self._scan_single_run(run_dir, project_id, phase, signature=signature)
             self._run_cache[run_key] = scanned
             return scanned
         except Exception as e:
@@ -315,7 +354,14 @@ class LocalFilesystemScanner:
             return numeric if math.isfinite(numeric) else None
         return value
 
-    def _scan_single_run(self, run_dir: Path, project_id: str, phase: str) -> ScannedRun:
+    def _scan_single_run(
+        self,
+        run_dir: Path,
+        project_id: str,
+        phase: str,
+        *,
+        signature: Optional[int] = None,
+    ) -> ScannedRun:
         """Scan a single run directory."""
         manifest = parse_run_manifest(run_dir, project_id, phase)
         metrics = parse_metrics(run_dir, phase)
@@ -330,6 +376,7 @@ class LocalFilesystemScanner:
         return ScannedRun(
             manifest=manifest,
             metrics=metrics,
+            cache_signature=signature if signature is not None else self._run_cache_signature(run_dir),
             artifact_paths=artifact_paths,
             artifact_count=len(artifact_paths),
         )
