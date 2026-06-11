@@ -7,11 +7,11 @@ def test_basic_expanded_grid_includes_ccix_neighbors() -> None:
     grid = build_torch_mlp_param_grid("basic", expanded=True)
 
     assert grid["lr"] == [1e-4, 1e-3]
-    assert grid["weight_decay"] == [1e-5, 1e-4]
+    assert grid["weight_decay"] == [1e-6, 1e-5, 1e-4]
     assert grid["hidden_dim"] == [256, 512]
     assert grid["n_layers"] == [3, 4]
     assert grid["dropout"] == [0.1, 0.2]
-    assert grid["activation"] == ["relu"]
+    assert grid["activation"] == ["relu", "elu"]
     assert grid["use_batchnorm"] == [True]
     assert grid["batch_size"] == [256, 512]
     assert grid["epochs"] == [50, 100]
