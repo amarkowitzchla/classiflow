@@ -5,6 +5,29 @@ export type GateStatus = 'PASS' | 'FAIL' | 'PENDING';
 export type ArtifactKind = 'image' | 'report' | 'metrics' | 'model' | 'data' | 'config' | 'other';
 export type ReviewStatus = 'pending' | 'approved' | 'rejected' | 'needs_changes';
 
+export interface HierarchicalLevelMetrics {
+  summary?: Record<string, number | null>;
+  per_fold?: Record<string, Array<number | null>>;
+  per_class?: Array<{
+    class: string;
+    precision: number | null;
+    recall: number | null;
+    f1: number | null;
+    support: number | null;
+  }>;
+  confusion_matrix?: {
+    labels: string[];
+    matrix: Array<Array<number | null>>;
+  };
+  roc_auc?: {
+    per_class: Array<{ class: string; auc: number | null }>;
+    macro: number | null;
+    micro: number | null;
+  };
+  warnings?: string[];
+  error?: string;
+}
+
 export interface MetricsSummary {
   primary: Record<string, number | null>;
   per_fold: Record<string, Array<number | null>>;
@@ -24,6 +47,7 @@ export interface MetricsSummary {
     macro: number | null;
     micro: number | null;
   };
+  hierarchical?: Record<string, HierarchicalLevelMetrics>;
 }
 
 export interface RunBrief {
@@ -42,6 +66,54 @@ export interface PlotManifest {
   classiflow_version: string | null;
 }
 
+export interface BagMemberMetrics {
+  member_index: number;
+  estimator_type: string | null;
+  n_samples: number | null;
+  accuracy: number | null;
+  balanced_accuracy: number | null;
+  f1_macro: number | null;
+  mcc: number | null;
+  log_loss: number | null;
+  roc_auc_macro: number | null;
+  roc_auc_micro: number | null;
+  agreement_with_ensemble: number | null;
+}
+
+export interface BaggingDetail {
+  strategy: string;
+  member_count: number;
+  estimator_type: string | null;
+  task_name: string | null;
+  evaluation_available: boolean;
+  metrics_csv_path: string | null;
+  members: BagMemberMetrics[];
+}
+
+export interface SelectedModelConfig {
+  task_name: string;
+  model_name: string;
+  sampler: string | null;
+  mean_score: number | null;
+  params: Record<string, unknown>;
+}
+
+export interface SelectedFinalModelSummary {
+  run_id: string;
+  run_key: string;
+  task_type: string | null;
+  bundle_path: string | null;
+  technical_run: string | null;
+  sampler: string | null;
+  train_from_scratch: boolean;
+  selection_metric: string | null;
+  selection_direction: string | null;
+  execution: Record<string, unknown>;
+  strategy: Record<string, unknown>;
+  selected_models: SelectedModelConfig[];
+  meta_model: SelectedModelConfig | null;
+}
+
 export interface RunDetail {
   run_key: string;
   run_id: string;
@@ -56,6 +128,8 @@ export interface RunDetail {
   lineage: Record<string, unknown> | null;
   artifact_count: number;
   artifacts: Artifact[];
+  bagging: BaggingDetail | null;
+  selected_final_model: SelectedFinalModelSummary | null;
   plot_manifest: PlotManifest | null;
 }
 
@@ -146,6 +220,8 @@ export interface ProjectDashboard {
   updated_at: string | null;
   registry: RegistrySummary;
   promotion: PromotionSummary;
+  model_settings: Record<string, unknown>;
+  selected_final_model: SelectedFinalModelSummary | null;
   phases: Record<string, RunBrief[]>;
   artifact_highlights: Artifact[];
 }
