@@ -4,13 +4,13 @@ import { ArrowLeft, BarChart2, FileText, GitBranch, Settings, XCircle, Clock, Tr
 import { formatDistanceToNow } from 'date-fns';
 import { clsx } from 'clsx';
 import { useRun } from '../hooks/useApi';
-import { FinalModelSummary, MetricValue, MetricCard } from '../components/MetricValue';
+import { MetricValue, MetricCard } from '../components/MetricValue';
 import { ArtifactList } from '../components/ArtifactViewer';
 import { Comments } from '../components/Comments';
 import { InteractivePlotSection } from '../components/charts';
-import type { HierarchicalLevelMetrics, RunDetail, MetricsSummary } from '../types/api';
+import type { RunDetail, MetricsSummary } from '../types/api';
 
-type TabId = 'metrics' | 'charts' | 'bagging' | 'artifacts' | 'config' | 'lineage';
+type TabId = 'metrics' | 'charts' | 'artifacts' | 'config' | 'lineage';
 
 export function RunPage() {
   const { projectId, phase, runId } = useParams<{
@@ -45,15 +45,10 @@ export function RunPage() {
   const tabs: { id: TabId; label: string; icon: typeof BarChart2 }[] = [
     { id: 'metrics', label: 'Metrics', icon: BarChart2 },
     { id: 'charts', label: 'Charts', icon: TrendingUp },
-    ...(run.bagging && run.bagging.member_count > 0
-      ? [{ id: 'bagging' as const, label: `Bag Members (${run.bagging.member_count})`, icon: BarChart2 }]
-      : []),
     { id: 'artifacts', label: `Artifacts (${run.artifact_count})`, icon: FileText },
     { id: 'config', label: 'Config', icon: Settings },
     { id: 'lineage', label: 'Lineage', icon: GitBranch },
   ];
-
-  const headlineCards = buildHeadlineCards(run.metrics);
 
   return (
     <div className="space-y-6">
@@ -89,21 +84,17 @@ export function RunPage() {
       </div>
 
       {/* Headline Metrics */}
-      {headlineCards.length > 0 && (
+      {Object.keys(run.metrics.primary).length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {headlineCards.map(({ id, label, value }) => (
+          {Object.entries(run.metrics.primary).slice(0, 4).map(([key, value]) => (
             <MetricCard
-              key={id}
-              label={label}
+              key={key}
+              label={formatMetricName(key)}
               value={value}
               precision={4}
             />
           ))}
         </div>
-      )}
-
-      {run.selected_final_model && (
-        <FinalModelSummary summary={run.selected_final_model} />
       )}
 
       {/* Tabs */}
@@ -138,9 +129,6 @@ export function RunPage() {
             artifacts={run.artifacts}
           />
         )}
-        {activeTab === 'bagging' && run.bagging && (
-          <BaggingTab bagging={run.bagging} artifacts={run.artifacts} />
-        )}
         {activeTab === 'artifacts' && <ArtifactsTab run={run} />}
         {activeTab === 'config' && <ConfigTab config={run.config} features={run.feature_list} />}
         {activeTab === 'lineage' && <LineageTab lineage={run.lineage} />}
@@ -159,10 +147,6 @@ interface MetricsTabProps {
 }
 
 function MetricsTab({ metrics }: MetricsTabProps) {
-  const hierarchicalLevels = Object.entries(metrics.hierarchical || {}).filter(([, value]) =>
-    isHierarchicalLevelMetrics(value)
-  );
-
   return (
     <div className="space-y-8">
       {/* Primary Metrics */}
@@ -188,22 +172,6 @@ function MetricsTab({ metrics }: MetricsTabProps) {
                 ))}
               </tbody>
             </table>
-          </div>
-        </div>
-      )}
-
-      {/* Hierarchical Metrics */}
-      {hierarchicalLevels.length > 0 && (
-        <div>
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Hierarchical Metrics</h3>
-          <div className="space-y-6">
-            {hierarchicalLevels.map(([levelName, levelMetrics]) => (
-              <HierarchicalLevelSection
-                key={levelName}
-                levelName={levelName}
-                levelMetrics={levelMetrics}
-              />
-            ))}
           </div>
         </div>
       )}
@@ -349,156 +317,6 @@ function MetricsTab({ metrics }: MetricsTabProps) {
   );
 }
 
-interface HierarchicalLevelSectionProps {
-  levelName: string;
-  levelMetrics: HierarchicalLevelMetrics;
-}
-
-function HierarchicalLevelSection({ levelName, levelMetrics }: HierarchicalLevelSectionProps) {
-  const summary = levelMetrics.summary || {};
-  const perFold = levelMetrics.per_fold || {};
-  const confusionMatrix = normalizeConfusionMatrix(levelMetrics);
-  const warnings = levelMetrics.warnings || [];
-
-  return (
-    <section className="bg-white rounded-lg border border-gray-200 p-4 space-y-4">
-      <h4 className="text-base font-medium text-gray-900">{formatHierarchyLevelName(levelName)}</h4>
-
-      {levelMetrics.error && (
-        <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-          {levelMetrics.error}
-        </p>
-      )}
-
-      {Object.keys(summary).length > 0 && (
-        <div className="overflow-hidden rounded border border-gray-200">
-          <table className="w-full">
-            <thead>
-              <tr>
-                <th className="text-left">Metric</th>
-                <th className="text-right">Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(summary).map(([key, value]) => (
-                <tr key={`${levelName}-${key}`}>
-                  <td>{formatMetricName(key)}</td>
-                  <td className="text-right">
-                    <MetricValue value={value} precision={4} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {Object.keys(perFold).length > 0 && (
-        <div className="overflow-hidden rounded border border-gray-200">
-          <table className="w-full">
-            <thead>
-              <tr>
-                <th className="text-left">Metric</th>
-                {Object.values(perFold)[0]?.map((_, i) => (
-                  <th key={`${levelName}-fold-${i}`} className="text-right">Fold {i + 1}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(perFold).map(([key, values]) => (
-                <tr key={`${levelName}-per-fold-${key}`}>
-                  <td>{formatMetricName(key)}</td>
-                  {values.map((value, i) => (
-                    <td key={`${levelName}-${key}-${i}`} className="text-right">
-                      <MetricValue value={value} precision={3} />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {levelMetrics.per_class && levelMetrics.per_class.length > 0 && (
-        <div className="overflow-hidden rounded border border-gray-200">
-          <table className="w-full">
-            <thead>
-              <tr>
-                <th className="text-left">Class</th>
-                <th className="text-right">Precision</th>
-                <th className="text-right">Recall</th>
-                <th className="text-right">F1</th>
-                <th className="text-right">Support</th>
-              </tr>
-            </thead>
-            <tbody>
-              {levelMetrics.per_class.map((row) => (
-                <tr key={`${levelName}-class-${row.class}`}>
-                  <td className="font-medium">{row.class}</td>
-                  <td className="text-right">
-                    <MetricValue value={row.precision} precision={3} />
-                  </td>
-                  <td className="text-right">
-                    <MetricValue value={row.recall} precision={3} />
-                  </td>
-                  <td className="text-right">
-                    <MetricValue value={row.f1} precision={3} />
-                  </td>
-                  <td className="text-right">{row.support ?? '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {confusionMatrix && (
-        <div className="overflow-x-auto rounded border border-gray-200 p-3">
-          <table className="w-full">
-            <thead>
-              <tr>
-                <th className="text-left">Actual / Predicted</th>
-                {confusionMatrix.labels.map((label) => (
-                  <th key={`${levelName}-cm-head-${label}`} className="text-center px-3">{label}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {confusionMatrix.matrix.map((row, i) => (
-                <tr key={`${levelName}-cm-row-${i}`}>
-                  <td className="font-medium">{confusionMatrix.labels[i]}</td>
-                  {row.map((value, j) => (
-                    <td
-                      key={`${levelName}-cm-${i}-${j}`}
-                      className={clsx('text-center px-3', i === j ? 'bg-green-50 font-medium' : '')}
-                    >
-                      {value}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {warnings.length > 0 && (
-        <div className="space-y-1">
-          {warnings.map((warning, index) => (
-            <p
-              key={`${levelName}-warning-${index}`}
-              className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1"
-            >
-              {warning}
-            </p>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
 interface ArtifactsTabProps {
   run: RunDetail;
 }
@@ -509,102 +327,6 @@ function ArtifactsTab({ run }: ArtifactsTabProps) {
   }
 
   return <ArtifactList artifacts={run.artifacts} columns={2} />;
-}
-
-interface BaggingTabProps {
-  bagging: NonNullable<RunDetail['bagging']>;
-  artifacts: RunDetail['artifacts'];
-}
-
-function BaggingTab({ bagging, artifacts }: BaggingTabProps) {
-  const metricsArtifact = bagging.metrics_csv_path
-    ? artifacts.find((artifact) => artifact.relative_path === bagging.metrics_csv_path)
-    : undefined;
-
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <MetricCard label="Bag Members" value={bagging.member_count} precision={0} />
-        <MetricCard label="Scored Members" value={bagging.members.length} precision={0} />
-      </div>
-
-      <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-2">
-        <p className="text-sm text-gray-600">
-          Strategy: <span className="font-medium text-gray-900">{bagging.strategy}</span>
-        </p>
-        {bagging.estimator_type && (
-          <p className="text-sm text-gray-600">
-            Estimator: <span className="font-mono text-gray-900">{bagging.estimator_type}</span>
-          </p>
-        )}
-        {bagging.task_name && (
-          <p className="text-sm text-gray-600">
-            Task: <span className="font-medium text-gray-900">{bagging.task_name}</span>
-          </p>
-        )}
-        {metricsArtifact?.download_url && (
-          <a
-            href={metricsArtifact.download_url}
-            className="inline-flex text-sm text-blue-600 hover:underline"
-          >
-            Download bag member metrics CSV
-          </a>
-        )}
-      </div>
-
-      {bagging.members.length > 0 ? (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr>
-                <th className="text-left">Member</th>
-                <th className="text-right">Accuracy</th>
-                <th className="text-right">Balanced Acc.</th>
-                <th className="text-right">F1 Macro</th>
-                <th className="text-right">MCC</th>
-                <th className="text-right">ROC AUC</th>
-                <th className="text-right">Agreement</th>
-              </tr>
-            </thead>
-            <tbody>
-              {bagging.members.map((member) => (
-                <tr key={member.member_index}>
-                  <td className="font-medium">
-                    #{member.member_index}
-                    {member.estimator_type && (
-                      <div className="text-xs text-gray-500 font-mono">{member.estimator_type}</div>
-                    )}
-                  </td>
-                  <td className="text-right">
-                    <MetricValue value={member.accuracy} precision={4} />
-                  </td>
-                  <td className="text-right">
-                    <MetricValue value={member.balanced_accuracy} precision={4} />
-                  </td>
-                  <td className="text-right">
-                    <MetricValue value={member.f1_macro} precision={4} />
-                  </td>
-                  <td className="text-right">
-                    <MetricValue value={member.mcc} precision={4} />
-                  </td>
-                  <td className="text-right">
-                    <MetricValue value={member.roc_auc_macro} precision={4} />
-                  </td>
-                  <td className="text-right">
-                    <MetricValue value={member.agreement_with_ensemble} precision={4} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <p className="text-gray-500">
-          Member-level evaluation metrics are not available for this run.
-        </p>
-      )}
-    </div>
-  );
 }
 
 interface ConfigTabProps {
@@ -686,78 +408,4 @@ function formatMetricName(name: string): string {
     .replace('Roc', 'ROC')
     .replace('Auc', 'AUC')
     .replace('Mcc', 'MCC');
-}
-
-function formatHierarchyLevelName(levelName: string): string {
-  if (levelName === 'L1') {
-    return 'Level 1';
-  }
-  if (levelName === 'L2') {
-    return 'Level 2';
-  }
-  if (levelName === 'pipeline') {
-    return 'Pipeline';
-  }
-  return formatMetricName(levelName);
-}
-
-function isHierarchicalLevelMetrics(value: unknown): value is HierarchicalLevelMetrics {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const metrics = value as Record<string, unknown>;
-  return Boolean(
-    metrics.summary
-    || metrics.per_fold
-    || metrics.per_class
-    || metrics.confusion_matrix
-    || metrics.roc_auc
-    || metrics.error
-  );
-}
-
-function normalizeConfusionMatrix(
-  levelMetrics: HierarchicalLevelMetrics
-): { labels: string[]; matrix: Array<Array<number | null>> } | null {
-  const direct = levelMetrics.confusion_matrix as {
-    labels?: string[];
-    matrix?: Array<Array<number | null>>;
-  } | undefined;
-  if (direct && Array.isArray(direct.labels) && Array.isArray(direct.matrix)) {
-    return {
-      labels: direct.labels,
-      matrix: direct.matrix,
-    };
-  }
-  return null;
-}
-
-function buildHeadlineCards(metrics: MetricsSummary): Array<{ id: string; label: string; value: number | null }> {
-  const cards: Array<{ id: string; label: string; value: number | null }> = [];
-  const overallEntries = Object.entries(metrics.primary).slice(0, 4);
-  cards.push(
-    ...overallEntries.map(([key, value]) => ({
-      id: `overall-${key}`,
-      label: formatMetricName(key),
-      value,
-    }))
-  );
-
-  const l1Summary = metrics.hierarchical?.L1?.summary;
-  if (l1Summary) {
-    const l1MetricOrder = ['accuracy', 'balanced_accuracy', 'f1_macro'] as const;
-    for (const metricName of l1MetricOrder) {
-      const metricValue = l1Summary[metricName];
-      if (metricValue === undefined || metricValue === null) {
-        continue;
-      }
-      cards.push({
-        id: `l1-${metricName}`,
-        label: `L1 ${formatMetricName(metricName)}`,
-        value: metricValue,
-      });
-    }
-  }
-
-  return cards;
 }
