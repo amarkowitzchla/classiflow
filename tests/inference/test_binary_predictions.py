@@ -40,3 +40,17 @@ def test_add_binary_prediction_columns_skips_nonprobability_scores():
     assert "predicted_label" in augmented.columns
     assert "predicted_proba_neg" not in augmented.columns
     assert "predicted_proba_pos" not in augmented.columns
+
+
+def test_add_binary_prediction_columns_handles_missing_numeric_preds():
+    predictions = pd.DataFrame({
+        "binary_task_score": [0.8, None, 0.2],
+        "binary_task_pred": [1, None, 0],
+    })
+    labels = pd.Series(["neg", "pos"])
+
+    augmented = add_binary_prediction_columns(predictions.copy(), labels=labels, positive_class="pos")
+
+    assert augmented["predicted_label"].iloc[0] == "pos"
+    assert pd.isna(augmented["predicted_label"].iloc[1])
+    assert augmented["predicted_label"].iloc[2] == "neg"

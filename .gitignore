@@ -1,3 +1,9 @@
+DB_test_classiflow
+DB_test_classiflow/*
+classiflow-ui*
+rebuild_ui.sh
+run_project.sh
+
 # Python
 __pycache__/
 *.py[cod]
@@ -96,3 +102,5 @@ dist/
 AGENTS.md
 
 !notebooks/*.ipynb
+.Rproj.user
+.positai

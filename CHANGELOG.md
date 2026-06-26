@@ -15,6 +15,26 @@ Guidelines:
 
 ### Added
 
+- **Bagged final estimator strategy for binary and direct multiclass workflows**:
+  - New CLI flags on `train-binary` and `train-multiclass`:
+    `--final-estimator-strategy` and `--bagging-*`.
+  - New project config fields:
+    `models.final_estimator_strategy` and `models.bagging_*`.
+  - Bagging is intentionally not supported for `task.mode=meta` or `hierarchical`.
+- **Expanded torch MLP tuning grid**:
+  - New `--expanded-mlp-tuning-grid` flag on `train-binary`, `train-meta`,
+    and `train-multiclass`.
+  - New project config field: `models.expanded_mlp_tuning_grid`.
+  - Expanded grids now include CCIX-style MLP hyperparameter axes and nearby values,
+    including `activation`, `use_batchnorm`, `hidden_dim`, `n_layers`, `dropout`,
+    `lr`, `weight_decay`, `batch_size`, and `epochs`.
+- **Bagging diagnostics and final-bundle visibility in inference/UI**:
+  - Independent-test inference now exports `bagging_summary.json` and
+    `metrics/bag_member_metrics.csv` when bagged estimators are used.
+  - UI API payloads now include bag-member metrics and selected final-bundle model
+    configuration summaries (strategy/execution/selected model entries).
+  - The React run page now includes a dedicated bagging tab and richer
+    hierarchical level metric sections (`L1`, `L2`, `L2_by_branch`, `pipeline`).
 - **Experiment Tracking Integration**: Optional MLflow and Weights & Biases support for all training commands
   - New `tracking` module with pluggable tracker architecture
   - CLI flags: `--tracker`, `--experiment-name`, `--run-name` for all `train-*` commands
@@ -30,6 +50,23 @@ Guidelines:
   - `classiflow config normalize project.yaml --out ...`
 
 ### Changed
+- PyTorch dependency floor is now `>=2.7.0` to align with official NVIDIA Blackwell
+  support, and install docs now call out the required CUDA 12.8 (`cu128`) wheels for
+  Blackwell GPU environments.
+- `project bootstrap` now accepts `--expanded-mlp-tuning-grid`, final-estimator bagging
+  flags, and `--technical-final-estimator-strategy`, allowing project YAML generation
+  without manual edits for expanded MLP tuning or bagged final models.
+- `project run-technical` now uses `models.technical_final_estimator_strategy`
+  (default `single`) instead of always mirroring the final bundle estimator strategy.
+- Torch MLP tuning is now unified across the registry-backed binary/meta paths and the
+  direct multiclass path, reducing drift between torch training modes.
+- Torch MLP implementations now support tunable `activation` and `use_batchnorm`
+  hyperparameters so the expanded grid can mirror the CCIX classifier MLP search space.
+- `calibration.method` now accepts `temperature` for torch learners across
+  `train-*` and `project` workflows.
+- The Streamlit training UI now exposes torch backend controls, expanded MLP tuning,
+  and binary bagging options; the UI API now surfaces project model settings in
+  project dashboard responses.
 - Project YAML runtime settings now use `execution.*` (`engine`, `device`, `torch`) instead of top-level
   `backend/device/torch_*` keys for new configs.
 - `project bootstrap` now supports explicit runtime selection with `--engine`, `--device`, and
@@ -130,6 +167,17 @@ Guidelines:
   validation task scores are now computed for all rows, and outer-validation feature construction
   no longer uses `y_va` to decide score population.
 - Guarded against label/patient leakage via explicit `feature_cols`.
+- Fixed multiclass independent-test crashes when the test set omits one or more
+  model classes: metrics and probability plots now skip unsupported class
+  combinations with explicit warnings.
+- Fixed hierarchical report/gate metric resolution by emitting level-specific
+  payloads (`L1`, `L2`, `L2_by_branch`, `pipeline`) for technical validation and
+  independent-test summaries.
+- Fixed hierarchical ROC/PR artifact generation failures on sparse/degenerate
+  folds (including sklearn `IndexError` edge cases) with safe fallbacks and
+  explicit "unavailable" annotations when curves cannot be computed.
+- Fixed binary label post-processing so non-binary numeric predictions are treated
+  as missing labels instead of being coerced into positive/negative classes.
 - Fixed binary probability calibration quality computation:
   - `compute_probability_quality` now correctly computes binary Brier score/log-loss/ECE instead of returning `NaN` due to binary `label_binarize` shape mismatch.
   - probability-quality helpers now reject non-probability score matrices (outside `[0,1]`) to avoid misleading calibration metrics.

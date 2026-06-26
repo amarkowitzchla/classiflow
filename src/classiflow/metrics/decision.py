@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Literal
 
 import numpy as np
 from sklearn.metrics import confusion_matrix
@@ -12,8 +12,24 @@ def compute_decision_metrics(
     y_true: np.ndarray,
     y_pred: np.ndarray,
     class_names: List[str],
+    averaging: Literal["all", "observed"] = "all",
 ) -> Dict[str, float]:
-    """Compute macro-averaged sensitivity, specificity, PPV, and NPV."""
+    """
+    Compute macro-averaged sensitivity, specificity, PPV, and NPV.
+
+    Parameters
+    ----------
+    y_true : np.ndarray
+        Ground-truth labels.
+    y_pred : np.ndarray
+        Predicted labels.
+    class_names : List[str]
+        Label order for confusion matrix construction.
+    averaging : {"all", "observed"}
+        If "all", average over all provided classes.
+        If "observed", average only over classes with non-zero support in y_true
+        (while still computing each class against the full confusion matrix).
+    """
     cm = confusion_matrix(y_true, y_pred, labels=class_names)
     total = cm.sum()
     sensitivities = []
@@ -21,7 +37,12 @@ def compute_decision_metrics(
     ppv = []
     npv = []
 
-    for idx in range(len(class_names)):
+    if averaging == "observed":
+        class_indices = [idx for idx in range(len(class_names)) if cm[idx, :].sum() > 0]
+    else:
+        class_indices = list(range(len(class_names)))
+
+    for idx in class_indices:
         tp = cm[idx, idx]
         fn = cm[idx, :].sum() - tp
         fp = cm[:, idx].sum() - tp

@@ -90,6 +90,53 @@ def _resolve_manifest(project_root: Path, manifest_path: str) -> Path:
     return path
 
 
+def _project_torch_temperature_scaling_enabled(config: ProjectConfig) -> bool:
+    enabled = str(config.calibration.enabled).strip().lower()
+    method = str(config.calibration.method).strip().lower()
+    if method != "temperature":
+        return False
+    if config.execution.engine not in {"torch", "hybrid"}:
+        return False
+    return enabled != "false"
+
+
+def _effective_execution_payload(
+    config: ProjectConfig,
+    *,
+    task_mode: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Return execution metadata that reflects the runtime actually used.
+
+    Hierarchical workflows currently run through the dedicated torch MLP stack
+    regardless of `execution.engine` in project config. Persisting the effective
+    runtime here keeps run metadata and UI summaries truthful.
+    """
+    execution: Dict[str, Any] = dict(config.execution.model_dump(mode="python"))
+    mode = task_mode or config.task.mode
+
+    if mode == "hierarchical":
+        execution["engine"] = "torch"
+        execution["device"] = execution.get("device") or config.device or "auto"
+        execution["model_set"] = execution.get("model_set") or "hierarchical_torch"
+
+        torch_cfg = execution.get("torch")
+        if not isinstance(torch_cfg, dict):
+            execution["torch"] = {
+                "dtype": config.torch_dtype,
+                "num_workers": config.torch_num_workers,
+                "require_device": config.require_torch_device,
+            }
+        else:
+            normalized_torch_cfg = dict(torch_cfg)
+            normalized_torch_cfg.setdefault("dtype", config.torch_dtype)
+            normalized_torch_cfg.setdefault("num_workers", config.torch_num_workers)
+            normalized_torch_cfg.setdefault("require_device", config.require_torch_device)
+            execution["torch"] = normalized_torch_cfg
+
+    return execution
+
+
 def _resolve_project_path(project_root: Path, config_path: Optional[str]) -> Optional[Path]:
     if config_path is None:
         return None
@@ -272,6 +319,90 @@ def _technical_metrics_from_run(
     summary.update(pq_summary)
     per_fold.update(pq_per_fold)
     return summary, per_fold
+
+
+def _summarize_hierarchical_level_metrics(df: pd.DataFrame) -> Dict[str, Any]:
+    """Summarize one hierarchical level into summary/per_fold metric blocks."""
+    if df.empty:
+        return {}
+
+    exclude_cols = {"fold", "phase", "task", "model_name", "sampler", "level", "gate"}
+    numeric_cols = [
+        col
+        for col in df.columns
+        if col not in exclude_cols and pd.api.types.is_numeric_dtype(df[col])
+    ]
+
+    summary: Dict[str, float] = {}
+    per_fold: Dict[str, List[float]] = {}
+    for col in numeric_cols:
+        values = df[col].dropna().astype(float).tolist()
+        if not values:
+            continue
+        metric_name = normalize_metric_name(col)
+        summary[metric_name] = float(np.mean(values))
+        per_fold[metric_name] = values
+
+    result: Dict[str, Any] = {}
+    if summary:
+        result["summary"] = summary
+    if per_fold:
+        result["per_fold"] = per_fold
+    return result
+
+
+def _technical_hierarchical_metrics_from_run(run_dir: Path) -> Dict[str, Any]:
+    """
+    Extract L1/L2 hierarchical metrics for technical-validation UI payloads.
+
+    This intentionally reads the current run's canonical hierarchical metrics file.
+    """
+    metrics_path = run_dir / "metrics_outer_eval.csv"
+    if not metrics_path.exists():
+        return {}
+
+    try:
+        df = pd.read_csv(metrics_path)
+    except Exception as exc:
+        logger.warning("Failed to parse hierarchical metrics from %s: %s", metrics_path, exc)
+        return {}
+
+    if df.empty or "level" not in df.columns:
+        return {}
+
+    if "phase" in df.columns:
+        val_df = df[df["phase"] == "val"]
+        if not val_df.empty:
+            df = val_df
+
+    result: Dict[str, Any] = {}
+
+    l1_df = df[df["level"] == "L1"]
+    l1_metrics = _summarize_hierarchical_level_metrics(l1_df)
+    if l1_metrics:
+        result["L1"] = l1_metrics
+
+    l2_rows = df[df["level"].astype(str).str.startswith("L2_oracle_")]
+    l2_metrics = _summarize_hierarchical_level_metrics(l2_rows)
+    if l2_metrics:
+        result["L2"] = l2_metrics
+
+    l2_by_branch: Dict[str, Any] = {}
+    if not l2_rows.empty:
+        for level_name, branch_df in l2_rows.groupby("level", sort=True):
+            branch_name = str(level_name).replace("L2_oracle_", "", 1)
+            branch_metrics = _summarize_hierarchical_level_metrics(branch_df)
+            if branch_metrics:
+                l2_by_branch[branch_name] = branch_metrics
+    if l2_by_branch:
+        result["L2_by_branch"] = l2_by_branch
+
+    pipeline_df = df[df["level"] == "pipeline"]
+    pipeline_metrics = _summarize_hierarchical_level_metrics(pipeline_df)
+    if pipeline_metrics:
+        result["pipeline"] = pipeline_metrics
+
+    return result
 
 
 def _probability_quality_metrics_from_manifest(
@@ -484,11 +615,13 @@ def run_technical_validation(
     )
     run_dir = paths.runs_subdir("technical_validation", run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
+    technical_final_estimator_strategy = config.models.technical_final_estimator_strategy
 
     if config.task.mode == "binary":
         train_config = TrainConfig(
             data_csv=train_manifest,
             label_col=config.key_columns.label,
+            feature_cols=train_entry.data_schema.feature_columns,
             patient_col=config.key_columns.patient_id if config.task.patient_stratified else None,
             outdir=run_dir,
             outer_folds=config.validation.nested_cv.outer_folds,
@@ -498,6 +631,8 @@ def run_technical_validation(
             smote_mode="both"
             if config.imbalance.smote.get("compare")
             else ("on" if config.imbalance.smote.get("enabled") else "off"),
+            calibration_enabled=config.calibration.enabled,
+            calibration_method=config.calibration.method,
             calibration_bins=config.calibration.bins,
             calibration_binning=config.calibration.binning,
             backend=config.backend,
@@ -506,6 +641,13 @@ def run_technical_validation(
             torch_num_workers=config.torch_num_workers,
             torch_dtype=config.torch_dtype,
             require_torch_device=config.require_torch_device,
+            expanded_mlp_tuning_grid=config.models.expanded_mlp_tuning_grid,
+            final_estimator_strategy=technical_final_estimator_strategy,
+            bagging_n_estimators=config.models.bagging_n_estimators,
+            bagging_max_samples=config.models.bagging_max_samples,
+            bagging_max_features=config.models.bagging_max_features,
+            bagging_bootstrap=config.models.bagging_bootstrap,
+            bagging_bootstrap_features=config.models.bagging_bootstrap_features,
             tracker=config.tracker,
             experiment_name=config.experiment_name or f"{config.project.id}/technical",
             run_name=f"technical-{run_id}",
@@ -522,6 +664,7 @@ def run_technical_validation(
         train_config = MetaConfig(
             data_csv=train_manifest,
             label_col=config.key_columns.label,
+            feature_cols=train_entry.data_schema.feature_columns,
             patient_col=config.key_columns.patient_id if config.task.patient_stratified else None,
             tasks_json=tasks_json_path,
             tasks_only=config.task.tasks_only,
@@ -539,6 +682,7 @@ def run_technical_validation(
             torch_num_workers=config.torch_num_workers,
             torch_dtype=config.torch_dtype,
             require_torch_device=config.require_torch_device,
+            expanded_mlp_tuning_grid=config.models.expanded_mlp_tuning_grid,
             calibrate_meta=config.calibration.enabled != "false",
             calibration_enabled=config.calibration.enabled,
             calibration_method=config.calibration.method,
@@ -567,6 +711,7 @@ def run_technical_validation(
         train_config = MulticlassConfig(
             data_csv=train_manifest,
             label_col=config.key_columns.label,
+            feature_cols=train_entry.data_schema.feature_columns,
             patient_col=config.key_columns.patient_id if config.task.patient_stratified else None,
             outdir=run_dir,
             outer_folds=config.validation.nested_cv.outer_folds,
@@ -586,9 +731,19 @@ def run_technical_validation(
             logreg_C=config.multiclass.logreg.C,
             logreg_class_weight=config.multiclass.logreg.class_weight,
             logreg_n_jobs=config.multiclass.logreg.n_jobs,
+            calibration_enabled=config.calibration.enabled,
+            calibration_method=config.calibration.method,
             calibration_bins=config.calibration.bins,
             calibration_binning=config.calibration.binning,
             device=config.device,
+            torch_num_workers=config.torch_num_workers,
+            expanded_mlp_tuning_grid=config.models.expanded_mlp_tuning_grid,
+            final_estimator_strategy=technical_final_estimator_strategy,
+            bagging_n_estimators=config.models.bagging_n_estimators,
+            bagging_max_samples=config.models.bagging_max_samples,
+            bagging_max_features=config.models.bagging_max_features,
+            bagging_bootstrap=config.models.bagging_bootstrap,
+            bagging_bootstrap_features=config.models.bagging_bootstrap_features,
             tracker=config.tracker,
             experiment_name=config.experiment_name or f"{config.project.id}/technical",
             run_name=f"technical-{run_id}",
@@ -708,9 +863,15 @@ def run_technical_validation(
     with open(run_dir / "lineage.json", "w", encoding="utf-8") as handle:
         json.dump(lineage, handle, indent=2)
 
+    metrics_payload: Dict[str, Any] = {"summary": summary, "per_fold": per_fold}
+    if config.task.mode == "hierarchical":
+        hierarchical_metrics = _technical_hierarchical_metrics_from_run(run_dir)
+        if hierarchical_metrics:
+            metrics_payload["hierarchical"] = hierarchical_metrics
+
     metrics_path = run_dir / "metrics_summary.json"
     with open(metrics_path, "w", encoding="utf-8") as handle:
-        json.dump({"summary": summary, "per_fold": per_fold}, handle, indent=2)
+        json.dump(metrics_payload, handle, indent=2)
 
     return run_dir
 
@@ -933,6 +1094,66 @@ def _select_best_multiclass_config(
     }
 
 
+def _final_selected_model_entry(task_name: str, config_payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Build a compact selected-model summary for final bundle metadata."""
+    model_name = config_payload.get("model_name")
+    if not model_name:
+        return None
+    entry: Dict[str, Any] = {
+        "task_name": config_payload.get("task_name", task_name),
+        "model_name": model_name,
+        "sampler": config_payload.get("sampler"),
+        "params": config_payload.get("params", {}),
+    }
+    if config_payload.get("mean_score") is not None:
+        entry["mean_score"] = config_payload.get("mean_score")
+    return entry
+
+
+def _write_final_model_summary(
+    *,
+    run_dir: Path,
+    project_id: str,
+    run_id: str,
+    task_type: str,
+    effective_config: ProjectConfig,
+    technical_run: Path,
+    sampler: Optional[str],
+    selected_models: List[Dict[str, Any]],
+    meta_model: Optional[Dict[str, Any]],
+) -> Path:
+    """Write UI-friendly final bundle model/config selection metadata."""
+    execution = _effective_execution_payload(effective_config, task_mode=task_type)
+    strategy = {
+        "final_estimator_strategy": effective_config.models.final_estimator_strategy,
+        "technical_final_estimator_strategy": effective_config.models.technical_final_estimator_strategy,
+        "bagging_n_estimators": effective_config.models.bagging_n_estimators,
+        "bagging_max_samples": effective_config.models.bagging_max_samples,
+        "bagging_max_features": effective_config.models.bagging_max_features,
+        "bagging_bootstrap": effective_config.models.bagging_bootstrap,
+        "bagging_bootstrap_features": effective_config.models.bagging_bootstrap_features,
+    }
+    payload = {
+        "run_id": run_id,
+        "run_key": f"{project_id}:final_model:{run_id}",
+        "task_type": task_type,
+        "bundle_path": "model_bundle.zip",
+        "technical_run": str(technical_run),
+        "sampler": sampler,
+        "train_from_scratch": True,
+        "selection_metric": effective_config.models.selection_metric,
+        "selection_direction": effective_config.models.selection_direction,
+        "execution": execution,
+        "strategy": strategy,
+        "selected_models": selected_models,
+        "meta_model": meta_model,
+    }
+    summary_path = run_dir / "final_model_summary.json"
+    with open(summary_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, default=str)
+    return summary_path
+
+
 def _filter_model_params(estimator, params: Dict[str, object]) -> Dict[str, object]:
     valid = set(estimator.get_params().keys())
     cleaned: Dict[str, object] = {}
@@ -949,17 +1170,25 @@ def _filter_model_params(estimator, params: Dict[str, object]) -> Dict[str, obje
         "min_samples_leaf",
     }
     for key, value in params.items():
-        if key not in valid:
-            continue
+        clean_key = str(key).replace("clf__", "")
+        candidate_key = clean_key
+        if candidate_key not in valid:
+            if candidate_key.startswith("estimator__") and candidate_key[len("estimator__"):] in valid:
+                candidate_key = candidate_key[len("estimator__"):]
+            elif f"estimator__{candidate_key}" in valid:
+                candidate_key = f"estimator__{candidate_key}"
+            else:
+                continue
         if value != value:
             continue
-        default = defaults.get(key)
+        default = defaults.get(candidate_key)
+        leaf_key = candidate_key.split("__")[-1]
         if isinstance(value, float) and value.is_integer():
-            if isinstance(default, int) or key in int_param_hints:
+            if isinstance(default, int) or leaf_key in int_param_hints:
                 value = int(value)
         if isinstance(default, bool) and isinstance(value, (int, float)):
             value = bool(value)
-        cleaned[key] = value
+        cleaned[candidate_key] = value
     return cleaned
 
 
@@ -968,14 +1197,42 @@ def _train_final_binary(
     train_manifest: Path,
     outdir: Path,
     best_cfg: Dict[str, str],
+    feature_cols: Optional[List[str]] = None,
 ) -> str:
     from classiflow.io import load_data
 
-    X, y_raw = load_data(train_manifest, config.key_columns.label)
+    X, y_raw = load_data(
+        train_manifest,
+        config.key_columns.label,
+        feature_cols=feature_cols,
+        exclude_cols=[
+            config.key_columns.sample_id,
+            config.key_columns.patient_id,
+            config.key_columns.slide_id,
+            config.key_columns.specimen_id,
+        ],
+    )
     pos_label = y_raw.value_counts().idxmin()
     y = (y_raw == pos_label).astype(int)
 
-    estimator = get_estimators(config.validation.nested_cv.seed, 10000)[best_cfg["model_name"]]
+    estimator = get_model_set(
+        command="train-binary",
+        backend=get_backend(config.backend),
+        model_set=config.model_set,
+        random_state=config.validation.nested_cv.seed,
+        max_iter=10000,
+        device=config.device,
+        torch_dtype=config.torch_dtype,
+        torch_num_workers=config.torch_num_workers,
+        torch_temperature_scaling=_project_torch_temperature_scaling_enabled(config),
+        expanded_mlp_tuning_grid=config.models.expanded_mlp_tuning_grid,
+        final_estimator_strategy=config.models.final_estimator_strategy,
+        bagging_n_estimators=config.models.bagging_n_estimators,
+        bagging_max_samples=config.models.bagging_max_samples,
+        bagging_max_features=config.models.bagging_max_features,
+        bagging_bootstrap=config.models.bagging_bootstrap,
+        bagging_bootstrap_features=config.models.bagging_bootstrap_features,
+    )["estimators"][best_cfg["model_name"]]
     cleaned = _filter_model_params(estimator, best_cfg["params"])
     params = {f"clf__{k}": v for k, v in cleaned.items() if k}
     sampler = AdaptiveSMOTE(k_max=5, random_state=config.validation.nested_cv.seed)
@@ -1016,6 +1273,7 @@ def _train_final_meta(
     outdir: Path,
     best_cfg: Dict[str, str],
     technical_run: Optional[Path] = None,
+    feature_cols: Optional[List[str]] = None,
 ) -> None:
     """
     Train final meta-classifier for deployment.
@@ -1041,7 +1299,17 @@ def _train_final_meta(
     from classiflow.io import load_data
     from sklearn.calibration import CalibratedClassifierCV
 
-    X_full, y_full = load_data(train_manifest, config.key_columns.label)
+    X_full, y_full = load_data(
+        train_manifest,
+        config.key_columns.label,
+        feature_cols=feature_cols,
+        exclude_cols=[
+            config.key_columns.sample_id,
+            config.key_columns.patient_id,
+            config.key_columns.slide_id,
+            config.key_columns.specimen_id,
+        ],
+    )
     classes = sorted(y_full.unique().tolist())
     task_builder = TaskBuilder(classes).build_all_auto_tasks()
     tasks = task_builder.get_tasks()
@@ -1299,7 +1567,9 @@ def _retrain_binary_pipelines_per_task(
         device=config.device,
         torch_dtype=config.torch_dtype,
         torch_num_workers=config.torch_num_workers,
+        torch_temperature_scaling=_project_torch_temperature_scaling_enabled(config),
         meta_C_grid=None,
+        expanded_mlp_tuning_grid=config.models.expanded_mlp_tuning_grid,
     )
     estimators = model_spec["base_estimators"]
 
@@ -1360,11 +1630,22 @@ def _train_final_multiclass(
     train_manifest: Path,
     outdir: Path,
     best_cfg: Dict[str, str],
+    feature_cols: Optional[List[str]] = None,
 ) -> None:
     from classiflow.io import load_data
     from classiflow.models import get_estimators, resolve_device
 
-    X_full, y_full = load_data(train_manifest, config.key_columns.label)
+    X_full, y_full = load_data(
+        train_manifest,
+        config.key_columns.label,
+        feature_cols=feature_cols,
+        exclude_cols=[
+            config.key_columns.sample_id,
+            config.key_columns.patient_id,
+            config.key_columns.slide_id,
+            config.key_columns.specimen_id,
+        ],
+    )
     classes = sorted(y_full.unique().tolist())
 
     logreg_params = {
@@ -1385,6 +1666,14 @@ def _train_final_multiclass(
         10000,
         logreg_params=logreg_params,
         resolved_device=resolved_device,
+        torch_num_workers=config.torch_num_workers,
+        torch_temperature_scaling=_project_torch_temperature_scaling_enabled(config),
+        final_estimator_strategy=config.models.final_estimator_strategy,
+        bagging_n_estimators=config.models.bagging_n_estimators,
+        bagging_max_samples=config.models.bagging_max_samples,
+        bagging_max_features=config.models.bagging_max_features,
+        bagging_bootstrap=config.models.bagging_bootstrap,
+        bagging_bootstrap_features=config.models.bagging_bootstrap_features,
     )
     estimator_mode = config.multiclass.estimator_mode
     if estimator_mode == "torch_only":
@@ -1435,20 +1724,34 @@ def _train_final_hierarchical(
     train_manifest: Path,
     outdir: Path,
     metrics_path: Path,
+    feature_cols: Optional[List[str]] = None,
 ) -> None:
     import json as jsonlib
     import numpy as np
+    from classiflow.data import load_table
     from sklearn.preprocessing import LabelEncoder, StandardScaler
     from sklearn.model_selection import StratifiedShuffleSplit
     from classiflow.models.smote import apply_smote
 
-    df = pd.read_csv(train_manifest)
+    df = load_table(train_manifest)
     label_l1 = config.key_columns.label
     label_l2 = config.task.hierarchy_path
     if label_l2 is None:
         raise ValueError("hierarchy_path required for hierarchical final model")
 
-    X_all = df.select_dtypes(include=[np.number]).values
+    if feature_cols:
+        X_all = df[feature_cols].to_numpy()
+    else:
+        exclude = {
+            config.key_columns.label,
+            config.task.hierarchy_path,
+            config.key_columns.sample_id,
+            config.key_columns.patient_id,
+            config.key_columns.slide_id,
+            config.key_columns.specimen_id,
+        }
+        safe_exclude = [col for col in exclude if col]
+        X_all = df.drop(columns=safe_exclude, errors="ignore").select_dtypes(include=[np.number]).values
     y_l1_all = df[label_l1].astype(str).values
     y_l2_all = df[label_l2].astype(str).values
 
@@ -1699,6 +2002,8 @@ def build_final_model(
 
     task_definitions: Dict[str, Any] = {}
     best_models: Dict[str, str] = {}
+    selected_final_models: List[Dict[str, Any]] = []
+    selected_meta_model: Optional[Dict[str, Any]] = None
 
     # Mode-specific training
     if effective_config.task.mode == "meta":
@@ -1708,6 +2013,11 @@ def build_final_model(
         final_config = FinalTrainConfig(
             train_manifest=train_manifest,
             label_col=effective_config.key_columns.label,
+            feature_cols=train_entry.data_schema.feature_columns,
+            sample_id_col=effective_config.key_columns.sample_id,
+            patient_id_col=effective_config.key_columns.patient_id,
+            slide_id_col=effective_config.key_columns.slide_id,
+            specimen_id_col=effective_config.key_columns.specimen_id,
             mode="meta",
             classes=None,  # Use all classes from data
             selected_binary_configs=binary_configs,
@@ -1723,6 +2033,7 @@ def build_final_model(
             device=effective_config.device,
             torch_dtype=effective_config.torch_dtype,
             torch_num_workers=effective_config.torch_num_workers,
+            expanded_mlp_tuning_grid=effective_config.models.expanded_mlp_tuning_grid,
             random_state=effective_config.validation.nested_cv.seed,
             max_iter=10000,
             outdir=run_dir,
@@ -1730,6 +2041,23 @@ def build_final_model(
 
         # Train final model
         result = train_final_meta_model(final_config)
+        selected_final_models = [
+            entry
+            for entry in (
+                _final_selected_model_entry(task_name, cfg.to_dict())
+                for task_name, cfg in binary_configs.items()
+            )
+            if entry is not None
+        ]
+        if meta_config is not None:
+            selected_meta_model = _final_selected_model_entry("meta", meta_config.to_dict())
+        if selected_meta_model is None:
+            selected_meta_model = {
+                "task_name": "meta",
+                "model_name": "LogisticRegression",
+                "params": {"class_weight": "balanced"},
+                "sampler": sampler,
+            }
 
         if not result.success:
             raise ValueError(
@@ -1752,9 +2080,17 @@ def build_final_model(
         )
         if sampler:
             best_cfg["sampler"] = sampler
-        pos_label = _train_final_binary(effective_config, train_manifest, run_dir, best_cfg)
+        pos_label = _train_final_binary(
+            effective_config,
+            train_manifest,
+            run_dir,
+            best_cfg,
+            feature_cols=train_entry.data_schema.feature_columns,
+        )
         task_definitions = {"binary_task": f"positive_class={pos_label}"}
         best_models = {"binary_task": best_cfg["model_name"]}
+        entry = _final_selected_model_entry("binary_task", best_cfg)
+        selected_final_models = [entry] if entry is not None else []
 
     elif effective_config.task.mode == "multiclass":
         logger.info("\n[2/4] Training final multiclass model (from scratch)...")
@@ -1766,31 +2102,49 @@ def build_final_model(
         )
         if sampler:
             best_cfg["sampler"] = sampler
-        _train_final_multiclass(effective_config, train_manifest, run_dir, best_cfg)
+        _train_final_multiclass(
+            effective_config,
+            train_manifest,
+            run_dir,
+            best_cfg,
+            feature_cols=train_entry.data_schema.feature_columns,
+        )
+        entry = _final_selected_model_entry("multiclass", best_cfg)
+        selected_final_models = [entry] if entry is not None else []
 
     else:
         logger.info("\n[2/4] Training final hierarchical model...")
         metrics_path = technical_run / "metrics_inner_cv.csv"
-        _train_final_hierarchical(effective_config, train_manifest, run_dir, metrics_path)
+        _train_final_hierarchical(
+            effective_config,
+            train_manifest,
+            run_dir,
+            metrics_path,
+            feature_cols=train_entry.data_schema.feature_columns,
+        )
 
     # Create training manifest
     logger.info("\n[3/4] Creating training manifest...")
+    manifest_config = effective_config.model_dump(mode="python")
+    manifest_config["execution"] = _effective_execution_payload(
+        effective_config,
+        task_mode=effective_config.task.mode,
+    )
+    manifest_config["final_model"] = {
+        "sampler": sampler,
+        "technical_run": str(technical_run),
+        "train_from_scratch": True,
+    }
+
     manifest = TrainingRunManifest(
         run_id=run_id,
         timestamp=datetime.now().isoformat(),
         package_version=__version__,
         training_data_path=str(train_manifest),
         training_data_hash=train_entry.sha256,
-        training_data_size_bytes=train_manifest.stat().st_size,
+        training_data_size_bytes=train_entry.size_bytes,
         training_data_row_count=train_entry.stats.rows,
-        config={
-            **effective_config.model_dump(mode="python"),
-            "final_model": {
-                "sampler": sampler,
-                "technical_run": str(technical_run),
-                "train_from_scratch": True,
-            },
-        },
+        config=manifest_config,
         task_type=effective_config.task.mode,
         python_version=platform.python_version(),
         hostname=platform.node(),
@@ -1800,6 +2154,18 @@ def build_final_model(
         best_models=best_models,
     )
     manifest.save(run_dir / "run.json")
+
+    final_summary_path = _write_final_model_summary(
+        run_dir=run_dir,
+        project_id=paths.root.name,
+        run_id=run_id,
+        task_type=effective_config.task.mode,
+        effective_config=effective_config,
+        technical_run=technical_run,
+        sampler=sampler,
+        selected_models=selected_final_models,
+        meta_model=selected_meta_model,
+    )
 
     # Create bundle
     logger.info("\n[4/4] Creating model bundle...")
@@ -1827,7 +2193,7 @@ def build_final_model(
             "train_from_scratch": True,
         },
         root=paths.root,
-        outputs=[bundle_path, run_dir / "run.json", run_dir / "sanity_checks.json"],
+        outputs=[bundle_path, run_dir / "run.json", run_dir / "sanity_checks.json", final_summary_path],
     )
     with open(run_dir / "lineage.json", "w", encoding="utf-8") as handle:
         json.dump(lineage, handle, indent=2)
@@ -1954,6 +2320,9 @@ def run_independent_test(
             output_dir=run_dir,
             id_col=config.key_columns.sample_id,
             label_col=config.key_columns.label,
+            label_col_secondary=(
+                config.task.hierarchy_path if config.task.mode == "hierarchical" else None
+            ),
             include_excel=True,
             include_plots=True,
             verbose=1,
@@ -2000,6 +2369,12 @@ def run_independent_test(
     calibration_curve_path = run_dir / "calibration_curve.csv"
     if calibration_curve_path.exists():
         test_notes.append(f"Calibration curve exported as {calibration_curve_path.name}")
+    bagging_summary_path = run_dir / "bagging_summary.json"
+    bag_member_metrics_path = run_dir / "metrics" / "bag_member_metrics.csv"
+    if bagging_summary_path.exists():
+        test_notes.append(f"Bag member summary exported as {bagging_summary_path.name}")
+    if bag_member_metrics_path.exists():
+        test_notes.append(f"Bag member metrics exported as metrics/{bag_member_metrics_path.name}")
 
     # Add note about final model source
     test_notes.append(f"Model bundle: {bundle_path.name}")
@@ -2020,7 +2395,11 @@ def run_independent_test(
             "test_manifest_hash": test_entry.sha256,
         },
         root=paths.root,
-        outputs=[metrics_path],
+        outputs=[
+            path
+            for path in [metrics_path, bagging_summary_path, bag_member_metrics_path]
+            if path.exists()
+        ],
     )
     with open(run_dir / "lineage.json", "w", encoding="utf-8") as handle:
         json.dump(lineage, handle, indent=2)

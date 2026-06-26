@@ -70,6 +70,31 @@ def test_verify_manifest_hash_does_not_parse_rows(tmp_path: Path, monkeypatch: p
     assert verify_manifest_hash(manifest, expected)
 
 
+def test_register_dataset_parquet_dataset_directory(tmp_path: Path) -> None:
+    pytest.importorskip("pyarrow")
+    dataset_dir = tmp_path / "train_dataset"
+    dataset_dir.mkdir()
+
+    df = pd.DataFrame(
+        {
+            "sample_id": ["s1", "s2", "s3", "s4"],
+            "patient_id": ["p1", "p2", "p3", "p4"],
+            "label": ["A", "B", "A", "B"],
+            "feat1": [1.0, 2.0, 3.0, 4.0],
+        }
+    )
+    df.iloc[:2].to_parquet(dataset_dir / "part-000.parquet", index=False)
+    df.iloc[2:].to_parquet(dataset_dir / "part-001.parquet", index=False)
+
+    config = _project_config(dataset_dir, dataset_dir)
+    registry_path = tmp_path / "datasets.yaml"
+
+    entry = register_dataset(registry_path, config, "train", dataset_dir)
+    assert entry.stats.rows == 4
+    assert entry.size_bytes > 0
+    assert verify_manifest_hash(dataset_dir, entry.sha256)
+
+
 def test_promotion_gate_evaluation_missing_metrics() -> None:
     thresholds = ThresholdsConfig()
     thresholds.technical_validation.required = {"accuracy": 0.9}

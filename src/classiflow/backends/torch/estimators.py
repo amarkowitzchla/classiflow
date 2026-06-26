@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any, Optional
 
 import numpy as np
@@ -13,15 +14,26 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import f1_score
 
+from classiflow.config import default_torch_num_workers
 from classiflow.backends.torch.modules import (
     BinaryLinear,
     BinaryMLP,
     MulticlassLinear,
     MulticlassMLP,
 )
+from classiflow.backends.torch_progress import next_torch_fit_progress
 from classiflow.backends.torch.utils import resolve_device, resolve_dtype, set_seed, make_dataloader
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _CudaTensorBatches:
+    """GPU-resident train/validation tensors for CUDA batch-by-index training."""
+
+    X_train: torch.Tensor
+    y_train: torch.Tensor
+    X_val: Optional[torch.Tensor]
 
 
 class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
@@ -36,13 +48,18 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         dropout: float = 0.0,
         hidden_dim: int = 128,
         n_layers: int = 1,
+        activation: str = "relu",
+        use_batchnorm: bool = False,
         patience: int = 10,
         seed: int = 42,
         device: str = "auto",
         torch_dtype: str = "float32",
-        num_workers: int = 0,
+        num_workers: int | None = None,
         class_weight: str | dict[str, float] | None = "balanced",
         val_fraction: float = 0.1,
+        gpu_index_batching: bool = True,
+        temperature_scaling: bool = False,
+        temperature_val_fraction: float = 0.1,
     ):
         self.lr = lr
         self.weight_decay = weight_decay
@@ -51,13 +68,18 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         self.dropout = dropout
         self.hidden_dim = hidden_dim
         self.n_layers = n_layers
+        self.activation = activation
+        self.use_batchnorm = use_batchnorm
         self.patience = patience
         self.seed = seed
         self.device = device
         self.torch_dtype = torch_dtype
-        self.num_workers = num_workers
+        self.num_workers = default_torch_num_workers() if num_workers is None else num_workers
         self.class_weight = class_weight
         self.val_fraction = val_fraction
+        self.gpu_index_batching = gpu_index_batching
+        self.temperature_scaling = temperature_scaling
+        self.temperature_val_fraction = temperature_val_fraction
 
         self.model: Optional[nn.Module] = None
         self.classes_: Optional[np.ndarray] = None
@@ -67,6 +89,8 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         self._input_dim: Optional[int] = None
         self._num_classes: Optional[int] = None
         self._is_fitted = False
+        self.temperature_: float = 1.0
+        self.temperature_fitted_: bool = False
 
     def _build_model(self, input_dim: int, num_classes: int) -> nn.Module:
         raise NotImplementedError
@@ -92,7 +116,7 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         resolved = resolve_device(self.device)
         self._device = torch.device(resolved)
         self._dtype = resolve_dtype(self.torch_dtype, resolved)
-        logger.info(
+        logger.debug(
             "%s using torch device=%s (requested=%s)",
             self.__class__.__name__,
             self._device,
@@ -111,9 +135,11 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         best_state = None
         best_metric = -np.inf
         epochs_no_improve = 0
-
-        for epoch in range(self.epochs):
-            self.model.train()
+        use_cuda_transfer = bool(self._device is not None and self._device.type == "cuda")
+        metric_name = self._validation_metric_name()
+        cuda_batches = self._prepare_cuda_batches(X_train, y_train, X_val, y_val)
+        train_loader = None
+        if cuda_batches is None:
             train_loader = make_dataloader(
                 X_train,
                 y_train,
@@ -121,22 +147,68 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
                 shuffle=True,
                 num_workers=self.num_workers,
                 worker_seed=self.seed,
+                pin_memory=use_cuda_transfer,
+                persistent_workers=True,
             )
-            for xb, yb in train_loader:
-                xb = xb.to(self._device, dtype=self._dtype)
-                yb = self._prepare_target(yb.to(self._device))
-                optimizer.zero_grad()
-                logits = self.model(xb)
-                loss = loss_fn(logits, yb)
-                loss.backward()
-                optimizer.step()
+        if X_val is None or y_val is None:
+            logger.info(
+                "%s training %d epochs (no validation split; early stopping disabled)",
+                self.__class__.__name__,
+                self.epochs,
+            )
+        else:
+            logger.info(
+                "%s training %d epochs (early stopping on %s, patience=%d)",
+                self.__class__.__name__,
+                self.epochs,
+                metric_name,
+                self.patience,
+            )
+
+        for epoch in range(self.epochs):
+            self.model.train()
+            if cuda_batches is not None:
+                n_train = int(cuda_batches.y_train.shape[0])
+                perm = torch.randperm(n_train, device=self._device)
+                for start in range(0, n_train, self.batch_size):
+                    end = min(start + self.batch_size, n_train)
+                    idx = perm[start:end]
+                    xb = cuda_batches.X_train.index_select(0, idx)
+                    yb = self._prepare_target(cuda_batches.y_train.index_select(0, idx))
+                    optimizer.zero_grad()
+                    logits = self.model(xb)
+                    loss = loss_fn(logits, yb)
+                    loss.backward()
+                    optimizer.step()
+            else:
+                assert train_loader is not None
+                for xb, yb in train_loader:
+                    xb = xb.to(self._device, dtype=self._dtype, non_blocking=use_cuda_transfer)
+                    yb = self._prepare_target(yb.to(self._device, non_blocking=use_cuda_transfer))
+                    optimizer.zero_grad()
+                    logits = self.model(xb)
+                    loss = loss_fn(logits, yb)
+                    loss.backward()
+                    optimizer.step()
 
             if X_val is None or y_val is None:
+                logger.info(
+                    "%s epoch %d/%d",
+                    self.__class__.__name__,
+                    epoch + 1,
+                    self.epochs,
+                )
                 continue
 
             self.model.eval()
             with torch.no_grad():
-                xb = torch.from_numpy(X_val).to(self._device, dtype=self._dtype)
+                if cuda_batches is not None:
+                    assert cuda_batches.X_val is not None
+                    xb = cuda_batches.X_val
+                else:
+                    xb = torch.from_numpy(X_val).to(
+                        self._device, dtype=self._dtype, non_blocking=use_cuda_transfer
+                    )
                 logits = self.model(xb)
                 metric = self._validation_metric(logits, y_val)
 
@@ -147,32 +219,188 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
             else:
                 epochs_no_improve += 1
 
+            logger.info(
+                "%s epoch %d/%d - %s=%.4f (best=%.4f, patience=%d/%d)",
+                self.__class__.__name__,
+                epoch + 1,
+                self.epochs,
+                metric_name,
+                metric,
+                best_metric,
+                epochs_no_improve,
+                self.patience,
+            )
+
             if self.patience and epochs_no_improve >= self.patience:
+                logger.info(
+                    "%s early stopping at epoch %d/%d (best %s=%.4f)",
+                    self.__class__.__name__,
+                    epoch + 1,
+                    self.epochs,
+                    metric_name,
+                    best_metric,
+                )
                 break
 
         if best_state is not None:
             self.model.load_state_dict(best_state)
 
+    def _prepare_cuda_batches(
+        self,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        X_val: Optional[np.ndarray],
+        y_val: Optional[np.ndarray],
+    ) -> Optional[_CudaTensorBatches]:
+        """Stage train/validation arrays on CUDA and batch by GPU index when feasible."""
+        if not self.gpu_index_batching or self._device is None or self._device.type != "cuda":
+            return None
+
+        feature_bytes = self._estimate_cuda_tensor_bytes(X_train, y_train, X_val, y_val)
+        logger.warning(
+            "%s staging tensors on CUDA for GPU index batching; approx %.1f MiB of VRAM "
+            "will be reserved for train/validation tensors for this fit, excluding model "
+            "weights, gradients, optimizer state, and activations.",
+            self.__class__.__name__,
+            feature_bytes / (1024 ** 2),
+        )
+
+        train_tensor: Optional[torch.Tensor] = None
+        train_labels: Optional[torch.Tensor] = None
+        val_tensor: Optional[torch.Tensor] = None
+        try:
+            train_tensor = torch.as_tensor(X_train, dtype=self._dtype, device=self._device)
+            train_labels = torch.as_tensor(y_train, dtype=torch.long, device=self._device)
+            if X_val is not None and y_val is not None:
+                val_tensor = torch.as_tensor(X_val, dtype=self._dtype, device=self._device)
+            logger.info(
+                "%s staging train/validation tensors on CUDA for GPU index batching",
+                self.__class__.__name__,
+            )
+            return _CudaTensorBatches(
+                X_train=train_tensor,
+                y_train=train_labels,
+                X_val=val_tensor,
+            )
+        except RuntimeError as exc:
+            if "out of memory" not in str(exc).lower():
+                raise
+            logger.warning(
+                "%s CUDA tensor staging failed (%s); falling back to CPU DataLoader batches.",
+                self.__class__.__name__,
+                exc,
+            )
+            del train_tensor
+            del train_labels
+            del val_tensor
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            return None
+
+    def _estimate_cuda_tensor_bytes(
+        self,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        X_val: Optional[np.ndarray],
+        y_val: Optional[np.ndarray],
+    ) -> int:
+        """Estimate CUDA tensor storage required for staged train/validation arrays."""
+        feature_itemsize = torch.empty((), dtype=self._dtype).element_size()
+        label_itemsize = torch.empty((), dtype=torch.long).element_size()
+        total = int(np.prod(X_train.shape)) * feature_itemsize + int(np.prod(y_train.shape)) * label_itemsize
+        if X_val is not None:
+            total += int(np.prod(X_val.shape)) * feature_itemsize
+        if y_val is not None:
+            total += int(np.prod(y_val.shape)) * label_itemsize
+        return total
+
     def _validation_metric(self, logits: torch.Tensor, y_val: np.ndarray) -> float:
         raise NotImplementedError
 
+    def _validation_metric_name(self) -> str:
+        return "val_metric"
+
     def _prepare_target(self, yb: torch.Tensor) -> torch.Tensor:
         return yb
+
+    def _apply_temperature(self, logits: torch.Tensor) -> torch.Tensor:
+        temperature = float(getattr(self, "temperature_", 1.0))
+        if temperature <= 0:
+            return logits
+        return logits / temperature
+
+    def _fit_temperature_scaler(self, X_cal: np.ndarray, y_cal: np.ndarray) -> None:
+        if self.model is None:
+            return
+        if X_cal.size == 0 or y_cal.size == 0:
+            return
+        if self._num_classes is None:
+            return
+
+        use_cuda_transfer = bool(self._device is not None and self._device.type == "cuda")
+        self.model.eval()
+        with torch.no_grad():
+            xb = torch.from_numpy(X_cal).to(
+                self._device, dtype=self._dtype, non_blocking=use_cuda_transfer
+            )
+            logits = self.model(xb).detach().float().cpu()
+
+        use_binary_loss = logits.ndim == 1 or (logits.ndim == 2 and logits.shape[1] == 1)
+        if use_binary_loss:
+            logits = logits.reshape(-1)
+            targets = torch.from_numpy(y_cal).float().cpu()
+            loss_fn = nn.BCEWithLogitsLoss()
+        else:
+            targets = torch.from_numpy(y_cal).long().cpu()
+            loss_fn = nn.CrossEntropyLoss()
+
+        log_temperature = nn.Parameter(torch.zeros(1, dtype=torch.float32))
+        optimizer = torch.optim.Adam([log_temperature], lr=0.05)
+
+        try:
+            for _ in range(100):
+                optimizer.zero_grad()
+                temperature = torch.exp(log_temperature).clamp(1e-3, 100.0)
+                scaled_logits = logits / temperature
+                loss = loss_fn(scaled_logits, targets)
+                loss.backward()
+                optimizer.step()
+            self.temperature_ = float(torch.exp(log_temperature.detach()).clamp(1e-3, 100.0).item())
+            self.temperature_fitted_ = True
+            logger.info(
+                "%s fitted temperature scaler (temperature=%.4f)",
+                self.__class__.__name__,
+                self.temperature_,
+            )
+        except Exception as exc:
+            logger.warning("%s temperature scaling failed: %s", self.__class__.__name__, exc)
+            self.temperature_ = 1.0
+            self.temperature_fitted_ = False
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "_TorchBaseEstimator":
         set_seed(self.seed)
         X, y_encoded = self._prepare(X, y)
         self._setup_device()
+        progress = next_torch_fit_progress()
+        if progress is not None:
+            logger.info(
+                "%s fit %d/%d (%s)",
+                self.__class__.__name__,
+                progress.current,
+                progress.total,
+                progress.label,
+            )
 
         self.model = self._build_model(self._input_dim, self._num_classes).to(self._device, dtype=self._dtype)
         try:
             param_device = next(self.model.parameters()).device
-            logger.info("%s model parameters on device=%s", self.__class__.__name__, param_device)
+            logger.debug("%s model parameters on device=%s", self.__class__.__name__, param_device)
         except StopIteration:
             logger.warning("%s model has no parameters to report device.", self.__class__.__name__)
         loss_fn = self._create_loss(y_encoded).to(self._device)
 
-        X_train, X_val, y_train, y_val = None, None, None, None
+        X_train, X_val, y_train, y_val = X, None, y_encoded, None
+        X_cal, y_cal = None, None
         if self.val_fraction > 0 and len(np.unique(y_encoded)) > 1 and len(y_encoded) >= 10:
             try:
                 X_train, X_val, y_train, y_val = train_test_split(
@@ -182,12 +410,35 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
                     random_state=self.seed,
                     stratify=y_encoded,
                 )
+                X_cal, y_cal = X_val, y_val
             except ValueError:
-                X_train, y_train = X, y_encoded
-        else:
-            X_train, y_train = X, y_encoded
+                X_train, X_val, y_train, y_val = X, None, y_encoded, None
+
+        if self.temperature_scaling and X_cal is None:
+            if self.temperature_val_fraction > 0 and len(np.unique(y_train)) > 1 and len(y_train) >= 10:
+                try:
+                    X_train, X_cal, y_train, y_cal = train_test_split(
+                        X_train,
+                        y_train,
+                        test_size=self.temperature_val_fraction,
+                        random_state=self.seed,
+                        stratify=y_train,
+                    )
+                except ValueError:
+                    X_cal, y_cal = None, None
 
         self._train_loop(X_train, y_train, X_val, y_val, loss_fn)
+        self.temperature_ = 1.0
+        self.temperature_fitted_ = False
+        if self.temperature_scaling:
+            if X_cal is None or y_cal is None:
+                logger.warning(
+                    "%s temperature scaling requested but calibration split unavailable; "
+                    "using unscaled probabilities.",
+                    self.__class__.__name__,
+                )
+            else:
+                self._fit_temperature_scaler(X_cal, y_cal)
         self._is_fitted = True
         return self
 
@@ -206,6 +457,20 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)
+        if not hasattr(self, "gpu_index_batching"):
+            self.gpu_index_batching = True
+        if not hasattr(self, "temperature_scaling"):
+            self.temperature_scaling = False
+        if not hasattr(self, "temperature_val_fraction"):
+            self.temperature_val_fraction = 0.1
+        if not hasattr(self, "temperature_"):
+            self.temperature_ = 1.0
+        if not hasattr(self, "temperature_fitted_"):
+            self.temperature_fitted_ = False
+        if not hasattr(self, "activation"):
+            self.activation = "relu"
+        if not hasattr(self, "use_batchnorm"):
+            self.use_batchnorm = False
         model_state = state.get("_model_state_dict")
         if model_state is not None and self._input_dim is not None and self._num_classes is not None:
             self._setup_device()
@@ -236,6 +501,9 @@ class TorchLogisticRegressionClassifier(_TorchBaseEstimator):
         preds = (probs >= 0.5).astype(int)
         return f1_score(y_val, preds, zero_division=0)
 
+    def _validation_metric_name(self) -> str:
+        return "val_f1"
+
     def _prepare_target(self, yb: torch.Tensor) -> torch.Tensor:
         return yb.float()
 
@@ -243,9 +511,12 @@ class TorchLogisticRegressionClassifier(_TorchBaseEstimator):
         self._check_fitted()
         X = np.asarray(X, dtype=np.float32)
         self.model.eval()
+        use_cuda_transfer = bool(self._device is not None and self._device.type == "cuda")
         with torch.no_grad():
-            xb = torch.from_numpy(X).to(self._device, dtype=self._dtype)
-            logits = self.model(xb)
+            xb = torch.from_numpy(X).to(
+                self._device, dtype=self._dtype, non_blocking=use_cuda_transfer
+            )
+            logits = self._apply_temperature(self.model(xb))
             probs = torch.sigmoid(logits).cpu().numpy()
         return np.column_stack([1.0 - probs, probs])
 
@@ -261,7 +532,14 @@ class TorchMLPClassifier(TorchLogisticRegressionClassifier):
     """Binary MLP classifier."""
 
     def _build_model(self, input_dim: int, num_classes: int) -> nn.Module:
-        return BinaryMLP(input_dim, self.hidden_dim, self.n_layers, self.dropout)
+        return BinaryMLP(
+            input_dim,
+            self.hidden_dim,
+            self.n_layers,
+            self.dropout,
+            activation=self.activation,
+            use_batchnorm=self.use_batchnorm,
+        )
 
 
 class TorchSoftmaxRegressionClassifier(_TorchBaseEstimator):
@@ -290,6 +568,9 @@ class TorchSoftmaxRegressionClassifier(_TorchBaseEstimator):
         preds = torch.argmax(logits, dim=1).detach().cpu().numpy()
         return f1_score(y_val, preds, average="macro", zero_division=0)
 
+    def _validation_metric_name(self) -> str:
+        return "val_f1_macro"
+
     def _prepare_target(self, yb: torch.Tensor) -> torch.Tensor:
         return yb.long()
 
@@ -297,9 +578,12 @@ class TorchSoftmaxRegressionClassifier(_TorchBaseEstimator):
         self._check_fitted()
         X = np.asarray(X, dtype=np.float32)
         self.model.eval()
+        use_cuda_transfer = bool(self._device is not None and self._device.type == "cuda")
         with torch.no_grad():
-            xb = torch.from_numpy(X).to(self._device, dtype=self._dtype)
-            logits = self.model(xb)
+            xb = torch.from_numpy(X).to(
+                self._device, dtype=self._dtype, non_blocking=use_cuda_transfer
+            )
+            logits = self._apply_temperature(self.model(xb))
             probs = torch.softmax(logits, dim=1).cpu().numpy()
         return probs
 
@@ -315,4 +599,12 @@ class TorchMLPMulticlassClassifier(TorchSoftmaxRegressionClassifier):
     """Multiclass MLP classifier."""
 
     def _build_model(self, input_dim: int, num_classes: int) -> nn.Module:
-        return MulticlassMLP(input_dim, num_classes, self.hidden_dim, self.n_layers, self.dropout)
+        return MulticlassMLP(
+            input_dim,
+            num_classes,
+            self.hidden_dim,
+            self.n_layers,
+            self.dropout,
+            activation=self.activation,
+            use_batchnorm=self.use_batchnorm,
+        )

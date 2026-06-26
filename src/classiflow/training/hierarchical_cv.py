@@ -2,36 +2,53 @@
 
 from __future__ import annotations
 
-import logging
 import json
+import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+import joblib
 import numpy as np
 import pandas as pd
-import joblib
-from sklearn.model_selection import StratifiedShuffleSplit, StratifiedKFold
-from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score, matthews_corrcoef
+from sklearn.metrics import (
+    accuracy_score,
+    auc,
+    balanced_accuracy_score,
+    f1_score,
+    matthews_corrcoef,
+)
+from sklearn.model_selection import StratifiedKFold, StratifiedShuffleSplit
+from sklearn.preprocessing import LabelEncoder, StandardScaler, label_binarize
 from tqdm import tqdm
 
 from classiflow.config import HierarchicalConfig
 from classiflow.lineage.hashing import get_file_metadata
 from classiflow.lineage.manifest import create_training_manifest
 from classiflow.metrics.calibration import compute_probability_quality
-from classiflow.models.torch_mlp import TorchMLPWrapper
 from classiflow.models.smote import apply_smote
+from classiflow.models.torch_mlp import TorchMLPWrapper
 from classiflow.plots import (
-    plot_roc_curve,
-    plot_pr_curve,
-    plot_averaged_roc_curves,
+    extract_feature_importance_mlp,
     plot_averaged_pr_curves,
+    plot_averaged_roc_curves,
     plot_confusion_matrix,
     plot_feature_importance,
-    extract_feature_importance_mlp,
+    plot_pr_curve,
+    plot_roc_curve,
 )
-from classiflow.splitting import iter_inner_splits, iter_outer_splits, assert_no_patient_leakage, make_group_labels
-from classiflow.tracking import get_tracker, extract_loggable_params, summarize_metrics
+from classiflow.plots.hierarchical import (
+    CurveDataUnavailableError,
+    safe_average_precision_score,
+    safe_precision_recall_curve,
+    safe_roc_curve,
+)
+from classiflow.splitting import (
+    assert_no_patient_leakage,
+    iter_inner_splits,
+    iter_outer_splits,
+    make_group_labels,
+)
+from classiflow.tracking import extract_loggable_params, get_tracker, summarize_metrics
 from classiflow.training.probability_quality import (
     attach_probability_quality_to_run_manifest,
     serialize_probability_quality_metrics,
@@ -39,6 +56,98 @@ from classiflow.training.probability_quality import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _log_curve_input_shapes(
+    context: str,
+    y_true: np.ndarray,
+    y_proba: np.ndarray,
+    classes: list[str],
+) -> None:
+    """Log ROC/PR input shapes before plot artifact generation."""
+    try:
+        unique_values, counts = np.unique(np.asarray(y_true), return_counts=True)
+        unique_counts: Any = {
+            str(value): int(count) for value, count in zip(unique_values, counts)
+        }
+    except Exception as exc:
+        unique_counts = f"unavailable ({exc})"
+
+    logger.info(
+        "%s ROC/PR inputs: y_true_shape=%s y_proba_shape=%s n_classes=%s "
+        "classes=%s unique_y=%s",
+        context,
+        np.shape(y_true),
+        np.shape(y_proba),
+        len(classes),
+        classes,
+        unique_counts,
+    )
+
+def _compute_roc_pr_curve_data(
+    y_true: np.ndarray,
+    y_proba: np.ndarray,
+    n_classes: int,
+    context: str,
+) -> tuple[np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, float] | None:
+    """Compute averaged-plot ROC/PR data."""
+    y_true_arr = np.asarray(y_true)
+    y_proba_arr = np.asarray(y_proba)
+
+    if y_proba_arr.ndim != 2:
+        raise ValueError(f"expected y_proba to be 2D, got shape {y_proba_arr.shape}")
+    if y_true_arr.shape[0] != y_proba_arr.shape[0]:
+        raise ValueError(
+            "sample count mismatch: "
+            f"y_true={y_true_arr.shape[0]} y_proba={y_proba_arr.shape[0]}"
+        )
+    if y_proba_arr.shape[1] != n_classes:
+        raise ValueError(
+            "class count mismatch: "
+            f"y_proba_columns={y_proba_arr.shape[1]} n_classes={n_classes}"
+        )
+
+    try:
+        if n_classes == 2:
+            y_bin = (y_true_arr == 1).astype(int)
+            fpr, tpr, _ = safe_roc_curve(
+                y_bin, y_proba_arr[:, 1], context=f"{context} binary ROC/PR"
+            )
+            prec, rec, _ = safe_precision_recall_curve(
+                y_bin, y_proba_arr[:, 1], context=f"{context} binary ROC/PR"
+            )
+            roc_auc_val = auc(fpr, tpr)
+            ap_val = safe_average_precision_score(
+                y_bin, y_proba_arr[:, 1], context=f"{context} binary ROC/PR"
+            )
+        else:
+            y_bin = label_binarize(y_true_arr, classes=list(range(n_classes)))
+            if y_bin.ndim == 1:
+                y_bin = np.column_stack([1 - y_bin, y_bin])
+            if y_bin.shape != y_proba_arr.shape:
+                raise ValueError(
+                    "binarized label/probability shape mismatch: "
+                    f"y_bin={y_bin.shape} y_proba={y_proba_arr.shape}"
+                )
+            fpr, tpr, _ = safe_roc_curve(
+                y_bin.ravel(), y_proba_arr.ravel(), context=f"{context} micro ROC"
+            )
+            prec, rec, _ = safe_precision_recall_curve(
+                y_bin.ravel(), y_proba_arr.ravel(), context=f"{context} micro PR"
+            )
+            roc_auc_val = auc(fpr, tpr)
+            ap_val = safe_average_precision_score(
+                y_bin.ravel(), y_proba_arr.ravel(), context=f"{context} micro PR"
+            )
+    except CurveDataUnavailableError as exc:
+        logger.warning(
+            "Skipping %s averaged ROC/PR curve data because curves are undefined: %s",
+            context,
+            exc,
+        )
+        return None
+
+    return fpr, tpr, float(roc_auc_val), rec, prec, float(ap_val)
 
 
 def get_hyperparam_candidates(base_hidden: int, base_epochs: int) -> List[Dict]:
@@ -623,63 +732,75 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
         )
 
         # Plot L1 ROC/PR curves
+        _log_curve_input_shapes(
+            f"Level-1 fold {fold_id}",
+            y_l1_va_enc,
+            y_l1_proba,
+            l1_classes,
+        )
         plot_roc_curve(
-            y_l1_va_enc, y_l1_proba, l1_classes,
+            y_l1_va_enc,
+            y_l1_proba,
+            l1_classes,
             f"Level-1 ROC – Fold {fold_id}",
-            fold_dir / f"roc_level1_fold{fold_id}.png"
+            fold_dir / f"roc_level1_fold{fold_id}.png",
         )
 
         plot_pr_curve(
-            y_l1_va_enc, y_l1_proba, l1_classes,
+            y_l1_va_enc,
+            y_l1_proba,
+            l1_classes,
             f"Level-1 PR – Fold {fold_id}",
-            fold_dir / f"pr_level1_fold{fold_id}.png"
+            fold_dir / f"pr_level1_fold{fold_id}.png",
         )
 
         # Plot L1 confusion matrix
         y_l1_pred_enc = model_l1.predict(X_va_scaled)
         plot_confusion_matrix(
-            y_l1_va_enc, y_l1_pred_enc, l1_classes,
+            y_l1_va_enc,
+            y_l1_pred_enc,
+            l1_classes,
             f"Level-1 Confusion Matrix – Fold {fold_id}",
-            fold_dir / f"cm_level1_fold{fold_id}.png"
+            fold_dir / f"cm_level1_fold{fold_id}.png",
         )
 
         # Compute feature importance for L1
         if config.verbose >= 2:
             logger.debug("[Level-1] Computing feature importance...")
-            l1_importance = extract_feature_importance_mlp(
-                model_l1, X_va_scaled, y_l1_va_enc, feature_cols, n_permutations=5
-            )
-            plot_feature_importance(
-                l1_importance, feature_cols,
-                f"Level-1 Feature Importance – Fold {fold_id}",
-                fold_dir / f"feature_importance_l1_fold{fold_id}.png"
-            )
+            try:
+                l1_importance = extract_feature_importance_mlp(
+                    model_l1, X_va_scaled, y_l1_va_enc, feature_cols, n_permutations=5
+                )
+                plot_feature_importance(
+                    l1_importance,
+                    feature_cols,
+                    f"Level-1 Feature Importance – Fold {fold_id}",
+                    fold_dir / f"feature_importance_l1_fold{fold_id}.png",
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Skipping Level-1 feature importance plot for fold %s because "
+                    "artifact generation failed: %s",
+                    fold_id,
+                    exc,
+                    exc_info=True,
+                )
 
         # Store ROC/PR data for averaging
-        from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
-        from sklearn.preprocessing import label_binarize
-
-        if len(l1_classes) == 2:
-            y_bin = (y_l1_va_enc == 1).astype(int)
-            fpr, tpr, _ = roc_curve(y_bin, y_l1_proba[:, 1])
-            prec, rec, _ = precision_recall_curve(y_bin, y_l1_proba[:, 1])
-            roc_auc_val = auc(fpr, tpr)
-            ap_val = average_precision_score(y_bin, y_l1_proba[:, 1])
-        else:
-            y_bin = label_binarize(y_l1_va_enc, classes=list(range(len(l1_classes))))
-            if y_bin.ndim == 1:
-                y_bin = np.column_stack([1 - y_bin, y_bin])
-            fpr, tpr, _ = roc_curve(y_bin.ravel(), y_l1_proba.ravel())
-            prec, rec, _ = precision_recall_curve(y_bin.ravel(), y_l1_proba.ravel())
-            roc_auc_val = auc(fpr, tpr)
-            ap_val = average_precision_score(y_bin, y_l1_proba, average="micro")
-
-        all_l1_roc_data["fpr"].append(fpr)
-        all_l1_roc_data["tpr"].append(tpr)
-        all_l1_roc_data["auc"].append(roc_auc_val)
-        all_l1_pr_data["rec"].append(rec)
-        all_l1_pr_data["prec"].append(prec)
-        all_l1_pr_data["ap"].append(ap_val)
+        l1_curve_data = _compute_roc_pr_curve_data(
+            y_l1_va_enc,
+            y_l1_proba,
+            len(l1_classes),
+            f"Level-1 fold {fold_id}",
+        )
+        if l1_curve_data is not None:
+            fpr, tpr, roc_auc_val, rec, prec, ap_val = l1_curve_data
+            all_l1_roc_data["fpr"].append(fpr)
+            all_l1_roc_data["tpr"].append(tpr)
+            all_l1_roc_data["auc"].append(roc_auc_val)
+            all_l1_pr_data["rec"].append(rec)
+            all_l1_pr_data["prec"].append(prec)
+            all_l1_pr_data["ap"].append(ap_val)
 
         prob_metrics, prob_curves = compute_probability_quality(
             y_true=[str(v) for v in y_l1_va.tolist()],
@@ -890,47 +1011,52 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
                     logger.info(f"    Val: acc={l2_acc:.3f}, F1={l2_f1:.3f}")
 
                     # Plot L2 branch ROC/PR curves
+                    _log_curve_input_shapes(
+                        f"Level-2 {l1_val} fold {fold_id}",
+                        y_l2_va_b_enc,
+                        y_l2_proba_b,
+                        unique_l2_b,
+                    )
                     plot_roc_curve(
-                        y_l2_va_b_enc, y_l2_proba_b, unique_l2_b,
+                        y_l2_va_b_enc,
+                        y_l2_proba_b,
+                        unique_l2_b,
                         f"Level-2 ROC ({l1_val}) – Fold {fold_id}",
-                        fold_dir / f"roc_level2_{safe_l1}_fold{fold_id}.png"
+                        fold_dir / f"roc_level2_{safe_l1}_fold{fold_id}.png",
                     )
 
                     plot_pr_curve(
-                        y_l2_va_b_enc, y_l2_proba_b, unique_l2_b,
+                        y_l2_va_b_enc,
+                        y_l2_proba_b,
+                        unique_l2_b,
                         f"Level-2 PR ({l1_val}) – Fold {fold_id}",
-                        fold_dir / f"pr_level2_{safe_l1}_fold{fold_id}.png"
+                        fold_dir / f"pr_level2_{safe_l1}_fold{fold_id}.png",
                     )
 
                     # Plot L2 confusion matrix
                     plot_confusion_matrix(
-                        y_l2_va_b_enc, y_l2_pred_b_enc, unique_l2_b,
+                        y_l2_va_b_enc,
+                        y_l2_pred_b_enc,
+                        unique_l2_b,
                         f"Level-2 CM ({l1_val}) – Fold {fold_id}",
-                        fold_dir / f"cm_level2_{safe_l1}_fold{fold_id}.png"
+                        fold_dir / f"cm_level2_{safe_l1}_fold{fold_id}.png",
                     )
 
                     # Store ROC/PR data for averaging
-                    if n_l2_b == 2:
-                        y_bin_b = (y_l2_va_b_enc == 1).astype(int)
-                        fpr_b, tpr_b, _ = roc_curve(y_bin_b, y_l2_proba_b[:, 1])
-                        prec_b, rec_b, _ = precision_recall_curve(y_bin_b, y_l2_proba_b[:, 1])
-                        roc_auc_b = auc(fpr_b, tpr_b)
-                        ap_b = average_precision_score(y_bin_b, y_l2_proba_b[:, 1])
-                    else:
-                        y_bin_b = label_binarize(y_l2_va_b_enc, classes=list(range(n_l2_b)))
-                        if y_bin_b.ndim == 1:
-                            y_bin_b = np.column_stack([1 - y_bin_b, y_bin_b])
-                        fpr_b, tpr_b, _ = roc_curve(y_bin_b.ravel(), y_l2_proba_b.ravel())
-                        prec_b, rec_b, _ = precision_recall_curve(y_bin_b.ravel(), y_l2_proba_b.ravel())
-                        roc_auc_b = auc(fpr_b, tpr_b)
-                        ap_b = average_precision_score(y_bin_b, y_l2_proba_b, average="micro")
-
-                    all_l2_roc_data[l1_val]["fpr"].append(fpr_b)
-                    all_l2_roc_data[l1_val]["tpr"].append(tpr_b)
-                    all_l2_roc_data[l1_val]["auc"].append(roc_auc_b)
-                    all_l2_pr_data[l1_val]["rec"].append(rec_b)
-                    all_l2_pr_data[l1_val]["prec"].append(prec_b)
-                    all_l2_pr_data[l1_val]["ap"].append(ap_b)
+                    l2_curve_data = _compute_roc_pr_curve_data(
+                        y_l2_va_b_enc,
+                        y_l2_proba_b,
+                        n_l2_b,
+                        f"Level-2 {l1_val} fold {fold_id}",
+                    )
+                    if l2_curve_data is not None:
+                        fpr_b, tpr_b, roc_auc_b, rec_b, prec_b, ap_b = l2_curve_data
+                        all_l2_roc_data[l1_val]["fpr"].append(fpr_b)
+                        all_l2_roc_data[l1_val]["tpr"].append(tpr_b)
+                        all_l2_roc_data[l1_val]["auc"].append(roc_auc_b)
+                        all_l2_pr_data[l1_val]["rec"].append(rec_b)
+                        all_l2_pr_data[l1_val]["prec"].append(prec_b)
+                        all_l2_pr_data[l1_val]["ap"].append(ap_b)
 
             # ========== Pipeline evaluation ==========
             any_branch_trained = any(branch_trained.get(l1, False) for l1 in l1_classes)
@@ -1057,16 +1183,20 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
     # L1 averaged curves
     if len(all_l1_roc_data["fpr"]) > 1:
         plot_averaged_roc_curves(
-            all_l1_roc_data["fpr"], all_l1_roc_data["tpr"], all_l1_roc_data["auc"],
+            all_l1_roc_data["fpr"],
+            all_l1_roc_data["tpr"],
+            all_l1_roc_data["auc"],
             "Level-1 ROC – Averaged Across Folds",
             outdir / "roc_level1_averaged.png",
-            show_individual=(config.outer_folds <= 5)
+            show_individual=(config.outer_folds <= 5),
         )
         plot_averaged_pr_curves(
-            all_l1_pr_data["rec"], all_l1_pr_data["prec"], all_l1_pr_data["ap"],
+            all_l1_pr_data["rec"],
+            all_l1_pr_data["prec"],
+            all_l1_pr_data["ap"],
             "Level-1 PR – Averaged Across Folds",
             outdir / "pr_level1_averaged.png",
-            show_individual=(config.outer_folds <= 5)
+            show_individual=(config.outer_folds <= 5),
         )
 
     # L2 averaged curves (if hierarchical)
@@ -1075,18 +1205,20 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
             if len(all_l2_roc_data[l1_val]["fpr"]) > 1:
                 safe_l1 = l1_val.replace(" ", "_")
                 plot_averaged_roc_curves(
-                    all_l2_roc_data[l1_val]["fpr"], all_l2_roc_data[l1_val]["tpr"],
+                    all_l2_roc_data[l1_val]["fpr"],
+                    all_l2_roc_data[l1_val]["tpr"],
                     all_l2_roc_data[l1_val]["auc"],
                     f"Level-2 ({l1_val}) ROC – Averaged",
                     outdir / f"roc_level2_{safe_l1}_averaged.png",
-                    show_individual=(config.outer_folds <= 5)
+                    show_individual=(config.outer_folds <= 5),
                 )
                 plot_averaged_pr_curves(
-                    all_l2_pr_data[l1_val]["rec"], all_l2_pr_data[l1_val]["prec"],
+                    all_l2_pr_data[l1_val]["rec"],
+                    all_l2_pr_data[l1_val]["prec"],
                     all_l2_pr_data[l1_val]["ap"],
                     f"Level-2 ({l1_val}) PR – Averaged",
                     outdir / f"pr_level2_{safe_l1}_averaged.png",
-                    show_individual=(config.outer_folds <= 5)
+                    show_individual=(config.outer_folds <= 5),
                 )
 
     # ========== Print summary ==========

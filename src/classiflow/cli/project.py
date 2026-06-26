@@ -50,6 +50,28 @@ def _latest_run(root: Path) -> Optional[Path]:
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
+def _normalize_final_estimator_strategy(strategy: str) -> str:
+    normalized = str(strategy).strip().lower()
+    if normalized not in {"single", "bagged"}:
+        raise typer.BadParameter(
+            f"Unsupported final estimator strategy '{strategy}'. Choose from single, bagged."
+        )
+    return normalized
+
+
+def _validate_bagging_options(
+    bagging_n_estimators: int,
+    bagging_max_samples: float,
+    bagging_max_features: float,
+) -> None:
+    if bagging_n_estimators < 1:
+        raise typer.BadParameter("bagging-n-estimators must be >= 1")
+    if not (0.0 < bagging_max_samples <= 1.0):
+        raise typer.BadParameter("bagging-max-samples must be within (0, 1]")
+    if not (0.0 < bagging_max_features <= 1.0):
+        raise typer.BadParameter("bagging-max-features must be within (0, 1]")
+
+
 def _load_config(paths: ProjectPaths) -> ProjectConfig:
     if not paths.project_yaml.exists():
         raise typer.BadParameter(f"project.yaml not found in {paths.root}")
@@ -96,13 +118,22 @@ def _append_project_yaml_hints(project_yaml: Path, mode: str, engine: str) -> No
     ]
     if mode == "meta":
         hint_lines.append("# - calibration.enabled (auto|true|false)")
-        hint_lines.append("# - calibration.method (sigmoid|isotonic)")
+        hint_lines.append("# - calibration.method (sigmoid|isotonic|temperature)")
         hint_lines.append("# - task.tasks_json / task.tasks_only for custom task sets")
     if mode == "multiclass":
         hint_lines.append("# - multiclass.backend and multiclass.sklearn.logreg.*")
+        hint_lines.append("# - calibration.enabled and calibration.method (temperature for torch learners)")
     if engine in {"torch", "hybrid"}:
         hint_lines.append("# - execution.device and execution.torch.*")
-        hint_lines.append("# Advanced knobs: execution.model_set, execution.torch.num_workers")
+        hint_lines.append(
+            "# Advanced knobs: execution.model_set, execution.torch.num_workers, "
+            "models.expanded_mlp_tuning_grid"
+        )
+    if mode != "meta":
+        hint_lines.append(
+            "# - models.final_estimator_strategy / models.technical_final_estimator_strategy"
+        )
+        hint_lines.append("# - models.bagging_*")
 
     try:
         with open(project_yaml, "a", encoding="utf-8") as handle:
@@ -165,8 +196,30 @@ def _print_promotion_templates() -> None:
 
 
 def _infer_key_columns(train_manifest: Path) -> dict:
-    df = pd.read_csv(train_manifest, nrows=5)
-    columns = df.columns.tolist()
+    path = Path(train_manifest)
+
+    if path.is_dir():
+        try:
+            import pyarrow.dataset as ds
+        except ImportError as exc:  # pragma: no cover - dependency/runtime specific
+            raise typer.BadParameter(
+                "Parquet dataset input requires pyarrow. Install with "
+                "`pip install classiflow[parquet]` or `pip install pyarrow`."
+            ) from exc
+        columns = list(ds.dataset(path, format="parquet").schema.names)
+    elif path.suffix.lower() == ".parquet":
+        try:
+            import pyarrow.parquet as pq
+        except ImportError as exc:  # pragma: no cover - dependency/runtime specific
+            raise typer.BadParameter(
+                "Parquet input requires pyarrow. Install with "
+                "`pip install classiflow[parquet]` or `pip install pyarrow`."
+            ) from exc
+        columns = list(pq.read_schema(path).names)
+    else:
+        df = pd.read_csv(path, nrows=5)
+        columns = df.columns.tolist()
+
     return {
         "sample_id": _pick_column(columns, ["sample_id", "sample", "id"]),
         "patient_id": _pick_column(columns, ["patient_id", "patient", "subject_id"]),
@@ -283,6 +336,56 @@ def bootstrap_project(
         help="List available promotion gate templates and exit",
     ),
     copy_data: str = typer.Option("pointer", "--copy-data", help="copy|symlink|pointer"),
+    calibration_enabled: str = typer.Option(
+        "auto",
+        "--calibration-enabled",
+        help="Calibration mode: auto|true|false",
+    ),
+    calibration_method: str = typer.Option(
+        "sigmoid",
+        "--calibration-method",
+        help="Calibration method: sigmoid|isotonic|temperature",
+    ),
+    expanded_mlp_tuning_grid: bool = typer.Option(
+        False,
+        "--expanded-mlp-tuning-grid/--no-expanded-mlp-tuning-grid",
+        help="Expand MLP tuning space to include CCIX-style hyperparameter axes and nearby values.",
+    ),
+    final_estimator_strategy: str = typer.Option(
+        "single",
+        "--final-estimator-strategy",
+        help="Final estimator strategy for final model builds: single or bagged.",
+    ),
+    technical_final_estimator_strategy: str = typer.Option(
+        "single",
+        "--technical-final-estimator-strategy",
+        help="Final estimator strategy for run-technical: single or bagged.",
+    ),
+    bagging_n_estimators: int = typer.Option(
+        10,
+        "--bagging-n-estimators",
+        help="Number of estimators for bagging.",
+    ),
+    bagging_max_samples: float = typer.Option(
+        1.0,
+        "--bagging-max-samples",
+        help="Fraction of samples drawn for each bagged estimator.",
+    ),
+    bagging_max_features: float = typer.Option(
+        1.0,
+        "--bagging-max-features",
+        help="Fraction of features drawn for each bagged estimator.",
+    ),
+    bagging_bootstrap: bool = typer.Option(
+        True,
+        "--bagging-bootstrap/--no-bagging-bootstrap",
+        help="Sample rows with replacement when bagging is enabled.",
+    ),
+    bagging_bootstrap_features: bool = typer.Option(
+        False,
+        "--bagging-bootstrap-features/--no-bagging-bootstrap-features",
+        help="Sample features with replacement when bagging is enabled.",
+    ),
     test_id: Optional[str] = typer.Option(None, "--test-id", help="Project/test identifier"),
 ):
     """Bootstrap a project with dataset registration."""
@@ -304,6 +407,22 @@ def bootstrap_project(
         tasks_json = None
     if not isinstance(tasks_only, bool):
         tasks_only = False
+    if not isinstance(expanded_mlp_tuning_grid, bool):
+        expanded_mlp_tuning_grid = False
+    if not isinstance(final_estimator_strategy, str):
+        final_estimator_strategy = "single"
+    if not isinstance(technical_final_estimator_strategy, str):
+        technical_final_estimator_strategy = "single"
+    if not isinstance(bagging_n_estimators, int):
+        bagging_n_estimators = 10
+    if not isinstance(bagging_max_samples, (int, float)):
+        bagging_max_samples = 1.0
+    if not isinstance(bagging_max_features, (int, float)):
+        bagging_max_features = 1.0
+    if not isinstance(bagging_bootstrap, bool):
+        bagging_bootstrap = True
+    if not isinstance(bagging_bootstrap_features, bool):
+        bagging_bootstrap_features = False
 
     project_id = choose_project_id(name, test_id)
     root = project_root(out_dir, project_id, name)
@@ -348,7 +467,9 @@ def bootstrap_project(
     if mode == "auto":
         label_col = key_columns["label"]
         try:
-            label_series = pd.read_csv(train_dest, usecols=[label_col])[label_col]
+            from classiflow.data import load_table
+
+            label_series = load_table(train_dest, columns=[label_col])[label_col]
             n_labels = label_series.nunique()
             inferred_mode = "binary" if n_labels <= 2 else "meta"
         except Exception:
@@ -372,6 +493,31 @@ def bootstrap_project(
             "Use --engine torch or --engine hybrid to enable device selection."
         )
 
+    if not isinstance(calibration_enabled, str):
+        calibration_enabled = "auto"
+    if not isinstance(calibration_method, str):
+        calibration_method = "sigmoid"
+
+    calibration_enabled = calibration_enabled.lower().strip()
+    if calibration_enabled not in {"auto", "true", "false"}:
+        raise typer.BadParameter(
+            "calibration-enabled must be one of: auto, true, false"
+        )
+    calibration_method = calibration_method.lower().strip()
+    if calibration_method not in {"sigmoid", "isotonic", "temperature"}:
+        raise typer.BadParameter(
+            "calibration-method must be one of: sigmoid, isotonic, temperature"
+        )
+    final_estimator_strategy = _normalize_final_estimator_strategy(final_estimator_strategy)
+    technical_final_estimator_strategy = _normalize_final_estimator_strategy(
+        technical_final_estimator_strategy
+    )
+    _validate_bagging_options(
+        bagging_n_estimators,
+        bagging_max_samples,
+        bagging_max_features,
+    )
+
     config = ProjectConfig.scaffold(
         project_id=project_id,
         name=name,
@@ -384,12 +530,23 @@ def bootstrap_project(
         patient_id=key_columns["patient_id"],
         sample_id=key_columns["sample_id"],
         hierarchy_path=hierarchy,
+        expanded_mlp_tuning_grid=expanded_mlp_tuning_grid,
+        final_estimator_strategy=final_estimator_strategy,  # type: ignore[arg-type]
+        technical_final_estimator_strategy=technical_final_estimator_strategy,  # type: ignore[arg-type]
+        bagging_n_estimators=bagging_n_estimators,
+        bagging_max_samples=bagging_max_samples,
+        bagging_max_features=bagging_max_features,
+        bagging_bootstrap=bagging_bootstrap,
+        bagging_bootstrap_features=bagging_bootstrap_features,
         tasks_json=str(tasks_json.resolve()) if tasks_json is not None else None,
         tasks_only=tasks_only,
     )
     config.task.patient_stratified = not no_patient_stratified
     config.key_columns.slide_id = key_columns["slide_id"]
     config.key_columns.specimen_id = key_columns["specimen_id"]
+    config.calibration.enabled = calibration_enabled  # type: ignore[assignment]
+    config.calibration.method = calibration_method  # type: ignore[assignment]
+    config = ProjectConfig.model_validate(config.model_dump(mode="python"))
 
     config.save(paths.project_yaml, minimal=True)
     _append_project_yaml_hints(paths.project_yaml, mode=selected_mode, engine=selected_engine)

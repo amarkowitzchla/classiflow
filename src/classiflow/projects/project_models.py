@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import os
 import re
 from typing import Any, Dict, List, Literal, Optional, Tuple
 import warnings
@@ -30,6 +31,12 @@ TORCH_CANDIDATES = {
 }
 
 
+def _default_torch_num_workers() -> int:
+    """Compute a conservative default DataLoader worker count."""
+    cpu_total = os.cpu_count() or 1
+    return max(cpu_total - 2, 1)
+
+
 def available_project_options() -> Dict[str, List[str]]:
     """Return discoverable option enums for project config UX."""
     return {
@@ -39,9 +46,11 @@ def available_project_options() -> Dict[str, List[str]]:
         "multiclass.backend[sklearn]": ["sklearn_cpu"],
         "multiclass.backend[torch]": ["torch_auto", "torch_cpu", "torch_cuda", "torch_mps"],
         "multiclass.backend[hybrid]": ["hybrid_sklearn_meta_torch_base"],
+        "models.final_estimator_strategy": ["single", "bagged"],
+        "models.technical_final_estimator_strategy": ["single", "bagged"],
         "models.selection_direction": ["max", "min"],
         "calibration.enabled": ["auto", "true", "false"],
-        "calibration.method": ["sigmoid", "isotonic"],
+        "calibration.method": ["sigmoid", "isotonic", "temperature"],
         "calibration.binning": ["uniform", "quantile"],
         "execution.torch.dtype": ["float32", "float16"],
     }
@@ -87,7 +96,11 @@ def normalize_project_payload(payload: Dict[str, Any]) -> Tuple[Dict[str, Any], 
         device = str(data.pop("device", "auto")).lower()
         model_set = data.pop("model_set", None)
         torch_dtype = str(data.pop("torch_dtype", "float32")).lower()
-        torch_num_workers = int(data.pop("torch_num_workers", 0) or 0)
+        legacy_torch_num_workers = data.pop("torch_num_workers", None)
+        if legacy_torch_num_workers is None:
+            torch_num_workers = _default_torch_num_workers()
+        else:
+            torch_num_workers = int(legacy_torch_num_workers)
         require_torch_device = bool(data.pop("require_torch_device", False))
 
         normalized_execution: Dict[str, Any] = {"engine": backend}
@@ -226,6 +239,28 @@ class ModelsConfig(BaseModel):
     )
     selection_metric: str = "f1"
     selection_direction: Literal["max", "min"] = "max"
+    expanded_mlp_tuning_grid: bool = False
+    final_estimator_strategy: Literal["single", "bagged"] = "single"
+    technical_final_estimator_strategy: Literal["single", "bagged"] = "single"
+    bagging_n_estimators: int = 10
+    bagging_max_samples: float = 1.0
+    bagging_max_features: float = 1.0
+    bagging_bootstrap: bool = True
+    bagging_bootstrap_features: bool = False
+
+    @field_validator("bagging_n_estimators")
+    @classmethod
+    def _positive_bagging_estimators(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("must be >= 1")
+        return value
+
+    @field_validator("bagging_max_samples", "bagging_max_features")
+    @classmethod
+    def _unit_interval_fraction(cls, value: float) -> float:
+        if not (0.0 < value <= 1.0):
+            raise ValueError("must be within (0, 1]")
+        return value
 
 
 class ImbalanceConfig(BaseModel):
@@ -304,7 +339,7 @@ class CalibrationConfig(BaseModel):
     """Meta classifier calibration settings."""
 
     enabled: Literal["false", "true", "auto"] = "auto"
-    method: Literal["sigmoid", "isotonic"] = "sigmoid"
+    method: Literal["sigmoid", "isotonic", "temperature"] = "sigmoid"
     cv: int = 3
     bins: int = 10
     binning: Literal["uniform", "quantile"] = "quantile"
@@ -353,7 +388,9 @@ class ExecutionTorchSettings(BaseModel):
     """Torch execution options used when engine is torch or hybrid."""
 
     dtype: Literal["float32", "float16"] = Field(default="float32", description="Torch tensor dtype")
-    num_workers: int = Field(default=0, description="DataLoader worker count")
+    num_workers: int = Field(
+        default_factory=_default_torch_num_workers, description="DataLoader worker count"
+    )
     require_device: bool = Field(
         default=False,
         description="Fail instead of falling back if requested torch device is unavailable",
@@ -465,6 +502,17 @@ class ProjectConfig(BaseModel):
                 "Suggestion: use --engine sklearn or --engine torch."
             )
 
+        if mode in {"meta", "hierarchical"} and self.models.final_estimator_strategy != "single":
+            raise ValueError(
+                "models.final_estimator_strategy=bagged is not supported for "
+                f"task.mode={mode}. Suggestion: set models.final_estimator_strategy=single."
+            )
+        if mode in {"meta", "hierarchical"} and self.models.technical_final_estimator_strategy != "single":
+            raise ValueError(
+                "models.technical_final_estimator_strategy=bagged is not supported for "
+                f"task.mode={mode}. Suggestion: set models.technical_final_estimator_strategy=single."
+            )
+
         if mode == "hierarchical" and engine == "torch":
             raise ValueError(
                 "task.mode=hierarchical currently uses dedicated hierarchical training and does not support "
@@ -559,7 +607,7 @@ class ProjectConfig(BaseModel):
     def torch_num_workers(self) -> int:
         """Backward-compatible torch worker view for existing orchestration code."""
         if self.execution.torch is None:
-            return 0
+            return _default_torch_num_workers()
         return self.execution.torch.num_workers
 
     @property
@@ -613,9 +661,9 @@ class ProjectConfig(BaseModel):
         task_cfg = result["task"]
         if task_cfg.get("tasks_only") is False:
             task_cfg.pop("tasks_only", None)
-
-        if self.task.mode == "meta":
-            result["calibration"] = dump["calibration"]
+        # Calibration settings are used across workflows (meta/binary/multiclass/hierarchical),
+        # so keep this block in minimal configs as well.
+        result["calibration"] = dump["calibration"]
         if self.task.mode == "multiclass":
             result["multiclass"] = dump["multiclass"]
 
@@ -645,6 +693,14 @@ class ProjectConfig(BaseModel):
         sample_id: Optional[str] = None,
         hierarchy_path: Optional[str] = None,
         device: Optional[ExecutionDevice] = None,
+        expanded_mlp_tuning_grid: bool = False,
+        final_estimator_strategy: Literal["single", "bagged"] = "single",
+        technical_final_estimator_strategy: Literal["single", "bagged"] = "single",
+        bagging_n_estimators: int = 10,
+        bagging_max_samples: float = 1.0,
+        bagging_max_features: float = 1.0,
+        bagging_bootstrap: bool = True,
+        bagging_bootstrap_features: bool = False,
         tasks_json: Optional[str] = None,
         tasks_only: bool = False,
     ) -> "ProjectConfig":
@@ -654,7 +710,7 @@ class ProjectConfig(BaseModel):
             execution["device"] = device or "auto"
             execution["torch"] = {
                 "dtype": "float32",
-                "num_workers": 0,
+                "num_workers": _default_torch_num_workers(),
                 "require_device": False,
             }
             if engine == "torch" and mode in {"binary", "meta"}:
@@ -671,6 +727,23 @@ class ProjectConfig(BaseModel):
             else:
                 multiclass["backend"] = "hybrid_sklearn_meta_torch_base"
                 multiclass["torch"] = {"model_set": "torch_basic"}
+
+        models: Dict[str, Any] = {
+            "selection_metric": "f1",
+            "selection_direction": "max",
+            "expanded_mlp_tuning_grid": expanded_mlp_tuning_grid,
+            "final_estimator_strategy": final_estimator_strategy,
+            "technical_final_estimator_strategy": technical_final_estimator_strategy,
+            "bagging_n_estimators": bagging_n_estimators,
+            "bagging_max_samples": bagging_max_samples,
+            "bagging_max_features": bagging_max_features,
+            "bagging_bootstrap": bagging_bootstrap,
+            "bagging_bootstrap_features": bagging_bootstrap_features,
+        }
+        if engine == "torch":
+            models["candidates"] = ["torch_logistic_regression", "torch_mlp"]
+        elif engine == "hybrid":
+            models["candidates"] = ["logistic_regression", "random_forest", "torch_mlp"]
 
         payload: Dict[str, Any] = {
             "project": {
@@ -698,20 +771,9 @@ class ProjectConfig(BaseModel):
                 "tasks_only": tasks_only,
             },
             "execution": execution,
+            "models": models,
             "multiclass": multiclass,
         }
-        if engine == "torch":
-            payload["models"] = {
-                "candidates": ["torch_logistic_regression", "torch_mlp"],
-                "selection_metric": "f1",
-                "selection_direction": "max",
-            }
-        elif engine == "hybrid":
-            payload["models"] = {
-                "candidates": ["logistic_regression", "random_forest", "torch_mlp"],
-                "selection_metric": "f1",
-                "selection_direction": "max",
-            }
         return cls.model_validate(payload)
 
 
