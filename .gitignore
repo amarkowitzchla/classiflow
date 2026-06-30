@@ -100,3 +100,8 @@ manuscript/
 # Docs are tracked; this line is intentionally absent.
 # (Older versions of this file had docs/* here — that was wrong.)
 AGENTS.md
+docker-compose.yml
+Dockerfile
+Dockerfile.streamlit
+Dockerfile.ui
+.Rhistory
