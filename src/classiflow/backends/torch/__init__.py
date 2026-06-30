@@ -3,8 +3,8 @@
 from classiflow.backends.torch.estimators import (
     TorchLogisticRegressionClassifier,
     TorchMLPClassifier,
-    TorchSoftmaxRegressionClassifier,
     TorchMLPMulticlassClassifier,
+    TorchSoftmaxRegressionClassifier,
 )
 from classiflow.backends.torch.utils import resolve_device
 

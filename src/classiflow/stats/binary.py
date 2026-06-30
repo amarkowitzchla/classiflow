@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from typing import Dict, List, Tuple
+
 import numpy as np
 import pandas as pd
 from scipy import stats as sp_stats
 from statsmodels.stats.multitest import multipletests
 
-from classiflow.stats.effects import hedges_g, rank_biserial, log2_fold_change
+from classiflow.stats.effects import hedges_g, log2_fold_change, rank_biserial
 
 
 def _normality_lookup(
@@ -99,15 +100,11 @@ def binary_feature_tests(
                 if is_parametric:
                     statistic, p_value = sp_stats.ttest_ind(x, y, equal_var=False)
                 else:
-                    statistic, p_value = sp_stats.mannwhitneyu(
-                        x, y, alternative="two-sided"
-                    )
+                    statistic, p_value = sp_stats.mannwhitneyu(x, y, alternative="two-sided")
             except Exception:
                 statistic, p_value = np.nan, np.nan
 
-        log2fc, fc_center_a, fc_center_b = log2_fold_change(
-            x, y, center=fc_center, eps=fc_eps
-        )
+        log2fc, fc_center_a, fc_center_b = log2_fold_change(x, y, center=fc_center, eps=fc_eps)
 
         rows.append(
             {
@@ -134,9 +131,7 @@ def binary_feature_tests(
                 "hedges_g": hedges_g(x, y) if is_parametric else np.nan,
                 "rank_biserial": rank_biserial(x, y) if not is_parametric else np.nan,
                 "delta_mean": (
-                    mean_a - mean_b
-                    if np.isfinite(mean_a) and np.isfinite(mean_b)
-                    else np.nan
+                    mean_a - mean_b if np.isfinite(mean_a) and np.isfinite(mean_b) else np.nan
                 ),
                 "delta_median": (
                     median_a - median_b

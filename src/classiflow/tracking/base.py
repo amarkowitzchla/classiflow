@@ -31,7 +31,7 @@ class ExperimentTracker(ABC):
         self,
         run_name: Optional[str] = None,
         tags: Optional[Dict[str, str]] = None,
-    ) -> "ExperimentTracker":
+    ) -> ExperimentTracker:
         """
         Start a new tracking run.
 
@@ -127,7 +127,7 @@ class ExperimentTracker(ABC):
         """
         pass
 
-    def __enter__(self) -> "ExperimentTracker":
+    def __enter__(self) -> ExperimentTracker:
         """Context manager entry."""
         return self
 

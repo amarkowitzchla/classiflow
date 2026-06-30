@@ -2,17 +2,17 @@
 
 from classiflow.ui_api.adapters.manifest import (
     RunManifestNormalized,
-    parse_run_manifest,
+    infer_manifest_from_directory,
     parse_lineage,
     parse_metrics,
-    infer_manifest_from_directory,
+    parse_run_manifest,
 )
 from classiflow.ui_api.adapters.project import (
     ProjectConfigNormalized,
-    parse_project_config,
     parse_datasets_registry,
-    parse_thresholds,
     parse_decision,
+    parse_project_config,
+    parse_thresholds,
 )
 
 __all__ = [

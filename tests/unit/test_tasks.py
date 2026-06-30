@@ -1,8 +1,7 @@
 """Tests for task builder."""
 
-import pytest
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from classiflow.tasks import TaskBuilder
 
@@ -40,7 +39,6 @@ def test_task_builder_pairwise():
     y = pd.Series(["A", "B", "C", "A", "B"])
     y_bin = tasks["A_vs_B"](y)
 
-    expected = [1.0, 0.0, np.nan, 1.0, 0.0]
     assert pd.isna(y_bin[2])
     assert list(y_bin[[0, 1, 3, 4]]) == [1.0, 0.0, 1.0, 0.0]
 

@@ -7,8 +7,7 @@ import logging
 import zipfile
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
-import shutil
+from typing import List, Optional
 
 import classiflow
 
@@ -84,12 +83,14 @@ def create_bundle(
             raise FileNotFoundError(f"No run.json or run_manifest.json in {run_dir}")
 
     # Load manifest for metadata
-    with open(run_manifest_path, "r") as f:
+    with open(run_manifest_path) as f:
         manifest = json.load(f)
 
     # Determine which folds to include
     if include_all_folds:
-        fold_dirs = sorted([d for d in run_dir.iterdir() if d.is_dir() and d.name.startswith("fold")])
+        fold_dirs = sorted(
+            [d for d in run_dir.iterdir() if d.is_dir() and d.name.startswith("fold")]
+        )
     else:
         fold_num = fold if fold is not None else 1
         fold_dir = run_dir / f"fold{fold_num}"
@@ -192,11 +193,13 @@ def _create_artifact_registry(
         for item in fold_dir.rglob("*"):
             if item.is_file():
                 rel_path = item.relative_to(run_dir)
-                fold_artifacts.append({
-                    "path": str(rel_path),
-                    "size_bytes": item.stat().st_size,
-                    "suffix": item.suffix,
-                })
+                fold_artifacts.append(
+                    {
+                        "path": str(rel_path),
+                        "size_bytes": item.stat().st_size,
+                        "suffix": item.suffix,
+                    }
+                )
 
         registry["folds"][fold_name] = {
             "artifact_count": len(fold_artifacts),
@@ -266,46 +269,52 @@ def _create_readme(manifest: dict, registry: dict, description: Optional[str]) -
     for fold_name, fold_info in registry["folds"].items():
         lines.append(f"  - {fold_name}/:  {fold_info['artifact_count']} artifact(s)")
 
-    lines.extend([
-        "",
-        "-" * 70,
-        "Usage",
-        "-" * 70,
-        "",
-        "Command-line inference:",
-        "  classiflow infer --bundle model_bundle.zip --data-csv test.csv --outdir results/",
-        "",
-        "Python API:",
-        "  from classiflow.bundles import load_bundle",
-        "  bundle = load_bundle('model_bundle.zip')",
-        "  predictions = bundle.predict(X)",
-        "",
-        "-" * 70,
-        "Training Information",
-        "-" * 70,
-        "",
-        f"Training Data: {manifest.get('training_data_path', 'N/A')}",
-        f"Data Hash: {manifest.get('training_data_hash', 'N/A')}",
-        f"Data Rows: {manifest.get('training_data_row_count', 'N/A')}",
-        f"Timestamp: {manifest.get('timestamp', 'N/A')}",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            "-" * 70,
+            "Usage",
+            "-" * 70,
+            "",
+            "Command-line inference:",
+            "  classiflow infer --bundle model_bundle.zip --data-csv test.csv --outdir results/",
+            "",
+            "Python API:",
+            "  from classiflow.bundles import load_bundle",
+            "  bundle = load_bundle('model_bundle.zip')",
+            "  predictions = bundle.predict(X)",
+            "",
+            "-" * 70,
+            "Training Information",
+            "-" * 70,
+            "",
+            f"Training Data: {manifest.get('training_data_path', 'N/A')}",
+            f"Data Hash: {manifest.get('training_data_hash', 'N/A')}",
+            f"Data Rows: {manifest.get('training_data_row_count', 'N/A')}",
+            f"Timestamp: {manifest.get('timestamp', 'N/A')}",
+            "",
+        ]
+    )
 
     if description:
-        lines.extend([
-            "-" * 70,
-            "Description",
-            "-" * 70,
-            "",
-            description,
-            "",
-        ])
+        lines.extend(
+            [
+                "-" * 70,
+                "Description",
+                "-" * 70,
+                "",
+                description,
+                "",
+            ]
+        )
 
-    lines.extend([
-        "-" * 70,
-        "For more information:",
-        "  https://github.com/alexmarkowitz/classiflow",
-        "=" * 70,
-    ])
+    lines.extend(
+        [
+            "-" * 70,
+            "For more information:",
+            "  https://github.com/alexmarkowitz/classiflow",
+            "=" * 70,
+        ]
+    )
 
     return "\n".join(lines)

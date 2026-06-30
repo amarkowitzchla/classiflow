@@ -41,16 +41,21 @@ def test_torch_linear_fit_predict_proba() -> None:
 
 def test_torch_mlp_gridsearch_pipeline() -> None:
     X, y = _make_data(2)
-    pipe = Pipeline([
-        ("scaler", StandardScaler()),
-        ("clf", TorchMLPClassifier(
-            epochs=3,
-            batch_size=16,
-            hidden_dim=32,
-            device="cpu",
-            random_state=11,
-        )),
-    ])
+    pipe = Pipeline(
+        [
+            ("scaler", StandardScaler()),
+            (
+                "clf",
+                TorchMLPClassifier(
+                    epochs=3,
+                    batch_size=16,
+                    hidden_dim=32,
+                    device="cpu",
+                    random_state=11,
+                ),
+            ),
+        ]
+    )
     grid = GridSearchCV(
         pipe,
         param_grid={"clf__lr": [1e-2, 1e-3]},

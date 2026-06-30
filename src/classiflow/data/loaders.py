@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional, List, Tuple, Union
+from typing import List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
-from classiflow.data.spec import DataSpec, DataFormat
 from classiflow.data.dataset import LoadedDataset
+from classiflow.data.spec import DataFormat, DataSpec
 from classiflow.data.validation import validate_columns, validate_features
 
 logger = logging.getLogger(__name__)
@@ -199,7 +199,9 @@ def load_data(spec: DataSpec) -> LoadedDataset:
             class_mask = y.isin(spec.classes)
             n_filtered = (~class_mask).sum()
             if n_filtered > 0:
-                logger.info(f"Filtered to {len(spec.classes)} classes, removed {n_filtered} samples")
+                logger.info(
+                    f"Filtered to {len(spec.classes)} classes, removed {n_filtered} samples"
+                )
                 df = df[class_mask].copy()
                 y = y[class_mask].copy()
 

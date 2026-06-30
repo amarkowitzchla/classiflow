@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Dict, Any
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import TensorDataset, DataLoader
 from sklearn.metrics import f1_score
+from torch.utils.data import DataLoader, TensorDataset
 
 logger = logging.getLogger(__name__)
 
@@ -89,12 +89,14 @@ class TorchMLP(nn.Module):
         prev_dim = input_dim
 
         for hidden_dim in hidden_dims:
-            layers.extend([
-                nn.Linear(prev_dim, hidden_dim),
-                nn.BatchNorm1d(hidden_dim),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-            ])
+            layers.extend(
+                [
+                    nn.Linear(prev_dim, hidden_dim),
+                    nn.BatchNorm1d(hidden_dim),
+                    nn.ReLU(),
+                    nn.Dropout(dropout),
+                ]
+            )
             prev_dim = hidden_dim
 
         layers.append(nn.Linear(prev_dim, num_classes))
@@ -179,9 +181,7 @@ class TorchMLPWrapper:
         self.verbose = verbose
 
         self._device = torch.device(resolve_device(device))
-        self.model = TorchMLP(
-            input_dim, self.hidden_dims, num_classes, dropout
-        ).to(self._device)
+        self.model = TorchMLP(input_dim, self.hidden_dims, num_classes, dropout).to(self._device)
 
         self.best_state_dict = None
         self.training_history = {"train_loss": [], "val_loss": [], "val_f1": []}
@@ -190,16 +190,12 @@ class TorchMLPWrapper:
         if verbose >= 1:
             logger.info(f"Initialized TorchMLPWrapper on device: {self._device}")
 
-    def _create_dataloader(
-        self, X: np.ndarray, y: np.ndarray, shuffle: bool = True
-    ) -> DataLoader:
+    def _create_dataloader(self, X: np.ndarray, y: np.ndarray, shuffle: bool = True) -> DataLoader:
         """Create PyTorch DataLoader from numpy arrays."""
         X = np.asarray(X, dtype=np.float32)
         y = np.asarray(y, dtype=np.int64)
         dataset = TensorDataset(torch.from_numpy(X), torch.from_numpy(y))
-        return DataLoader(
-            dataset, batch_size=self.batch_size, shuffle=shuffle, drop_last=False
-        )
+        return DataLoader(dataset, batch_size=self.batch_size, shuffle=shuffle, drop_last=False)
 
     def fit(
         self,
@@ -235,9 +231,9 @@ class TorchMLPWrapper:
         np.random.seed(self.random_state)
 
         # Re-initialize model
-        self.model = TorchMLP(
-            self.input_dim, self.hidden_dims, self.num_classes, self.dropout
-        ).to(self._device)
+        self.model = TorchMLP(self.input_dim, self.hidden_dims, self.num_classes, self.dropout).to(
+            self._device
+        )
 
         train_loader = self._create_dataloader(X_train, y_train, shuffle=True)
 

@@ -61,10 +61,12 @@ def make_dataloader(
     dataset = TensorDataset(torch.from_numpy(X), torch.from_numpy(y))
     worker_init_fn: Optional[Callable[[int], None]] = None
     if worker_seed is not None and num_workers > 0:
+
         def _seed_worker(worker_id: int) -> None:
             seed = worker_seed + worker_id
             np.random.seed(seed)
             torch.manual_seed(seed)
+
         worker_init_fn = _seed_worker
     return DataLoader(
         dataset,

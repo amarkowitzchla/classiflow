@@ -6,10 +6,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from classiflow.stats.binary import binary_feature_tests
-from classiflow.stats.normality import check_normality_all_features
-from classiflow.stats.config import StatsConfig
 from classiflow.stats import api as stats_api
+from classiflow.stats.binary import binary_feature_tests
+from classiflow.stats.config import StatsConfig
+from classiflow.stats.normality import check_normality_all_features
 
 
 def _make_binary_df() -> pd.DataFrame:

@@ -3,21 +3,20 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
 import pandas as pd
 
+from classiflow.artifacts import save_nested_cv_results
+from classiflow.backends.registry import get_backend, get_model_set
 from classiflow.config import TrainConfig
 from classiflow.io import load_data, load_data_with_groups, validate_data
+from classiflow.lineage.hashing import get_file_metadata
+from classiflow.lineage.manifest import create_training_manifest
 from classiflow.splitting import make_group_labels
+from classiflow.tracking import extract_loggable_params, get_tracker, summarize_metrics
 from classiflow.training.nested_cv import NestedCVOrchestrator
 from classiflow.training.probability_quality import attach_probability_quality_to_run_manifest
-from classiflow.backends.registry import get_backend, get_model_set
-from classiflow.artifacts import save_nested_cv_results
-from classiflow.lineage.manifest import create_training_manifest
-from classiflow.lineage.hashing import get_file_metadata
-from classiflow.tracking import get_tracker, extract_loggable_params, summarize_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +52,7 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
     results : Dict[str, Any]
         Training results including metrics and model paths
     """
-    logger.info(f"Starting binary task training")
+    logger.info("Starting binary task training")
     data_path = config.resolved_data_path
     logger.info(f"  Data: {data_path}")
     logger.info(f"  Label: {config.label_col}")
@@ -94,7 +93,9 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
         # Infer minority class as positive
         vc = y_raw.value_counts()
         if len(vc) != 2:
-            raise ValueError(f"Label column must be binary. Got {len(vc)} classes: {list(vc.index)}")
+            raise ValueError(
+                f"Label column must be binary. Got {len(vc)} classes: {list(vc.index)}"
+            )
         pos_val = vc.idxmin()
         logger.info(f"Inferred positive class (minority): {pos_val}")
     else:
@@ -145,9 +146,13 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
             raise ValueError(f"Torch backend requested but torch is unavailable: {exc}") from exc
         if config.require_torch_device:
             if config.device == "mps" and not torch.backends.mps.is_available():
-                raise ValueError("MPS device requested but not available; set --device cpu or fix MPS setup.")
+                raise ValueError(
+                    "MPS device requested but not available; set --device cpu or fix MPS setup."
+                )
             if config.device == "cuda" and not torch.cuda.is_available():
-                raise ValueError("CUDA device requested but not available; set --device cpu or fix CUDA setup.")
+                raise ValueError(
+                    "CUDA device requested but not available; set --device cpu or fix CUDA setup."
+                )
 
     model_spec = get_model_set(
         command="train-binary",
@@ -186,7 +191,10 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
 
     # Save results
     save_nested_cv_results(results, config.outdir)
-    if isinstance(results.get("fold_probability_quality"), dict) and results["fold_probability_quality"]:
+    if (
+        isinstance(results.get("fold_probability_quality"), dict)
+        and results["fold_probability_quality"]
+    ):
         attach_probability_quality_to_run_manifest(
             run_manifest_path=config.outdir / "run.json",
             fold_probability_quality=results["fold_probability_quality"],
@@ -194,12 +202,14 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
 
     # Log to experiment tracker
     tracker.log_params(extract_loggable_params(config))
-    tracker.set_tags({
-        "task_type": "binary",
-        "backend": config.backend,
-        "smote_mode": config.smote_mode,
-        "run_id": manifest.run_id,
-    })
+    tracker.set_tags(
+        {
+            "task_type": "binary",
+            "backend": config.backend,
+            "smote_mode": config.smote_mode,
+            "run_id": manifest.run_id,
+        }
+    )
 
     # Log summary metrics if available
     if "summary" in results:

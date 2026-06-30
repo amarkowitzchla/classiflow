@@ -3,7 +3,6 @@ Unit tests for SMOTE comparison module.
 """
 
 import json
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -25,16 +24,18 @@ def sample_smote_data():
     rows = []
     for fold in range(1, n_folds + 1):
         for task in [f"task_{i}" for i in range(n_tasks)]:
-            rows.append({
-                "fold": fold,
-                "task": task,
-                "sampler": "smote",
-                "accuracy": np.random.uniform(0.7, 0.9),
-                "f1": np.random.uniform(0.65, 0.85),
-                "roc_auc": np.random.uniform(0.75, 0.95),
-                "precision": np.random.uniform(0.6, 0.9),
-                "recall": np.random.uniform(0.6, 0.9),
-            })
+            rows.append(
+                {
+                    "fold": fold,
+                    "task": task,
+                    "sampler": "smote",
+                    "accuracy": np.random.uniform(0.7, 0.9),
+                    "f1": np.random.uniform(0.65, 0.85),
+                    "roc_auc": np.random.uniform(0.75, 0.95),
+                    "precision": np.random.uniform(0.6, 0.9),
+                    "recall": np.random.uniform(0.6, 0.9),
+                }
+            )
 
     return pd.DataFrame(rows)
 
@@ -49,16 +50,18 @@ def sample_no_smote_data():
     rows = []
     for fold in range(1, n_folds + 1):
         for task in [f"task_{i}" for i in range(n_tasks)]:
-            rows.append({
-                "fold": fold,
-                "task": task,
-                "sampler": "none",
-                "accuracy": np.random.uniform(0.65, 0.85),
-                "f1": np.random.uniform(0.6, 0.8),
-                "roc_auc": np.random.uniform(0.7, 0.9),
-                "precision": np.random.uniform(0.55, 0.85),
-                "recall": np.random.uniform(0.55, 0.85),
-            })
+            rows.append(
+                {
+                    "fold": fold,
+                    "task": task,
+                    "sampler": "none",
+                    "accuracy": np.random.uniform(0.65, 0.85),
+                    "f1": np.random.uniform(0.6, 0.8),
+                    "roc_auc": np.random.uniform(0.7, 0.9),
+                    "precision": np.random.uniform(0.55, 0.85),
+                    "recall": np.random.uniform(0.55, 0.85),
+                }
+            )
 
     return pd.DataFrame(rows)
 
@@ -145,16 +148,20 @@ class TestSMOTEComparison:
         """Test overfitting detection with concurrent performance drops."""
         # Create data where SMOTE performs worse
         np.random.seed(42)
-        smote_data = pd.DataFrame({
-            "fold": [1, 2, 3],
-            "f1": [0.6, 0.62, 0.61],  # Lower than no-SMOTE
-            "roc_auc": [0.65, 0.67, 0.66],
-        })
-        no_smote_data = pd.DataFrame({
-            "fold": [1, 2, 3],
-            "f1": [0.7, 0.72, 0.71],  # Higher
-            "roc_auc": [0.75, 0.77, 0.76],
-        })
+        smote_data = pd.DataFrame(
+            {
+                "fold": [1, 2, 3],
+                "f1": [0.6, 0.62, 0.61],  # Lower than no-SMOTE
+                "roc_auc": [0.65, 0.67, 0.66],
+            }
+        )
+        no_smote_data = pd.DataFrame(
+            {
+                "fold": [1, 2, 3],
+                "f1": [0.7, 0.72, 0.71],  # Higher
+                "roc_auc": [0.75, 0.77, 0.76],
+            }
+        )
 
         comparison = SMOTEComparison(smote_data, no_smote_data, "meta")
 
@@ -173,14 +180,18 @@ class TestSMOTEComparison:
     def test_generate_recommendation_use_smote(self):
         """Test recommendation generation when SMOTE is better."""
         # Create data where SMOTE clearly better
-        smote_data = pd.DataFrame({
-            "fold": [1, 2, 3],
-            "f1": [0.85, 0.87, 0.86],
-        })
-        no_smote_data = pd.DataFrame({
-            "fold": [1, 2, 3],
-            "f1": [0.70, 0.72, 0.71],
-        })
+        smote_data = pd.DataFrame(
+            {
+                "fold": [1, 2, 3],
+                "f1": [0.85, 0.87, 0.86],
+            }
+        )
+        no_smote_data = pd.DataFrame(
+            {
+                "fold": [1, 2, 3],
+                "f1": [0.70, 0.72, 0.71],
+            }
+        )
 
         comparison = SMOTEComparison(smote_data, no_smote_data, "meta")
         stats = comparison.compute_statistics()
@@ -196,14 +207,18 @@ class TestSMOTEComparison:
     def test_generate_recommendation_no_smote(self):
         """Test recommendation when no-SMOTE is better."""
         # Create data where no-SMOTE is better
-        smote_data = pd.DataFrame({
-            "fold": [1, 2, 3],
-            "f1": [0.70, 0.72, 0.71],
-        })
-        no_smote_data = pd.DataFrame({
-            "fold": [1, 2, 3],
-            "f1": [0.85, 0.87, 0.86],
-        })
+        smote_data = pd.DataFrame(
+            {
+                "fold": [1, 2, 3],
+                "f1": [0.70, 0.72, 0.71],
+            }
+        )
+        no_smote_data = pd.DataFrame(
+            {
+                "fold": [1, 2, 3],
+                "f1": [0.85, 0.87, 0.86],
+            }
+        )
 
         comparison = SMOTEComparison(smote_data, no_smote_data, "meta")
         stats = comparison.compute_statistics()
@@ -218,14 +233,18 @@ class TestSMOTEComparison:
     def test_generate_recommendation_equivalent(self):
         """Test recommendation when performance is equivalent."""
         # Create data with identical performance
-        smote_data = pd.DataFrame({
-            "fold": [1, 2, 3, 4, 5],
-            "f1": [0.80, 0.81, 0.80, 0.81, 0.80],
-        })
-        no_smote_data = pd.DataFrame({
-            "fold": [1, 2, 3, 4, 5],
-            "f1": [0.80, 0.81, 0.80, 0.81, 0.80],
-        })
+        smote_data = pd.DataFrame(
+            {
+                "fold": [1, 2, 3, 4, 5],
+                "f1": [0.80, 0.81, 0.80, 0.81, 0.80],
+            }
+        )
+        no_smote_data = pd.DataFrame(
+            {
+                "fold": [1, 2, 3, 4, 5],
+                "f1": [0.80, 0.81, 0.80, 0.81, 0.80],
+            }
+        )
 
         comparison = SMOTEComparison(smote_data, no_smote_data, "meta")
         stats = comparison.compute_statistics()
@@ -295,10 +314,13 @@ class TestSMOTEComparison:
             fold_dir.mkdir()
 
             # Combine SMOTE and no-SMOTE for this fold
-            fold_data = pd.concat([
-                sample_smote_data[sample_smote_data["fold"] == fold],
-                sample_no_smote_data[sample_no_smote_data["fold"] == fold],
-            ], ignore_index=True)
+            fold_data = pd.concat(
+                [
+                    sample_smote_data[sample_smote_data["fold"] == fold],
+                    sample_no_smote_data[sample_no_smote_data["fold"] == fold],
+                ],
+                ignore_index=True,
+            )
 
             fold_data.to_csv(fold_dir / "metrics_outer_meta_eval.csv", index=False)
 
@@ -310,7 +332,9 @@ class TestSMOTEComparison:
         assert len(comparison.smote_data) > 0
         assert len(comparison.no_smote_data) > 0
 
-    def test_from_directory_combined_multiclass(self, tmp_path, sample_smote_data, sample_no_smote_data):
+    def test_from_directory_combined_multiclass(
+        self, tmp_path, sample_smote_data, sample_no_smote_data
+    ):
         """Test loading combined multiclass metrics file."""
         combined = pd.concat(
             [
@@ -413,14 +437,18 @@ class TestEdgeCases:
 
     def test_single_fold(self):
         """Test with single fold (statistical tests may be limited)."""
-        smote_data = pd.DataFrame({
-            "fold": [1],
-            "f1": [0.85],
-        })
-        no_smote_data = pd.DataFrame({
-            "fold": [1],
-            "f1": [0.80],
-        })
+        smote_data = pd.DataFrame(
+            {
+                "fold": [1],
+                "f1": [0.85],
+            }
+        )
+        no_smote_data = pd.DataFrame(
+            {
+                "fold": [1],
+                "f1": [0.80],
+            }
+        )
 
         comparison = SMOTEComparison(smote_data, no_smote_data, "meta")
         stats = comparison.compute_statistics()
@@ -435,14 +463,18 @@ class TestEdgeCases:
 
     def test_missing_values(self):
         """Test handling of missing values in metrics."""
-        smote_data = pd.DataFrame({
-            "fold": [1, 2, 3],
-            "f1": [0.85, np.nan, 0.87],
-        })
-        no_smote_data = pd.DataFrame({
-            "fold": [1, 2, 3],
-            "f1": [0.80, 0.82, np.nan],
-        })
+        smote_data = pd.DataFrame(
+            {
+                "fold": [1, 2, 3],
+                "f1": [0.85, np.nan, 0.87],
+            }
+        )
+        no_smote_data = pd.DataFrame(
+            {
+                "fold": [1, 2, 3],
+                "f1": [0.80, 0.82, np.nan],
+            }
+        )
 
         comparison = SMOTEComparison(smote_data, no_smote_data, "meta")
         stats = comparison.compute_statistics()
@@ -456,14 +488,18 @@ class TestEdgeCases:
 
     def test_empty_metric_columns(self):
         """Test with no numeric columns."""
-        smote_data = pd.DataFrame({
-            "fold": [1, 2, 3],
-            "task": ["A", "B", "C"],
-        })
-        no_smote_data = pd.DataFrame({
-            "fold": [1, 2, 3],
-            "task": ["A", "B", "C"],
-        })
+        smote_data = pd.DataFrame(
+            {
+                "fold": [1, 2, 3],
+                "task": ["A", "B", "C"],
+            }
+        )
+        no_smote_data = pd.DataFrame(
+            {
+                "fold": [1, 2, 3],
+                "task": ["A", "B", "C"],
+            }
+        )
 
         comparison = SMOTEComparison(smote_data, no_smote_data, "meta")
 

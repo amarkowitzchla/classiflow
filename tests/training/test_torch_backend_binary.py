@@ -12,12 +12,14 @@ from classiflow.training.binary import train_binary_task
 def _write_binary_manifest(path: Path, seed: int = 0) -> None:
     rng = np.random.default_rng(seed)
     rows = 30
-    df = pd.DataFrame({
-        "feat1": rng.normal(size=rows),
-        "feat2": rng.normal(size=rows),
-        "feat3": rng.normal(size=rows),
-        "label": np.where(rng.uniform(size=rows) > 0.5, "pos", "neg"),
-    })
+    df = pd.DataFrame(
+        {
+            "feat1": rng.normal(size=rows),
+            "feat2": rng.normal(size=rows),
+            "feat3": rng.normal(size=rows),
+            "label": np.where(rng.uniform(size=rows) > 0.5, "pos", "neg"),
+        }
+    )
     df.to_csv(path, index=False)
 
 
@@ -73,7 +75,15 @@ def test_torch_backend_binary_outputs_match_schema(tmp_path: Path) -> None:
     sklearn_inner = pd.read_csv(sklearn_out / "metrics_inner_cv.csv")
     torch_inner = pd.read_csv(torch_out / "metrics_inner_cv.csv")
     # Both backends should have common required columns (hyperparameter columns differ by backend)
-    required_inner_cols = ["fold", "sampler", "task", "model_name", "rank_test_f1", "mean_test_f1", "std_test_f1"]
+    required_inner_cols = [
+        "fold",
+        "sampler",
+        "task",
+        "model_name",
+        "rank_test_f1",
+        "mean_test_f1",
+        "std_test_f1",
+    ]
     for col in required_inner_cols:
         assert col in sklearn_inner.columns, f"sklearn missing column: {col}"
         assert col in torch_inner.columns, f"torch missing column: {col}"

@@ -11,10 +11,10 @@ This package provides:
 
 __version__ = "0.1.0"
 
+from classiflow.config import MetaConfig, TrainConfig
+from classiflow.tasks.builder import TaskBuilder
 from classiflow.training.binary import train_binary_task
 from classiflow.training.meta import train_meta_classifier
-from classiflow.tasks.builder import TaskBuilder
-from classiflow.config import TrainConfig, MetaConfig
 
 __all__ = [
     "__version__",

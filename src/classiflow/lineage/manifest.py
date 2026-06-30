@@ -7,10 +7,10 @@ import logging
 import socket
 import subprocess
 import uuid
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 import classiflow
 
@@ -77,7 +77,7 @@ class TrainingRunManifest:
     @classmethod
     def load(cls, path: Path) -> TrainingRunManifest:
         """Load manifest from JSON file."""
-        with open(path, "r") as f:
+        with open(path) as f:
             data = json.load(f)
         return cls(**data)
 
@@ -133,7 +133,7 @@ class InferenceRunManifest:
     @classmethod
     def load(cls, path: Path) -> InferenceRunManifest:
         """Load manifest from JSON file."""
-        with open(path, "r") as f:
+        with open(path) as f:
             data = json.load(f)
         return cls(**data)
 
@@ -308,7 +308,9 @@ def create_inference_manifest(
         model_run_dir=str(model_source) if not model_is_bundle and model_source else None,
     )
 
-    logger.info(f"Created inference manifest with inference_run_id={inference_run_id}, parent_run_id={parent_run_id}")
+    logger.info(
+        f"Created inference manifest with inference_run_id={inference_run_id}, parent_run_id={parent_run_id}"
+    )
     return manifest
 
 
@@ -373,7 +375,9 @@ def validate_manifest_compatibility(
     # Extra features
     extra = inference_features_set - training_features
     if extra:
-        warnings.append(f"Extra {len(extra)} features (will be ignored): {sorted(list(extra))[:10]}")
+        warnings.append(
+            f"Extra {len(extra)} features (will be ignored): {sorted(list(extra))[:10]}"
+        )
 
     # Feature order
     if list(inference_features) != training_manifest.feature_list:

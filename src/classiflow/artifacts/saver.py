@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
+
 import joblib
 import pandas as pd
 
@@ -32,11 +33,17 @@ def save_nested_cv_results(results: Dict[str, Any], outdir: Path) -> None:
     # Inner CV per-split
     if results.get("inner_cv_split_rows"):
         from classiflow.metrics.scorers import SCORER_ORDER
-        df = pd.DataFrame(results["inner_cv_split_rows"], columns=["task_model", "outer_fold", "inner_split"] + SCORER_ORDER)
+
+        df = pd.DataFrame(
+            results["inner_cv_split_rows"],
+            columns=["task_model", "outer_fold", "inner_split"] + SCORER_ORDER,
+        )
         df.to_csv(outdir / "metrics_inner_cv_splits.csv", index=False)
 
         try:
-            with pd.ExcelWriter(outdir / "metrics_inner_cv_splits.xlsx", engine="xlsxwriter") as writer:
+            with pd.ExcelWriter(
+                outdir / "metrics_inner_cv_splits.xlsx", engine="xlsxwriter"
+            ) as writer:
                 df.to_excel(writer, index=False, sheet_name="InnerCV_Splits")
                 ws = writer.sheets["InnerCV_Splits"]
                 for col_idx, col_name in enumerate(df.columns):

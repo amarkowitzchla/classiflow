@@ -23,7 +23,7 @@ def _require_yaml():
 def load_yaml(path: Path) -> Any:
     """Load YAML from disk."""
     yaml = _require_yaml()
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         return yaml.safe_load(handle) or {}
 
 

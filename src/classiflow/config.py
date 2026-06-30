@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
-from dataclasses import dataclass, field, asdict
-from pathlib import Path
-from typing import Optional, List, Literal, Dict, Any
-import json
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Literal, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -325,7 +325,9 @@ class RunManifest:
     config: Dict[str, Any]
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
     git_hash: Optional[str] = None
-    python_version: str = field(default_factory=lambda: f"{os.sys.version_info.major}.{os.sys.version_info.minor}.{os.sys.version_info.micro}")
+    python_version: str = field(
+        default_factory=lambda: f"{os.sys.version_info.major}.{os.sys.version_info.minor}.{os.sys.version_info.micro}"
+    )
     hostname: Optional[str] = None
 
     def __post_init__(self):
@@ -333,6 +335,7 @@ class RunManifest:
         if self.git_hash is None:
             try:
                 import subprocess
+
                 result = subprocess.run(
                     ["git", "rev-parse", "HEAD"],
                     capture_output=True,
@@ -347,6 +350,7 @@ class RunManifest:
         if self.hostname is None:
             try:
                 import socket
+
                 self.hostname = socket.gethostname()
             except Exception:
                 pass

@@ -53,13 +53,17 @@ def write_probability_quality_curve_artifacts(
         if curve_df is None or curve_df.empty:
             continue
         curve_df.to_csv(var_dir / f"calibration_curve_{curve_name}.csv", index=False)
-        curve_df.to_csv(var_dir / f"calibration_curve_{curve_name}_{final_variant}.csv", index=False)
+        curve_df.to_csv(
+            var_dir / f"calibration_curve_{curve_name}_{final_variant}.csv", index=False
+        )
 
     for variant_name, curves in (("uncalibrated", uncal_curves), ("calibrated", cal_curves)):
         for curve_name, curve_df in curves.items():
             if curve_df is None or curve_df.empty:
                 continue
-            curve_df.to_csv(var_dir / f"calibration_curve_{curve_name}_{variant_name}.csv", index=False)
+            curve_df.to_csv(
+                var_dir / f"calibration_curve_{curve_name}_{variant_name}.csv", index=False
+            )
 
 
 def attach_probability_quality_to_run_manifest(

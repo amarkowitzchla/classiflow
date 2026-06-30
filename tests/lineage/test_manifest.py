@@ -1,15 +1,14 @@
 """Tests for manifest management."""
 
-import pytest
-import json
-from pathlib import Path
 import tempfile
+from pathlib import Path
+
 
 from classiflow.lineage.manifest import (
-    TrainingRunManifest,
     InferenceRunManifest,
-    create_training_manifest,
+    TrainingRunManifest,
     create_inference_manifest,
+    create_training_manifest,
     validate_manifest_compatibility,
 )
 

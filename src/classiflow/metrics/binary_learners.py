@@ -22,7 +22,6 @@ from sklearn.metrics import (
     roc_curve,
 )
 
-
 BL_RULES: Dict[str, Dict[str, float]] = {
     "BL-001_WARN_STD": {"threshold": 0.01},
     "BL-001_ERROR_STD": {"threshold": 0.005},

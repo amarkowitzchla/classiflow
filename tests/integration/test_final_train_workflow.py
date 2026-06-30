@@ -14,9 +14,6 @@ from __future__ import annotations
 
 import json
 import logging
-import tempfile
-from pathlib import Path
-from typing import Dict, Any, Tuple
 
 import numpy as np
 import pandas as pd
@@ -40,15 +37,13 @@ def iris_data():
     np.random.seed(RANDOM_STATE)
 
     iris = load_iris()
-    X = pd.DataFrame(iris.data, columns=['feat_0', 'feat_1', 'feat_2', 'feat_3'])
-    y = pd.Series(iris.target_names[iris.target], name='label')
+    X = pd.DataFrame(iris.data, columns=["feat_0", "feat_1", "feat_2", "feat_3"])
+    y = pd.Series(iris.target_names[iris.target], name="label")
 
-    X['sample_id'] = [f'sample_{i:03d}' for i in range(len(X))]
-    X['label'] = y
+    X["sample_id"] = [f"sample_{i:03d}" for i in range(len(X))]
+    X["label"] = y
 
-    train_df, test_df = train_test_split(
-        X, test_size=0.30, stratify=y, random_state=RANDOM_STATE
-    )
+    train_df, test_df = train_test_split(X, test_size=0.30, stratify=y, random_state=RANDOM_STATE)
     train_df = train_df.reset_index(drop=True)
     test_df = test_df.reset_index(drop=True)
 
@@ -61,12 +56,12 @@ def iris_project(iris_data, tmp_path):
     train_df, test_df = iris_data
 
     # Create directories
-    data_dir = tmp_path / 'data'
-    (data_dir / 'train').mkdir(parents=True)
-    (data_dir / 'test').mkdir(parents=True)
+    data_dir = tmp_path / "data"
+    (data_dir / "train").mkdir(parents=True)
+    (data_dir / "test").mkdir(parents=True)
 
-    train_path = data_dir / 'train' / 'manifest.csv'
-    test_path = data_dir / 'test' / 'manifest.csv'
+    train_path = data_dir / "train" / "manifest.csv"
+    test_path = data_dir / "test" / "manifest.csv"
 
     train_df.to_csv(train_path, index=False)
     test_df.to_csv(test_path, index=False)
@@ -75,70 +70,70 @@ def iris_project(iris_data, tmp_path):
     from classiflow.projects.yaml_utils import dump_yaml
 
     config = {
-        'project': {
-            'id': 'IRIS_FINAL_TRAIN_TEST',
-            'name': 'Iris Final Train Test',
-            'description': 'Test project for final_train workflow',
-            'owner': 'test',
+        "project": {
+            "id": "IRIS_FINAL_TRAIN_TEST",
+            "name": "Iris Final Train Test",
+            "description": "Test project for final_train workflow",
+            "owner": "test",
         },
-        'data': {
-            'train': {'manifest': str(train_path)},
-            'test': {'manifest': str(test_path)},
+        "data": {
+            "train": {"manifest": str(train_path)},
+            "test": {"manifest": str(test_path)},
         },
-        'key_columns': {
-            'sample_id': 'sample_id',
-            'label': 'label',
-            'patient_id': None,
+        "key_columns": {
+            "sample_id": "sample_id",
+            "label": "label",
+            "patient_id": None,
         },
-        'task': {
-            'mode': 'meta',
-            'patient_stratified': False,
+        "task": {
+            "mode": "meta",
+            "patient_stratified": False,
         },
-        'validation': {
-            'nested_cv': {
-                'outer_folds': 2,  # Reduced for faster tests
-                'inner_folds': 2,
-                'repeats': 1,
-                'seed': RANDOM_STATE,
+        "validation": {
+            "nested_cv": {
+                "outer_folds": 2,  # Reduced for faster tests
+                "inner_folds": 2,
+                "repeats": 1,
+                "seed": RANDOM_STATE,
             },
         },
-        'calibration': {
-            'calibrate_meta': True,
-            'method': 'sigmoid',
-            'cv': 2,
-            'bins': 10,
+        "calibration": {
+            "calibrate_meta": True,
+            "method": "sigmoid",
+            "cv": 2,
+            "bins": 10,
         },
-        'final_model': {
-            'sanity_min_std': 0.02,
-            'sanity_max_mean_deviation': 0.15,
+        "final_model": {
+            "sanity_min_std": 0.02,
+            "sanity_max_mean_deviation": 0.15,
         },
     }
 
-    dump_yaml(config, tmp_path / 'project.yaml')
+    dump_yaml(config, tmp_path / "project.yaml")
 
     # Create thresholds.yaml
     thresholds = {
-        'technical_validation': {
-            'required': {
-                'f1': 0.5,
-                'balanced_accuracy': 0.5,
+        "technical_validation": {
+            "required": {
+                "f1": 0.5,
+                "balanced_accuracy": 0.5,
             },
         },
-        'independent_test': {
-            'required': {
-                'f1_macro': 0.5,
-                'balanced_accuracy': 0.5,
+        "independent_test": {
+            "required": {
+                "f1_macro": 0.5,
+                "balanced_accuracy": 0.5,
             },
         },
     }
-    dump_yaml(thresholds, tmp_path / 'thresholds.yaml')
+    dump_yaml(thresholds, tmp_path / "thresholds.yaml")
 
     return {
-        'project_dir': tmp_path,
-        'train_path': train_path,
-        'test_path': test_path,
-        'train_df': train_df,
-        'test_df': test_df,
+        "project_dir": tmp_path,
+        "train_path": train_path,
+        "test_path": test_path,
+        "train_df": train_df,
+        "test_df": test_df,
     }
 
 
@@ -157,63 +152,107 @@ class TestSelectedConfigExtraction:
         )
 
         # Create mock inner CV metrics with different best configs per task
-        metrics_df = pd.DataFrame([
-            {'fold': 1, 'sampler': 'none', 'task': 'setosa_vs_Rest', 'model_name': 'lr', 'mean_test_score': 0.95, 'C': 1.0},
-            {'fold': 1, 'sampler': 'none', 'task': 'setosa_vs_Rest', 'model_name': 'svm', 'mean_test_score': 0.90, 'C': 0.1},
-            {'fold': 1, 'sampler': 'none', 'task': 'versicolor_vs_Rest', 'model_name': 'lr', 'mean_test_score': 0.70, 'C': 1.0},
-            {'fold': 1, 'sampler': 'none', 'task': 'versicolor_vs_Rest', 'model_name': 'svm', 'mean_test_score': 0.85, 'C': 0.1},
-            {'fold': 1, 'sampler': 'none', 'task': 'virginica_vs_Rest', 'model_name': 'lr', 'mean_test_score': 0.80, 'C': 1.0},
-            {'fold': 1, 'sampler': 'none', 'task': 'virginica_vs_Rest', 'model_name': 'svm', 'mean_test_score': 0.75, 'C': 0.1},
-        ])
+        metrics_df = pd.DataFrame(
+            [
+                {
+                    "fold": 1,
+                    "sampler": "none",
+                    "task": "setosa_vs_Rest",
+                    "model_name": "lr",
+                    "mean_test_score": 0.95,
+                    "C": 1.0,
+                },
+                {
+                    "fold": 1,
+                    "sampler": "none",
+                    "task": "setosa_vs_Rest",
+                    "model_name": "svm",
+                    "mean_test_score": 0.90,
+                    "C": 0.1,
+                },
+                {
+                    "fold": 1,
+                    "sampler": "none",
+                    "task": "versicolor_vs_Rest",
+                    "model_name": "lr",
+                    "mean_test_score": 0.70,
+                    "C": 1.0,
+                },
+                {
+                    "fold": 1,
+                    "sampler": "none",
+                    "task": "versicolor_vs_Rest",
+                    "model_name": "svm",
+                    "mean_test_score": 0.85,
+                    "C": 0.1,
+                },
+                {
+                    "fold": 1,
+                    "sampler": "none",
+                    "task": "virginica_vs_Rest",
+                    "model_name": "lr",
+                    "mean_test_score": 0.80,
+                    "C": 1.0,
+                },
+                {
+                    "fold": 1,
+                    "sampler": "none",
+                    "task": "virginica_vs_Rest",
+                    "model_name": "svm",
+                    "mean_test_score": 0.75,
+                    "C": 0.1,
+                },
+            ]
+        )
 
-        tech_run = tmp_path / 'technical_run'
+        tech_run = tmp_path / "technical_run"
         tech_run.mkdir()
-        metrics_df.to_csv(tech_run / 'metrics_inner_cv.csv', index=False)
+        metrics_df.to_csv(tech_run / "metrics_inner_cv.csv", index=False)
 
         binary_configs, meta_config = extract_selected_configs_from_technical_run(
-            tech_run, variant='none'
+            tech_run, variant="none"
         )
 
         # Verify per-task selection
-        assert 'setosa_vs_Rest' in binary_configs
-        assert binary_configs['setosa_vs_Rest'].model_name == 'lr'  # 0.95 > 0.90
+        assert "setosa_vs_Rest" in binary_configs
+        assert binary_configs["setosa_vs_Rest"].model_name == "lr"  # 0.95 > 0.90
 
-        assert 'versicolor_vs_Rest' in binary_configs
-        assert binary_configs['versicolor_vs_Rest'].model_name == 'svm'  # 0.85 > 0.70
+        assert "versicolor_vs_Rest" in binary_configs
+        assert binary_configs["versicolor_vs_Rest"].model_name == "svm"  # 0.85 > 0.70
 
-        assert 'virginica_vs_Rest' in binary_configs
-        assert binary_configs['virginica_vs_Rest'].model_name == 'lr'  # 0.80 > 0.75
+        assert "virginica_vs_Rest" in binary_configs
+        assert binary_configs["virginica_vs_Rest"].model_name == "lr"  # 0.80 > 0.75
 
     def test_save_and_load_selected_configs(self, tmp_path):
         """Test round-trip save/load of selected configs."""
         from classiflow.projects.final_train import (
             SelectedBinaryConfig,
             SelectedMetaConfig,
-            save_selected_configs,
             load_selected_configs,
+            save_selected_configs,
         )
 
         binary_configs = {
-            'TaskA_vs_Rest': SelectedBinaryConfig(
-                task_name='TaskA_vs_Rest',
-                model_name='lr',
-                params={'C': 1.0},
+            "TaskA_vs_Rest": SelectedBinaryConfig(
+                task_name="TaskA_vs_Rest",
+                model_name="lr",
+                params={"C": 1.0},
                 mean_score=0.9,
-                sampler='none',
+                sampler="none",
             ),
-            'TaskB_vs_Rest': SelectedBinaryConfig(
-                task_name='TaskB_vs_Rest',
-                model_name='svm',
-                params={'C': 0.1},
+            "TaskB_vs_Rest": SelectedBinaryConfig(
+                task_name="TaskB_vs_Rest",
+                model_name="svm",
+                params={"C": 0.1},
                 mean_score=0.85,
-                sampler='none',
+                sampler="none",
             ),
         }
 
         meta_config = SelectedMetaConfig(
-            model_name='LogisticRegression',
-            params={'class_weight': 'balanced'},
-            calibration_method='sigmoid',
+            model_name="LogisticRegression",
+            params={"class_weight": "balanced"},
+            calibration_method="sigmoid",
             calibration_cv=3,
             calibration_bins=10,
         )
@@ -222,17 +261,17 @@ class TestSelectedConfigExtraction:
         save_selected_configs(tmp_path, binary_configs, meta_config)
 
         # Verify files exist
-        assert (tmp_path / 'registry' / 'selected_binary_configs.json').exists()
-        assert (tmp_path / 'registry' / 'selected_meta_config.json').exists()
+        assert (tmp_path / "registry" / "selected_binary_configs.json").exists()
+        assert (tmp_path / "registry" / "selected_meta_config.json").exists()
 
         # Load
-        loaded_binary, loaded_meta = load_selected_configs(tmp_path / 'registry')
+        loaded_binary, loaded_meta = load_selected_configs(tmp_path / "registry")
 
         # Verify
         assert len(loaded_binary) == 2
-        assert loaded_binary['TaskA_vs_Rest'].model_name == 'lr'
-        assert loaded_binary['TaskB_vs_Rest'].model_name == 'svm'
-        assert loaded_meta.calibration_method == 'sigmoid'
+        assert loaded_binary["TaskA_vs_Rest"].model_name == "lr"
+        assert loaded_binary["TaskB_vs_Rest"].model_name == "svm"
+        assert loaded_meta.calibration_method == "sigmoid"
 
 
 class TestSanityChecks:
@@ -248,16 +287,15 @@ class TestSanityChecks:
                 proba = 0.5 + np.random.randn(n) * 0.01  # Low variance
                 return np.column_stack([1 - proba, proba])
 
-        X = pd.DataFrame(np.random.randn(100, 10), columns=[f'f{i}' for i in range(10)])
-        y = pd.Series(['A'] * 50 + ['B'] * 50)
+        X = pd.DataFrame(np.random.randn(100, 10), columns=[f"f{i}" for i in range(10)])
+        y = pd.Series(["A"] * 50 + ["B"] * 50)
 
-        tasks = {'Test_vs_Rest': lambda y: (y == 'A').astype(int)}
-        best_pipes = {'Test_vs_Rest__RandomModel': RandomClassifier()}
-        best_models = {'Test_vs_Rest': 'RandomModel'}
+        tasks = {"Test_vs_Rest": lambda y: (y == "A").astype(int)}
+        best_pipes = {"Test_vs_Rest__RandomModel": RandomClassifier()}
+        best_models = {"Test_vs_Rest": "RandomModel"}
 
         results = run_sanity_checks(
-            best_pipes, best_models, X, y, tasks,
-            min_std=0.02, max_mean_deviation=0.15
+            best_pipes, best_models, X, y, tasks, min_std=0.02, max_mean_deviation=0.15
         )
 
         passed, failures = validate_sanity_checks(results)
@@ -274,16 +312,15 @@ class TestSanityChecks:
                 proba = np.random.rand(n)  # High variance
                 return np.column_stack([1 - proba, proba])
 
-        X = pd.DataFrame(np.random.randn(100, 10), columns=[f'f{i}' for i in range(10)])
-        y = pd.Series(['A'] * 50 + ['B'] * 50)
+        X = pd.DataFrame(np.random.randn(100, 10), columns=[f"f{i}" for i in range(10)])
+        y = pd.Series(["A"] * 50 + ["B"] * 50)
 
-        tasks = {'Test_vs_Rest': lambda y: (y == 'A').astype(int)}
-        best_pipes = {'Test_vs_Rest__GoodModel': GoodClassifier()}
-        best_models = {'Test_vs_Rest': 'GoodModel'}
+        tasks = {"Test_vs_Rest": lambda y: (y == "A").astype(int)}
+        best_pipes = {"Test_vs_Rest__GoodModel": GoodClassifier()}
+        best_models = {"Test_vs_Rest": "GoodModel"}
 
         results = run_sanity_checks(
-            best_pipes, best_models, X, y, tasks,
-            min_std=0.02, max_mean_deviation=0.15
+            best_pipes, best_models, X, y, tasks, min_std=0.02, max_mean_deviation=0.15
         )
 
         passed, failures = validate_sanity_checks(results)
@@ -300,158 +337,154 @@ class TestEndToEndWorkflow:
 
     def test_full_pipeline_meta_mode(self, iris_project):
         """Test complete pipeline: run-technical -> build-bundle -> run-test."""
-        from classiflow.projects.project_fs import ProjectPaths
-        from classiflow.projects.project_models import ProjectConfig
         from classiflow.projects.dataset_registry import register_dataset
         from classiflow.projects.orchestrator import (
-            run_technical_validation,
             build_final_model,
             run_independent_test,
+            run_technical_validation,
         )
+        from classiflow.projects.project_fs import ProjectPaths
+        from classiflow.projects.project_models import ProjectConfig
 
-        project_dir = iris_project['project_dir']
+        project_dir = iris_project["project_dir"]
         paths = ProjectPaths(project_dir)
         config = ProjectConfig.load(paths.project_yaml)
 
         # Register datasets
-        register_dataset(paths.datasets_yaml, config, 'train', iris_project['train_path'])
-        register_dataset(paths.datasets_yaml, config, 'test', iris_project['test_path'])
+        register_dataset(paths.datasets_yaml, config, "train", iris_project["train_path"])
+        register_dataset(paths.datasets_yaml, config, "test", iris_project["test_path"])
 
         # 1. Run technical validation
         technical_run = run_technical_validation(
-            paths, config, run_id='tech_test', compare_smote=False
+            paths, config, run_id="tech_test", compare_smote=False
         )
 
         # Verify technical validation artifacts
-        assert (technical_run / 'run.json').exists()
-        assert (technical_run / 'metrics_inner_cv.csv').exists()
+        assert (technical_run / "run.json").exists()
+        assert (technical_run / "metrics_inner_cv.csv").exists()
 
         # 2. Build final model
         final_run = build_final_model(
-            paths, config, technical_run,
-            run_id='final_test', sampler='none'
+            paths, config, technical_run, run_id="final_test", sampler="none"
         )
 
         # Verify final model artifacts
-        assert (final_run / 'run.json').exists()
-        assert (final_run / 'model_bundle.zip').exists()
-        assert (final_run / 'sanity_checks.json').exists()
-        assert (final_run / 'registry' / 'selected_binary_configs.json').exists()
+        assert (final_run / "run.json").exists()
+        assert (final_run / "model_bundle.zip").exists()
+        assert (final_run / "sanity_checks.json").exists()
+        assert (final_run / "registry" / "selected_binary_configs.json").exists()
 
         # Verify sanity checks passed
-        sanity_data = json.loads((final_run / 'sanity_checks.json').read_text())
-        failed_checks = [c for c in sanity_data if not c['passed'] and c['check_type'] != 'data']
+        sanity_data = json.loads((final_run / "sanity_checks.json").read_text())
+        failed_checks = [c for c in sanity_data if not c["passed"] and c["check_type"] != "data"]
         assert len(failed_checks) == 0, f"Sanity checks failed: {failed_checks}"
 
         # 3. Run independent test
-        bundle_path = final_run / 'model_bundle.zip'
-        test_run = run_independent_test(
-            paths, config, bundle_path, run_id='test_eval'
-        )
+        bundle_path = final_run / "model_bundle.zip"
+        test_run = run_independent_test(paths, config, bundle_path, run_id="test_eval")
 
         # Verify test results
-        assert (test_run / 'metrics.json').exists()
+        assert (test_run / "metrics.json").exists()
 
-        metrics = json.loads((test_run / 'metrics.json').read_text())
-        overall = metrics.get('overall', {})
+        metrics = json.loads((test_run / "metrics.json").read_text())
+        overall = metrics.get("overall", {})
 
         # Assert reasonable performance (Iris is easy)
-        assert overall.get('accuracy', 0) > 0.7, "Accuracy should be > 0.7"
-        assert overall.get('f1_macro', 0) > 0.6, "F1 macro should be > 0.6"
+        assert overall.get("accuracy", 0) > 0.7, "Accuracy should be > 0.7"
+        assert overall.get("f1_macro", 0) > 0.6, "F1 macro should be > 0.6"
 
     def test_smote_option(self, iris_project):
         """Test that SMOTE option works correctly."""
-        from classiflow.projects.project_fs import ProjectPaths
-        from classiflow.projects.project_models import ProjectConfig
         from classiflow.projects.dataset_registry import register_dataset
         from classiflow.projects.orchestrator import (
-            run_technical_validation,
             build_final_model,
+            run_technical_validation,
         )
+        from classiflow.projects.project_fs import ProjectPaths
+        from classiflow.projects.project_models import ProjectConfig
 
-        project_dir = iris_project['project_dir']
+        project_dir = iris_project["project_dir"]
         paths = ProjectPaths(project_dir)
         config = ProjectConfig.load(paths.project_yaml)
 
         # Register datasets
-        register_dataset(paths.datasets_yaml, config, 'train', iris_project['train_path'])
-        register_dataset(paths.datasets_yaml, config, 'test', iris_project['test_path'])
+        register_dataset(paths.datasets_yaml, config, "train", iris_project["train_path"])
+        register_dataset(paths.datasets_yaml, config, "test", iris_project["test_path"])
 
         # Run technical validation without SMOTE comparison (just validate SMOTE flag works)
         technical_run = run_technical_validation(
-            paths, config, run_id='tech_smote', compare_smote=False
+            paths, config, run_id="tech_smote", compare_smote=False
         )
 
         # Build final model with SMOTE flag
         final_run_smote = build_final_model(
-            paths, config, technical_run,
-            run_id='final_smote', sampler='smote'
+            paths, config, technical_run, run_id="final_smote", sampler="smote"
         )
 
         # Verify SMOTE was used in final model config
-        run_json = json.loads((final_run_smote / 'run.json').read_text())
-        final_model_config = run_json.get('config', {}).get('final_model', {})
-        assert final_model_config.get('sampler') == 'smote'
+        run_json = json.loads((final_run_smote / "run.json").read_text())
+        final_model_config = run_json.get("config", {}).get("final_model", {})
+        assert final_model_config.get("sampler") == "smote"
 
         # Verify bundle exists and is valid
-        assert (final_run_smote / 'model_bundle.zip').exists()
+        assert (final_run_smote / "model_bundle.zip").exists()
 
     def test_bundle_contents_complete(self, iris_project):
         """Test that bundle contains all required artifacts."""
         import zipfile
-        from classiflow.projects.project_fs import ProjectPaths
-        from classiflow.projects.project_models import ProjectConfig
+
         from classiflow.projects.dataset_registry import register_dataset
         from classiflow.projects.orchestrator import (
-            run_technical_validation,
             build_final_model,
+            run_technical_validation,
         )
+        from classiflow.projects.project_fs import ProjectPaths
+        from classiflow.projects.project_models import ProjectConfig
 
-        project_dir = iris_project['project_dir']
+        project_dir = iris_project["project_dir"]
         paths = ProjectPaths(project_dir)
         config = ProjectConfig.load(paths.project_yaml)
 
         # Register datasets
-        register_dataset(paths.datasets_yaml, config, 'train', iris_project['train_path'])
-        register_dataset(paths.datasets_yaml, config, 'test', iris_project['test_path'])
+        register_dataset(paths.datasets_yaml, config, "train", iris_project["train_path"])
+        register_dataset(paths.datasets_yaml, config, "test", iris_project["test_path"])
 
         # Run technical validation
         technical_run = run_technical_validation(
-            paths, config, run_id='tech_bundle', compare_smote=False
+            paths, config, run_id="tech_bundle", compare_smote=False
         )
 
         # Build final model
         final_run = build_final_model(
-            paths, config, technical_run,
-            run_id='final_bundle', sampler='none'
+            paths, config, technical_run, run_id="final_bundle", sampler="none"
         )
 
-        bundle_path = final_run / 'model_bundle.zip'
+        bundle_path = final_run / "model_bundle.zip"
 
         # Check bundle contents
-        with zipfile.ZipFile(bundle_path, 'r') as zf:
+        with zipfile.ZipFile(bundle_path, "r") as zf:
             names = zf.namelist()
 
             # Required files
-            assert 'run.json' in names
-            assert 'version.txt' in names
-            assert 'artifacts.json' in names
+            assert "run.json" in names
+            assert "version.txt" in names
+            assert "artifacts.json" in names
 
             # Schema and sanity files
-            assert 'class_order.json' in names
-            assert 'feature_schema.json' in names
-            assert 'sanity_checks.json' in names
+            assert "class_order.json" in names
+            assert "feature_schema.json" in names
+            assert "sanity_checks.json" in names
 
             # Registry files
-            assert any('registry/selected_binary_configs.json' in n for n in names)
+            assert any("registry/selected_binary_configs.json" in n for n in names)
 
             # Fold artifacts
-            fold_artifacts = [n for n in names if n.startswith('fold1/binary_')]
+            fold_artifacts = [n for n in names if n.startswith("fold1/binary_")]
             assert len(fold_artifacts) > 0
-            assert any('binary_pipes.joblib' in n for n in fold_artifacts)
-            assert any('meta_model.joblib' in n for n in fold_artifacts)
-            assert any('meta_features.csv' in n for n in fold_artifacts)
-            assert any('meta_classes.csv' in n for n in fold_artifacts)
+            assert any("binary_pipes.joblib" in n for n in fold_artifacts)
+            assert any("meta_model.joblib" in n for n in fold_artifacts)
+            assert any("meta_features.csv" in n for n in fold_artifacts)
+            assert any("meta_classes.csv" in n for n in fold_artifacts)
 
 
 class TestConfigSourceOfTruth:
@@ -459,29 +492,29 @@ class TestConfigSourceOfTruth:
 
     def test_per_task_configs_used_not_global(self, iris_project):
         """Verify that per-task configs are used, not a global best config."""
-        from classiflow.projects.project_fs import ProjectPaths
-        from classiflow.projects.project_models import ProjectConfig
         from classiflow.projects.dataset_registry import register_dataset
-        from classiflow.projects.orchestrator import run_technical_validation
         from classiflow.projects.final_train import (
             extract_selected_configs_from_technical_run,
         )
+        from classiflow.projects.orchestrator import run_technical_validation
+        from classiflow.projects.project_fs import ProjectPaths
+        from classiflow.projects.project_models import ProjectConfig
 
-        project_dir = iris_project['project_dir']
+        project_dir = iris_project["project_dir"]
         paths = ProjectPaths(project_dir)
         config = ProjectConfig.load(paths.project_yaml)
 
         # Register datasets
-        register_dataset(paths.datasets_yaml, config, 'train', iris_project['train_path'])
+        register_dataset(paths.datasets_yaml, config, "train", iris_project["train_path"])
 
         # Run technical validation
         technical_run = run_technical_validation(
-            paths, config, run_id='tech_configs', compare_smote=False
+            paths, config, run_id="tech_configs", compare_smote=False
         )
 
         # Extract configs
         binary_configs, _ = extract_selected_configs_from_technical_run(
-            technical_run, variant='none'
+            technical_run, variant="none"
         )
 
         # Verify we have per-task configs
@@ -505,22 +538,22 @@ class TestBackwardCompatibility:
 
         # Create legacy config without final_model section
         legacy_config = {
-            'project': {
-                'id': 'LEGACY_TEST',
-                'name': 'Legacy Test',
+            "project": {
+                "id": "LEGACY_TEST",
+                "name": "Legacy Test",
             },
-            'data': {
-                'train': {'manifest': 'data/train.csv'},
+            "data": {
+                "train": {"manifest": "data/train.csv"},
             },
-            'key_columns': {
-                'label': 'label',
+            "key_columns": {
+                "label": "label",
             },
-            'task': {
-                'mode': 'meta',
+            "task": {
+                "mode": "meta",
             },
         }
 
-        config_path = tmp_path / 'project.yaml'
+        config_path = tmp_path / "project.yaml"
         dump_yaml(legacy_config, config_path)
 
         # Should load without error

@@ -19,22 +19,22 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from matplotlib.patches import Rectangle
-
 
 # Set publication-quality defaults
-plt.rcParams.update({
-    'font.size': 11,
-    'axes.labelsize': 12,
-    'axes.titlesize': 13,
-    'xtick.labelsize': 10,
-    'ytick.labelsize': 10,
-    'legend.fontsize': 10,
-    'figure.titlesize': 14,
-    'figure.dpi': 150,
-    'savefig.dpi': 300,
-    'savefig.bbox': 'tight',
-})
+plt.rcParams.update(
+    {
+        "font.size": 11,
+        "axes.labelsize": 12,
+        "axes.titlesize": 13,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "legend.fontsize": 10,
+        "figure.titlesize": 14,
+        "figure.dpi": 150,
+        "savefig.dpi": 300,
+        "savefig.bbox": "tight",
+    }
+)
 
 
 def plot_delta_bars(
@@ -77,10 +77,10 @@ def plot_delta_bars(
     fig, ax = plt.subplots(figsize=figsize)
 
     y_pos = np.arange(len(metrics))
-    bars = ax.barh(y_pos, values, color=colors, alpha=0.8, edgecolor='black', linewidth=0.8)
+    ax.barh(y_pos, values, color=colors, alpha=0.8, edgecolor="black", linewidth=0.8)
 
     # Add zero line
-    ax.axvline(0, color='black', linestyle='--', linewidth=1.5, alpha=0.7)
+    ax.axvline(0, color="black", linestyle="--", linewidth=1.5, alpha=0.7)
 
     # Add significance stars
     if significance_stars and pvalues:
@@ -99,27 +99,28 @@ def plot_delta_bars(
                     # Position text at end of bar
                     x_pos = val + (0.005 if val > 0 else -0.005)
                     ha = "left" if val > 0 else "right"
-                    ax.text(x_pos, i, stars, va='center', ha=ha, fontsize=12, fontweight='bold')
+                    ax.text(x_pos, i, stars, va="center", ha=ha, fontsize=12, fontweight="bold")
 
     # Labels and formatting
     ax.set_yticks(y_pos)
     ax.set_yticklabels(metrics)
-    ax.set_xlabel(xlabel, fontweight='bold')
-    ax.set_title(title, fontweight='bold', pad=15)
-    ax.grid(axis='x', alpha=0.3, linestyle='--')
+    ax.set_xlabel(xlabel, fontweight="bold")
+    ax.set_title(title, fontweight="bold", pad=15)
+    ax.grid(axis="x", alpha=0.3, linestyle="--")
 
     # Add legend for colors
     from matplotlib.patches import Patch
+
     legend_elements = [
-        Patch(facecolor=color_positive, edgecolor='black', label='SMOTE Better'),
-        Patch(facecolor=color_negative, edgecolor='black', label='No-SMOTE Better')
+        Patch(facecolor=color_positive, edgecolor="black", label="SMOTE Better"),
+        Patch(facecolor=color_negative, edgecolor="black", label="No-SMOTE Better"),
     ]
-    ax.legend(handles=legend_elements, loc='best', frameon=True, fancybox=True, shadow=True)
+    ax.legend(handles=legend_elements, loc="best", frameon=True, fancybox=True, shadow=True)
 
     plt.tight_layout()
 
     if outfile:
-        fig.savefig(outfile, dpi=300, bbox_inches='tight')
+        fig.savefig(outfile, dpi=300, bbox_inches="tight")
 
     return fig
 
@@ -165,14 +166,14 @@ def plot_identity_scatter(
     fig, ax = plt.subplots(figsize=figsize)
 
     # Scatter plot
-    ax.scatter(no_smote, smote, s=100, alpha=0.7, edgecolors='black', linewidth=1.5)
+    ax.scatter(no_smote, smote, s=100, alpha=0.7, edgecolors="black", linewidth=1.5)
 
     # Identity line
     lims = [
         np.min([ax.get_xlim(), ax.get_ylim()]),
         np.max([ax.get_xlim(), ax.get_ylim()]),
     ]
-    ax.plot(lims, lims, 'k--', alpha=0.75, zorder=0, linewidth=2, label='Identity (y=x)')
+    ax.plot(lims, lims, "k--", alpha=0.75, zorder=0, linewidth=2, label="Identity (y=x)")
 
     # Add labels if provided
     if labels:
@@ -183,9 +184,9 @@ def plot_identity_scatter(
                 (no_smote[i], smote[i]),
                 textcoords="offset points",
                 xytext=(5, 5),
-                ha='left',
+                ha="left",
                 fontsize=8,
-                alpha=0.7
+                alpha=0.7,
             )
 
     # Statistics
@@ -195,33 +196,34 @@ def plot_identity_scatter(
 
         stats_text = f"r = {correlation:.3f}\nΔ = {mean_diff:+.4f}"
         ax.text(
-            0.05, 0.95,
+            0.05,
+            0.95,
             stats_text,
             transform=ax.transAxes,
-            verticalalignment='top',
-            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8),
+            verticalalignment="top",
+            bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.8),
             fontsize=11,
-            fontweight='bold'
+            fontweight="bold",
         )
 
     # Labels and formatting
-    ax.set_xlabel(f'{metric_name} (No-SMOTE)', fontweight='bold')
-    ax.set_ylabel(f'{metric_name} (SMOTE)', fontweight='bold')
+    ax.set_xlabel(f"{metric_name} (No-SMOTE)", fontweight="bold")
+    ax.set_ylabel(f"{metric_name} (SMOTE)", fontweight="bold")
 
     if title is None:
-        title = f'{metric_name}: SMOTE vs No-SMOTE Comparison'
-    ax.set_title(title, fontweight='bold', pad=15)
+        title = f"{metric_name}: SMOTE vs No-SMOTE Comparison"
+    ax.set_title(title, fontweight="bold", pad=15)
 
     ax.set_xlim(lims)
     ax.set_ylim(lims)
-    ax.set_aspect('equal')
-    ax.grid(True, alpha=0.3, linestyle='--')
-    ax.legend(loc='lower right', frameon=True, fancybox=True, shadow=True)
+    ax.set_aspect("equal")
+    ax.grid(True, alpha=0.3, linestyle="--")
+    ax.legend(loc="lower right", frameon=True, fancybox=True, shadow=True)
 
     plt.tight_layout()
 
     if outfile:
-        fig.savefig(outfile, dpi=300, bbox_inches='tight')
+        fig.savefig(outfile, dpi=300, bbox_inches="tight")
 
     return fig
 
@@ -256,17 +258,27 @@ def plot_distribution_comparison(
 
     if smote_vals.empty and no_smote_vals.empty:
         fig, ax = plt.subplots(figsize=figsize)
-        ax.text(0.5, 0.5, "No data available for this metric", va="center", ha="center", fontsize=12, fontweight="bold")
+        ax.text(
+            0.5,
+            0.5,
+            "No data available for this metric",
+            va="center",
+            ha="center",
+            fontsize=12,
+            fontweight="bold",
+        )
         ax.set_axis_off()
         if outfile:
-            fig.savefig(outfile, dpi=300, bbox_inches='tight')
+            fig.savefig(outfile, dpi=300, bbox_inches="tight")
         return fig
 
     # Combine into long format
-    combined = pd.DataFrame({
-        'Value': pd.concat([no_smote_vals, smote_vals], ignore_index=True),
-        'Method': ['No-SMOTE'] * len(no_smote_vals) + ['SMOTE'] * len(smote_vals)
-    })
+    combined = pd.DataFrame(
+        {
+            "Value": pd.concat([no_smote_vals, smote_vals], ignore_index=True),
+            "Method": ["No-SMOTE"] * len(no_smote_vals) + ["SMOTE"] * len(smote_vals),
+        }
+    )
 
     # Create figure
     fig, ax = plt.subplots(figsize=figsize)
@@ -274,55 +286,56 @@ def plot_distribution_comparison(
     if plot_type == "violin":
         sns.violinplot(
             data=combined,
-            x='Method',
-            y='Value',
+            x="Method",
+            y="Value",
             palette={"No-SMOTE": "#3498db", "SMOTE": "#e67e22"},
             ax=ax,
             inner="box",
-            linewidth=2
+            linewidth=2,
         )
     else:  # box plot
         sns.boxplot(
             data=combined,
-            x='Method',
-            y='Value',
+            x="Method",
+            y="Value",
             palette={"No-SMOTE": "#3498db", "SMOTE": "#e67e22"},
             ax=ax,
-            linewidth=2
+            linewidth=2,
         )
 
         # Add individual points
-        sns.stripplot(
-            data=combined,
-            x='Method',
-            y='Value',
-            color='black',
-            alpha=0.5,
-            size=5,
-            ax=ax
-        )
+        sns.stripplot(data=combined, x="Method", y="Value", color="black", alpha=0.5, size=5, ax=ax)
 
     # Add mean markers
-    means = combined.groupby('Method')['Value'].mean()
-    for i, method in enumerate(['No-SMOTE', 'SMOTE']):
-        ax.plot(i, means[method], marker='D', color='red', markersize=10, zorder=10,
-                markeredgecolor='black', markeredgewidth=1.5, label='Mean' if i == 0 else '')
+    means = combined.groupby("Method")["Value"].mean()
+    for i, method in enumerate(["No-SMOTE", "SMOTE"]):
+        ax.plot(
+            i,
+            means[method],
+            marker="D",
+            color="red",
+            markersize=10,
+            zorder=10,
+            markeredgecolor="black",
+            markeredgewidth=1.5,
+            label="Mean" if i == 0 else "",
+        )
 
     # Labels
-    ax.set_ylabel(metric, fontweight='bold')
-    ax.set_xlabel('')
+    ax.set_ylabel(metric, fontweight="bold")
+    ax.set_xlabel("")
 
     if title is None:
-        title = f'{metric} Distribution: SMOTE vs No-SMOTE'
-    ax.set_title(title, fontweight='bold', pad=15)
+        title = f"{metric} Distribution: SMOTE vs No-SMOTE"
+    ax.set_title(title, fontweight="bold", pad=15)
 
-    ax.grid(axis='y', alpha=0.3, linestyle='--')
-    ax.legend(loc='best', frameon=True, fancybox=True, shadow=True)
+    ax.grid(axis="y", alpha=0.3, linestyle="--")
+    ax.legend(loc="best", frameon=True, fancybox=True, shadow=True)
 
     plt.tight_layout()
 
     if outfile:
-        fig.savefig(outfile, dpi=300, bbox_inches='tight')
+        fig.savefig(outfile, dpi=300, bbox_inches="tight")
 
     return fig
 
@@ -350,8 +363,8 @@ def plot_fold_trajectories(
         Matplotlib figure
     """
     # Aggregate by fold
-    smote_fold = smote_data.groupby('fold')[metric].mean()
-    no_smote_fold = no_smote_data.groupby('fold')[metric].mean()
+    smote_fold = smote_data.groupby("fold")[metric].mean()
+    no_smote_fold = no_smote_data.groupby("fold")[metric].mean()
 
     # Ensure aligned folds
     folds = sorted(set(smote_fold.index) & set(no_smote_fold.index))
@@ -362,41 +375,77 @@ def plot_fold_trajectories(
     fig, ax = plt.subplots(figsize=figsize)
 
     # Plot lines
-    ax.plot(folds, no_smote_vals, marker='o', markersize=10, linewidth=2.5,
-            label='No-SMOTE', color='#3498db', markeredgecolor='black', markeredgewidth=1.5)
-    ax.plot(folds, smote_vals, marker='s', markersize=10, linewidth=2.5,
-            label='SMOTE', color='#e67e22', markeredgecolor='black', markeredgewidth=1.5)
+    ax.plot(
+        folds,
+        no_smote_vals,
+        marker="o",
+        markersize=10,
+        linewidth=2.5,
+        label="No-SMOTE",
+        color="#3498db",
+        markeredgecolor="black",
+        markeredgewidth=1.5,
+    )
+    ax.plot(
+        folds,
+        smote_vals,
+        marker="s",
+        markersize=10,
+        linewidth=2.5,
+        label="SMOTE",
+        color="#e67e22",
+        markeredgecolor="black",
+        markeredgewidth=1.5,
+    )
 
     # Connect corresponding points with dashed lines
     for i, fold in enumerate(folds):
-        ax.plot([fold, fold], [no_smote_vals[i], smote_vals[i]],
-                linestyle='--', color='gray', alpha=0.5, linewidth=1)
+        ax.plot(
+            [fold, fold],
+            [no_smote_vals[i], smote_vals[i]],
+            linestyle="--",
+            color="gray",
+            alpha=0.5,
+            linewidth=1,
+        )
 
     # Add mean lines
     smote_mean = np.mean(smote_vals)
     no_smote_mean = np.mean(no_smote_vals)
 
-    ax.axhline(smote_mean, color='#e67e22', linestyle=':', linewidth=2, alpha=0.7,
-               label=f'SMOTE Mean ({smote_mean:.3f})')
-    ax.axhline(no_smote_mean, color='#3498db', linestyle=':', linewidth=2, alpha=0.7,
-               label=f'No-SMOTE Mean ({no_smote_mean:.3f})')
+    ax.axhline(
+        smote_mean,
+        color="#e67e22",
+        linestyle=":",
+        linewidth=2,
+        alpha=0.7,
+        label=f"SMOTE Mean ({smote_mean:.3f})",
+    )
+    ax.axhline(
+        no_smote_mean,
+        color="#3498db",
+        linestyle=":",
+        linewidth=2,
+        alpha=0.7,
+        label=f"No-SMOTE Mean ({no_smote_mean:.3f})",
+    )
 
     # Labels
-    ax.set_xlabel('Fold', fontweight='bold')
-    ax.set_ylabel(metric, fontweight='bold')
+    ax.set_xlabel("Fold", fontweight="bold")
+    ax.set_ylabel(metric, fontweight="bold")
     ax.set_xticks(folds)
 
     if title is None:
-        title = f'{metric} Per-Fold Performance'
-    ax.set_title(title, fontweight='bold', pad=15)
+        title = f"{metric} Per-Fold Performance"
+    ax.set_title(title, fontweight="bold", pad=15)
 
-    ax.grid(True, alpha=0.3, linestyle='--')
-    ax.legend(loc='best', frameon=True, fancybox=True, shadow=True)
+    ax.grid(True, alpha=0.3, linestyle="--")
+    ax.legend(loc="best", frameon=True, fancybox=True, shadow=True)
 
     plt.tight_layout()
 
     if outfile:
-        fig.savefig(outfile, dpi=300, bbox_inches='tight')
+        fig.savefig(outfile, dpi=300, bbox_inches="tight")
 
     return fig
 
@@ -439,8 +488,8 @@ def plot_metric_grid(
         ax = axes[i]
 
         # Get per-fold averages
-        smote_fold = smote_data.groupby('fold')[metric].mean().values
-        no_smote_fold = no_smote_data.groupby('fold')[metric].mean().values
+        smote_fold = smote_data.groupby("fold")[metric].mean().values
+        no_smote_fold = no_smote_data.groupby("fold")[metric].mean().values
 
         # Remove NaN pairs
         valid = ~(np.isnan(smote_fold) | np.isnan(no_smote_fold))
@@ -448,48 +497,58 @@ def plot_metric_grid(
         no_smote_fold = no_smote_fold[valid]
 
         if len(smote_fold) == 0:
-            ax.text(0.5, 0.5, f'No valid data for {metric}',
-                    ha='center', va='center', transform=ax.transAxes)
+            ax.text(
+                0.5,
+                0.5,
+                f"No valid data for {metric}",
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+            )
             continue
 
         # Scatter
-        ax.scatter(no_smote_fold, smote_fold, s=100, alpha=0.7,
-                   edgecolors='black', linewidth=1.5)
+        ax.scatter(no_smote_fold, smote_fold, s=100, alpha=0.7, edgecolors="black", linewidth=1.5)
 
         # Identity line
         lims = [
             np.min([no_smote_fold.min(), smote_fold.min()]) * 0.95,
             np.max([no_smote_fold.max(), smote_fold.max()]) * 1.05,
         ]
-        ax.plot(lims, lims, 'k--', alpha=0.75, zorder=0, linewidth=2)
+        ax.plot(lims, lims, "k--", alpha=0.75, zorder=0, linewidth=2)
 
         # Stats
         correlation = np.corrcoef(no_smote_fold, smote_fold)[0, 1]
         mean_diff = np.mean(smote_fold - no_smote_fold)
 
         stats_text = f"r={correlation:.2f}\nΔ={mean_diff:+.3f}"
-        ax.text(0.05, 0.95, stats_text, transform=ax.transAxes,
-                verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8),
-                fontsize=9)
+        ax.text(
+            0.05,
+            0.95,
+            stats_text,
+            transform=ax.transAxes,
+            verticalalignment="top",
+            bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.8),
+            fontsize=9,
+        )
 
         # Labels
-        ax.set_xlabel(f'{metric} (No-SMOTE)', fontsize=10)
-        ax.set_ylabel(f'{metric} (SMOTE)', fontsize=10)
-        ax.set_title(metric, fontweight='bold', fontsize=11)
+        ax.set_xlabel(f"{metric} (No-SMOTE)", fontsize=10)
+        ax.set_ylabel(f"{metric} (SMOTE)", fontsize=10)
+        ax.set_title(metric, fontweight="bold", fontsize=11)
         ax.set_xlim(lims)
         ax.set_ylim(lims)
-        ax.set_aspect('equal')
-        ax.grid(True, alpha=0.3, linestyle='--')
+        ax.set_aspect("equal")
+        ax.grid(True, alpha=0.3, linestyle="--")
 
     # Hide unused subplots
     for j in range(i + 1, len(axes)):
-        axes[j].axis('off')
+        axes[j].axis("off")
 
     plt.tight_layout()
 
     if outfile:
-        fig.savefig(outfile, dpi=300, bbox_inches='tight')
+        fig.savefig(outfile, dpi=300, bbox_inches="tight")
 
     return fig
 
@@ -536,36 +595,55 @@ def plot_per_task_comparison(
     x = np.arange(len(tasks))
     width = 0.35
 
-    bars1 = ax.bar(x - width/2, no_smote_vals, width, label='No-SMOTE',
-                   color='#3498db', edgecolor='black', linewidth=1)
-    bars2 = ax.bar(x + width/2, smote_vals, width, label='SMOTE',
-                   color='#e67e22', edgecolor='black', linewidth=1)
+    bars1 = ax.bar(
+        x - width / 2,
+        no_smote_vals,
+        width,
+        label="No-SMOTE",
+        color="#3498db",
+        edgecolor="black",
+        linewidth=1,
+    )
+    bars2 = ax.bar(
+        x + width / 2,
+        smote_vals,
+        width,
+        label="SMOTE",
+        color="#e67e22",
+        edgecolor="black",
+        linewidth=1,
+    )
 
     # Add value labels on bars
     for bars in [bars1, bars2]:
         for bar in bars:
             height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width()/2., height,
-                    f'{height:.3f}',
-                    ha='center', va='bottom', fontsize=8)
+            ax.text(
+                bar.get_x() + bar.get_width() / 2.0,
+                height,
+                f"{height:.3f}",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+            )
 
     # Labels
-    ax.set_xlabel('Task', fontweight='bold')
-    ax.set_ylabel(metric, fontweight='bold')
+    ax.set_xlabel("Task", fontweight="bold")
+    ax.set_ylabel(metric, fontweight="bold")
     ax.set_xticks(x)
-    ax.set_xticklabels(tasks, rotation=45, ha='right')
+    ax.set_xticklabels(tasks, rotation=45, ha="right")
 
     if title is None:
-        title = f'{metric} by Task: SMOTE vs No-SMOTE'
-    ax.set_title(title, fontweight='bold', pad=15)
+        title = f"{metric} by Task: SMOTE vs No-SMOTE"
+    ax.set_title(title, fontweight="bold", pad=15)
 
-    ax.legend(loc='best', frameon=True, fancybox=True, shadow=True)
-    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    ax.legend(loc="best", frameon=True, fancybox=True, shadow=True)
+    ax.grid(axis="y", alpha=0.3, linestyle="--")
 
     plt.tight_layout()
 
     if outfile:
-        fig.savefig(outfile, dpi=300, bbox_inches='tight')
+        fig.savefig(outfile, dpi=300, bbox_inches="tight")
 
     return fig
 
@@ -601,16 +679,12 @@ def create_all_plots(
 
     # 1. Delta bar chart
     if deltas and pvalues:
-        plot_delta_bars(
-            deltas, pvalues,
-            outfile=outdir / f"{prefix}_delta_bars.png"
-        )
+        plot_delta_bars(deltas, pvalues, outfile=outdir / f"{prefix}_delta_bars.png")
         created_files["delta_bars"] = outdir / f"{prefix}_delta_bars.png"
 
     # 2. Metric grid (identity scatter for all metrics)
     plot_metric_grid(
-        smote_data, no_smote_data, metrics,
-        outfile=outdir / f"{prefix}_identity_grid.png"
+        smote_data, no_smote_data, metrics, outfile=outdir / f"{prefix}_identity_grid.png"
     )
     created_files["identity_grid"] = outdir / f"{prefix}_identity_grid.png"
 
@@ -618,9 +692,11 @@ def create_all_plots(
     for metric in metrics:
         if metric in smote_data.columns and metric in no_smote_data.columns:
             plot_distribution_comparison(
-                smote_data, no_smote_data, metric,
+                smote_data,
+                no_smote_data,
+                metric,
                 plot_type="violin",
-                outfile=outdir / f"{prefix}_dist_{metric}.png"
+                outfile=outdir / f"{prefix}_dist_{metric}.png",
             )
             created_files[f"dist_{metric}"] = outdir / f"{prefix}_dist_{metric}.png"
 
@@ -628,8 +704,10 @@ def create_all_plots(
     for metric in metrics[:3]:  # Limit to top 3 metrics
         if metric in smote_data.columns and metric in no_smote_data.columns:
             plot_fold_trajectories(
-                smote_data, no_smote_data, metric,
-                outfile=outdir / f"{prefix}_trajectory_{metric}.png"
+                smote_data,
+                no_smote_data,
+                metric,
+                outfile=outdir / f"{prefix}_trajectory_{metric}.png",
             )
             created_files[f"trajectory_{metric}"] = outdir / f"{prefix}_trajectory_{metric}.png"
 
@@ -638,8 +716,10 @@ def create_all_plots(
         for metric in metrics[:2]:  # Top 2 metrics
             if metric in smote_data.columns and metric in no_smote_data.columns:
                 plot_per_task_comparison(
-                    smote_data, no_smote_data, metric,
-                    outfile=outdir / f"{prefix}_per_task_{metric}.png"
+                    smote_data,
+                    no_smote_data,
+                    metric,
+                    outfile=outdir / f"{prefix}_per_task_{metric}.png",
                 )
                 created_files[f"per_task_{metric}"] = outdir / f"{prefix}_per_task_{metric}.png"
 

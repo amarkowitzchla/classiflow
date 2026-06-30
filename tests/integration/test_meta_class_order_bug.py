@@ -10,16 +10,15 @@ from __future__ import annotations
 import logging
 import tempfile
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
+from typing import Tuple
 
+import joblib
 import numpy as np
 import pandas as pd
-import pytest
-import joblib
-from sklearn.datasets import load_iris
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
 from sklearn.calibration import CalibratedClassifierCV
+from sklearn.datasets import load_iris
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -38,9 +37,7 @@ def create_iris_datasets(tmp_path: Path) -> Tuple[Path, Path]:
     X["sample_id"] = [f"sample_{i:03d}" for i in range(len(X))]
     X["label"] = y
 
-    train_df, test_df = train_test_split(
-        X, test_size=0.30, stratify=y, random_state=RANDOM_STATE
-    )
+    train_df, test_df = train_test_split(X, test_size=0.30, stratify=y, random_state=RANDOM_STATE)
 
     train_df = train_df.reset_index(drop=True)
     test_df = test_df.reset_index(drop=True)
@@ -90,9 +87,9 @@ def test_class_order_in_saved_vs_model():
         fold_dir = tmp_path / "training" / "fold1" / "binary_none"
 
         # Load meta_classes.csv
-        meta_classes = pd.read_csv(
-            fold_dir / "meta_classes.csv", header=None
-        ).iloc[:, 0].astype(str).tolist()
+        meta_classes = (
+            pd.read_csv(fold_dir / "meta_classes.csv", header=None).iloc[:, 0].astype(str).tolist()
+        )
 
         # Load model and get classes_
         meta_model = joblib.load(fold_dir / "meta_model.joblib")
@@ -102,8 +99,9 @@ def test_class_order_in_saved_vs_model():
         print(f"model.classes_:   {model_classes}")
 
         # Critical assertion
-        assert meta_classes == model_classes, \
-            f"Class order mismatch!\n  CSV: {meta_classes}\n  Model: {model_classes}"
+        assert (
+            meta_classes == model_classes
+        ), f"Class order mismatch!\n  CSV: {meta_classes}\n  Model: {model_classes}"
 
 
 def test_predict_proba_column_order_matches_classes():
@@ -118,8 +116,8 @@ def test_predict_proba_column_order_matches_classes():
         train_path, test_path = create_iris_datasets(tmp_path)
 
         from classiflow.config import MetaConfig
-        from classiflow.training.meta import train_meta_classifier
         from classiflow.inference import InferenceConfig, run_inference
+        from classiflow.training.meta import train_meta_classifier
 
         config = MetaConfig(
             data_csv=train_path,
@@ -155,21 +153,26 @@ def test_predict_proba_column_order_matches_classes():
         predictions = results["predictions"]
 
         # Get probability columns
-        proba_cols = [c for c in predictions.columns
-                      if c.startswith("predicted_proba_") and c != "predicted_proba"]
+        proba_cols = [
+            c
+            for c in predictions.columns
+            if c.startswith("predicted_proba_") and c != "predicted_proba"
+        ]
         proba_classes = [c.replace("predicted_proba_", "") for c in proba_cols]
 
         # Get saved class order
-        meta_classes = pd.read_csv(
-            fold_dir / "binary_none" / "meta_classes.csv", header=None
-        ).iloc[:, 0].astype(str).tolist()
+        meta_classes = (
+            pd.read_csv(fold_dir / "binary_none" / "meta_classes.csv", header=None)
+            .iloc[:, 0]
+            .astype(str)
+            .tolist()
+        )
 
         print(f"Probability column classes: {proba_classes}")
         print(f"Saved meta_classes:         {meta_classes}")
 
         # Columns should match saved order
-        assert proba_classes == meta_classes, \
-            f"Probability columns don't match saved class order"
+        assert proba_classes == meta_classes, "Probability columns don't match saved class order"
 
 
 def test_argmax_prediction_uses_correct_class():
@@ -188,8 +191,8 @@ def test_argmax_prediction_uses_correct_class():
         train_path, test_path = create_iris_datasets(tmp_path)
 
         from classiflow.config import MetaConfig
-        from classiflow.training.meta import train_meta_classifier
         from classiflow.inference import InferenceConfig, run_inference
+        from classiflow.training.meta import train_meta_classifier
 
         config = MetaConfig(
             data_csv=train_path,
@@ -225,8 +228,11 @@ def test_argmax_prediction_uses_correct_class():
         predictions = results["predictions"]
 
         # For each sample, verify argmax(proba) = predicted_label
-        proba_cols = [c for c in predictions.columns
-                      if c.startswith("predicted_proba_") and c != "predicted_proba"]
+        proba_cols = [
+            c
+            for c in predictions.columns
+            if c.startswith("predicted_proba_") and c != "predicted_proba"
+        ]
         proba_classes = [c.replace("predicted_proba_", "") for c in proba_cols]
 
         mismatches = 0
@@ -238,7 +244,9 @@ def test_argmax_prediction_uses_correct_class():
 
             if argmax_class != predicted:
                 mismatches += 1
-                print(f"Sample {idx}: argmax({proba_classes})={argmax_class}, but predicted={predicted}")
+                print(
+                    f"Sample {idx}: argmax({proba_classes})={argmax_class}, but predicted={predicted}"
+                )
 
         assert mismatches == 0, f"{mismatches} samples have argmax != predicted_label"
 
@@ -254,7 +262,7 @@ def test_calibrated_model_classes_order():
     np.random.seed(RANDOM_STATE)
     X = np.random.randn(100, 4)
     # Use specific class order
-    y = np.array(['c_first', 'b_second', 'a_third'] * 33 + ['c_first'])
+    y = np.array(["c_first", "b_second", "a_third"] * 33 + ["c_first"])
 
     # Fit base model
     base_model = LogisticRegression(random_state=RANDOM_STATE, max_iter=1000)
@@ -262,15 +270,16 @@ def test_calibrated_model_classes_order():
     base_classes = list(base_model.classes_)
 
     # Fit calibrated model
-    calibrated = CalibratedClassifierCV(base_model, method='sigmoid', cv=2)
+    calibrated = CalibratedClassifierCV(base_model, method="sigmoid", cv=2)
     calibrated.fit(X, y)
     calibrated_classes = list(calibrated.classes_)
 
     print(f"Base model classes:       {base_classes}")
     print(f"Calibrated model classes: {calibrated_classes}")
 
-    assert base_classes == calibrated_classes, \
-        f"Calibration changed class order! Base: {base_classes}, Calibrated: {calibrated_classes}"
+    assert (
+        base_classes == calibrated_classes
+    ), f"Calibration changed class order! Base: {base_classes}, Calibrated: {calibrated_classes}"
 
 
 def test_meta_features_order_preserved():
@@ -303,9 +312,9 @@ def test_meta_features_order_preserved():
 
         # Load saved meta-features order
         fold_dir = tmp_path / "training" / "fold1" / "binary_none"
-        meta_features = pd.read_csv(
-            fold_dir / "meta_features.csv", header=None
-        ).iloc[:, 0].astype(str).tolist()
+        meta_features = (
+            pd.read_csv(fold_dir / "meta_features.csv", header=None).iloc[:, 0].astype(str).tolist()
+        )
 
         # Load best_models to get task order
         bundle = joblib.load(fold_dir / "binary_pipes.joblib")
@@ -317,8 +326,7 @@ def test_meta_features_order_preserved():
         print(f"Expected from tasks:   {expected_features}")
 
         # Features should be in the same order as tasks
-        assert set(meta_features) == set(expected_features), \
-            f"Meta-feature set mismatch"
+        assert set(meta_features) == set(expected_features), "Meta-feature set mismatch"
 
 
 def test_inference_reorders_features_correctly():
@@ -330,18 +338,20 @@ def test_inference_reorders_features_correctly():
 
     # Create mock meta model
     np.random.seed(RANDOM_STATE)
-    X = pd.DataFrame({
-        'task_A_score': [0.1, 0.9, 0.5],
-        'task_B_score': [0.9, 0.1, 0.5],
-        'task_C_score': [0.5, 0.5, 0.9],
-    })
-    y = ['class_1', 'class_2', 'class_3']
+    X = pd.DataFrame(
+        {
+            "task_A_score": [0.1, 0.9, 0.5],
+            "task_B_score": [0.9, 0.1, 0.5],
+            "task_C_score": [0.5, 0.5, 0.9],
+        }
+    )
+    y = ["class_1", "class_2", "class_3"]
 
     model = LogisticRegression(random_state=RANDOM_STATE, max_iter=1000)
     model.fit(X, y)
 
     # Saved feature order
-    saved_features = ['task_A_score', 'task_B_score', 'task_C_score']
+    saved_features = ["task_A_score", "task_B_score", "task_C_score"]
     saved_classes = list(model.classes_)
 
     predictor = MetaPredictor(
@@ -351,11 +361,13 @@ def test_inference_reorders_features_correctly():
     )
 
     # Binary predictions with DIFFERENT column order
-    shuffled_predictions = pd.DataFrame({
-        'task_C_score': [0.5, 0.5, 0.9],  # C first
-        'task_A_score': [0.1, 0.9, 0.5],  # A second
-        'task_B_score': [0.9, 0.1, 0.5],  # B last
-    })
+    shuffled_predictions = pd.DataFrame(
+        {
+            "task_C_score": [0.5, 0.5, 0.9],  # C first
+            "task_A_score": [0.1, 0.9, 0.5],  # A second
+            "task_B_score": [0.9, 0.1, 0.5],  # B last
+        }
+    )
 
     # Predict should work correctly despite column order difference
     result = predictor.predict(shuffled_predictions)
@@ -364,8 +376,9 @@ def test_inference_reorders_features_correctly():
     original_predictions = predictor.predict(X)
 
     # Results should be identical
-    assert list(result['predicted_label']) == list(original_predictions['predicted_label']), \
-        f"Column reordering caused different predictions!"
+    assert list(result["predicted_label"]) == list(
+        original_predictions["predicted_label"]
+    ), "Column reordering caused different predictions!"
 
 
 if __name__ == "__main__":

@@ -3,24 +3,25 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
+
 import pandas as pd
 
-from classiflow.stats.config import StatsConfig, VizConfig
-from classiflow.stats.preprocess import prepare_data
-from classiflow.stats.normality import check_normality_all_features
-from classiflow.stats.tests import run_parametric_tests, run_nonparametric_tests
+from classiflow.stats import reports
 from classiflow.stats.binary import (
     binary_feature_tests,
-    split_binary_test_tables,
     build_binary_pairwise_summary,
+    split_binary_test_tables,
 )
-from classiflow.stats import reports
+from classiflow.stats.config import StatsConfig, VizConfig
 from classiflow.stats.excel import (
-    write_publication_workbook,
-    write_legacy_workbook,
     write_legacy_csvs,
+    write_legacy_workbook,
+    write_publication_workbook,
 )
+from classiflow.stats.normality import check_normality_all_features
+from classiflow.stats.preprocess import prepare_data
+from classiflow.stats.tests import run_nonparametric_tests, run_parametric_tests
 
 
 def run_stats(
@@ -163,9 +164,7 @@ def run_stats_from_config(
         )
 
         print("[3/5] Preparing binary summaries...")
-        param_overall, nonparam_overall, nonparam_posthoc = split_binary_test_tables(
-            binary_results
-        )
+        param_overall, nonparam_overall, nonparam_posthoc = split_binary_test_tables(binary_results)
         param_posthoc = []
 
         parametric_overall = reports.format_parametric_overall(param_overall)
@@ -399,13 +398,13 @@ def run_visualizations_from_config(config: VizConfig) -> Dict[str, Any]:
         Dictionary with output paths
     """
     # Import here to avoid heavy dependencies if only running stats
+    from classiflow.stats.clustering import plot_all_projections
     from classiflow.stats.viz import (
         plot_boxplots,
         plot_foldchange_all_pairs,
-        plot_volcano_all_pairs,
         plot_heatmap_top_features,
+        plot_volcano_all_pairs,
     )
-    from classiflow.stats.clustering import plot_all_projections
 
     print(f"Loading data from {config.data_csv}...")
     df = pd.read_csv(config.data_csv)

@@ -1,23 +1,25 @@
 """Tests for feature drift detection."""
 
-import pytest
 import numpy as np
 import pandas as pd
+import pytest
 
 from classiflow.validation.drift import (
-    compute_feature_summary,
     compute_drift_scores,
+    compute_feature_summary,
     detect_drift,
 )
 
 
 def test_compute_feature_summary():
     """Test computing feature summary statistics."""
-    df = pd.DataFrame({
-        "feature1": [1, 2, 3, 4, 5],
-        "feature2": [10, 20, 30, 40, 50],
-        "feature3": [1.1, 2.2, np.nan, 4.4, 5.5],
-    })
+    df = pd.DataFrame(
+        {
+            "feature1": [1, 2, 3, 4, 5],
+            "feature2": [10, 20, 30, 40, 50],
+            "feature3": [1.1, 2.2, np.nan, 4.4, 5.5],
+        }
+    )
 
     summary = compute_feature_summary(df)
 
@@ -119,15 +121,17 @@ def test_compute_drift_scores_missing_rate_change():
 
 def test_detect_drift_no_flags():
     """Test drift detection with no flagged features."""
-    drift_df = pd.DataFrame({
-        "feature": ["feat1", "feat2"],
-        "z_shift": [0.5, 1.0],
-        "missing_delta": [0.01, 0.02],
-        "median_shift": [0.3, 0.4],
-        "abs_z_shift": [0.5, 1.0],
-        "abs_missing_delta": [0.01, 0.02],
-        "abs_median_shift": [0.3, 0.4],
-    })
+    drift_df = pd.DataFrame(
+        {
+            "feature": ["feat1", "feat2"],
+            "z_shift": [0.5, 1.0],
+            "missing_delta": [0.01, 0.02],
+            "median_shift": [0.3, 0.4],
+            "abs_z_shift": [0.5, 1.0],
+            "abs_missing_delta": [0.01, 0.02],
+            "abs_median_shift": [0.3, 0.4],
+        }
+    )
 
     flagged, warnings = detect_drift(drift_df)
 
@@ -137,15 +141,17 @@ def test_detect_drift_no_flags():
 
 def test_detect_drift_with_flags():
     """Test drift detection with flagged features."""
-    drift_df = pd.DataFrame({
-        "feature": ["feat1", "feat2", "feat3"],
-        "z_shift": [5.0, 1.0, 0.5],  # feat1 exceeds threshold
-        "missing_delta": [0.01, 0.15, 0.02],  # feat2 exceeds threshold
-        "median_shift": [0.3, 0.4, 0.5],
-        "abs_z_shift": [5.0, 1.0, 0.5],
-        "abs_missing_delta": [0.01, 0.15, 0.02],
-        "abs_median_shift": [0.3, 0.4, 0.5],
-    })
+    drift_df = pd.DataFrame(
+        {
+            "feature": ["feat1", "feat2", "feat3"],
+            "z_shift": [5.0, 1.0, 0.5],  # feat1 exceeds threshold
+            "missing_delta": [0.01, 0.15, 0.02],  # feat2 exceeds threshold
+            "median_shift": [0.3, 0.4, 0.5],
+            "abs_z_shift": [5.0, 1.0, 0.5],
+            "abs_missing_delta": [0.01, 0.15, 0.02],
+            "abs_median_shift": [0.3, 0.4, 0.5],
+        }
+    )
 
     flagged, warnings = detect_drift(
         drift_df,
@@ -160,9 +166,11 @@ def test_detect_drift_with_flags():
 
 def test_feature_summary_with_all_missing():
     """Test feature summary with all missing values."""
-    df = pd.DataFrame({
-        "feature1": [np.nan, np.nan, np.nan],
-    })
+    df = pd.DataFrame(
+        {
+            "feature1": [np.nan, np.nan, np.nan],
+        }
+    )
 
     summary = compute_feature_summary(df)
 

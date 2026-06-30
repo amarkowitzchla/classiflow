@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
@@ -60,8 +59,7 @@ class WandBTracker(ExperimentTracker):
     ):
         if not WANDB_AVAILABLE:
             raise ImportError(
-                "Weights & Biases is not installed. "
-                "Install with: pip install classiflow[wandb]"
+                "Weights & Biases is not installed. " "Install with: pip install classiflow[wandb]"
             )
 
         self.project = project
@@ -77,7 +75,7 @@ class WandBTracker(ExperimentTracker):
         self,
         run_name: Optional[str] = None,
         tags: Optional[Dict[str, str]] = None,
-    ) -> "WandBTracker":
+    ) -> WandBTracker:
         """Start a new W&B run."""
         if self._run_active:
             logger.warning("W&B run already active, ending previous run")
@@ -212,7 +210,7 @@ class WandBTracker(ExperimentTracker):
         except Exception as e:
             logger.warning(f"Failed to set tags: {e}")
 
-    def __enter__(self) -> "WandBTracker":
+    def __enter__(self) -> WandBTracker:
         """Context manager entry - run should already be started."""
         return self
 

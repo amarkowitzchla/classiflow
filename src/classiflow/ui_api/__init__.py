@@ -1,14 +1,14 @@
 """Classiflow UI API - Web interface for browsing ML projects and runs."""
 
 from classiflow.ui_api.models import (
-    ProjectCard,
-    ProjectDashboard,
-    RunDetail,
     Artifact,
     Comment,
-    Review,
-    Phase,
     DecisionBadge,
+    Phase,
+    ProjectCard,
+    ProjectDashboard,
+    Review,
+    RunDetail,
 )
 
 __all__ = [

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, Any, Optional, Literal
+from typing import Any, Dict, Optional
+
 import numpy as np
 import pandas as pd
 from scipy.stats import entropy
@@ -64,11 +65,13 @@ def compute_confidence_metrics(
     conf_entropy = entropy(proba_safe, axis=1)
 
     # Build DataFrame
-    confidence_df = pd.DataFrame({
-        "confidence_max_proba": max_proba,
-        "confidence_margin": margin,
-        "confidence_entropy": conf_entropy,
-    })
+    confidence_df = pd.DataFrame(
+        {
+            "confidence_max_proba": max_proba,
+            "confidence_margin": margin,
+            "confidence_entropy": conf_entropy,
+        }
+    )
 
     # Add predicted class if not provided
     if predictions is None:
@@ -206,9 +209,8 @@ def filter_by_confidence(
     filtered_df : pd.DataFrame
         Filtered predictions
     """
-    mask = (
-        (predictions_df[confidence_col] >= min_confidence) &
-        (predictions_df[confidence_col] <= max_confidence)
+    mask = (predictions_df[confidence_col] >= min_confidence) & (
+        predictions_df[confidence_col] <= max_confidence
     )
     return predictions_df[mask].copy()
 

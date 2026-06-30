@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 
-from classiflow.config import MetaConfig
 import classiflow.training.meta as meta
+from classiflow.config import MetaConfig
 from classiflow.training.meta import (
     _build_meta_features,
     _cross_val_scores,

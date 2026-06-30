@@ -1,15 +1,15 @@
 """Tests for data hashing utilities."""
 
-import pytest
+import tempfile
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
-from pathlib import Path
-import tempfile
 
 from classiflow.lineage.hashing import (
-    compute_file_hash,
-    compute_dataframe_hash,
     compute_canonical_hash,
+    compute_dataframe_hash,
+    compute_file_hash,
     get_file_metadata,
 )
 
@@ -119,10 +119,12 @@ def test_get_file_metadata():
 
 def test_hash_stability_across_runs():
     """Test that hashes are stable across multiple runs."""
-    df = pd.DataFrame({
-        "feature1": np.random.RandomState(42).randn(100),
-        "feature2": np.random.RandomState(43).randn(100),
-    })
+    df = pd.DataFrame(
+        {
+            "feature1": np.random.RandomState(42).randn(100),
+            "feature2": np.random.RandomState(43).randn(100),
+        }
+    )
 
     hashes = [compute_dataframe_hash(df, canonical=True) for _ in range(5)]
 

@@ -10,7 +10,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 from sklearn.metrics import auc, average_precision_score, precision_recall_curve, roc_curve
@@ -86,12 +86,14 @@ def compute_roc_curve_data(
         fpr, tpr, thresholds = roc_curve(y_bin, scores)
         roc_auc = auc(fpr, tpr)
 
-        curves.append(CurveData(
-            label=classes[pos_idx],
-            x=_numpy_to_list(fpr),
-            y=_numpy_to_list(tpr),
-            thresholds=_numpy_to_list(thresholds) if include_thresholds else None,
-        ))
+        curves.append(
+            CurveData(
+                label=classes[pos_idx],
+                x=_numpy_to_list(fpr),
+                y=_numpy_to_list(tpr),
+                thresholds=_numpy_to_list(thresholds) if include_thresholds else None,
+            )
+        )
         auc_values[classes[pos_idx]] = float(roc_auc)
 
     else:
@@ -107,30 +109,39 @@ def compute_roc_curve_data(
             fpr_i, tpr_i, thresholds_i = roc_curve(y_bin[:, i], y_proba[:, i])
             roc_auc_i = auc(fpr_i, tpr_i)
 
-            curves.append(CurveData(
-                label=cls,
-                x=_numpy_to_list(fpr_i),
-                y=_numpy_to_list(tpr_i),
-                thresholds=_numpy_to_list(thresholds_i) if include_thresholds else None,
-            ))
+            curves.append(
+                CurveData(
+                    label=cls,
+                    x=_numpy_to_list(fpr_i),
+                    y=_numpy_to_list(tpr_i),
+                    thresholds=_numpy_to_list(thresholds_i) if include_thresholds else None,
+                )
+            )
             auc_values[cls] = float(roc_auc_i)
 
         # Micro-average
         fpr_micro, tpr_micro, thresholds_micro = roc_curve(y_bin.ravel(), y_proba.ravel())
         roc_auc_micro = auc(fpr_micro, tpr_micro)
-        curves.append(CurveData(
-            label="micro",
-            x=_numpy_to_list(fpr_micro),
-            y=_numpy_to_list(tpr_micro),
-            thresholds=_numpy_to_list(thresholds_micro) if include_thresholds else None,
-        ))
+        curves.append(
+            CurveData(
+                label="micro",
+                x=_numpy_to_list(fpr_micro),
+                y=_numpy_to_list(tpr_micro),
+                thresholds=_numpy_to_list(thresholds_micro) if include_thresholds else None,
+            )
+        )
         auc_values["micro"] = float(roc_auc_micro)
 
         # Macro-average (computed by interpolation)
-        all_fpr = np.unique(np.concatenate([
-            curves[i].x for i in range(len(classes))
-            if i < len(curves) and curves[i].label in classes
-        ]))
+        all_fpr = np.unique(
+            np.concatenate(
+                [
+                    curves[i].x
+                    for i in range(len(classes))
+                    if i < len(curves) and curves[i].label in classes
+                ]
+            )
+        )
         if len(all_fpr) > 0:
             mean_tpr = np.zeros_like(all_fpr)
             count = 0
@@ -141,11 +152,13 @@ def compute_roc_curve_data(
             if count > 0:
                 mean_tpr /= count
                 roc_auc_macro = auc(all_fpr, mean_tpr)
-                curves.append(CurveData(
-                    label="macro",
-                    x=_numpy_to_list(all_fpr),
-                    y=_numpy_to_list(mean_tpr),
-                ))
+                curves.append(
+                    CurveData(
+                        label="macro",
+                        x=_numpy_to_list(all_fpr),
+                        y=_numpy_to_list(mean_tpr),
+                    )
+                )
                 auc_values["macro"] = float(roc_auc_macro)
 
     return PlotCurve(
@@ -213,12 +226,16 @@ def compute_pr_curve_data(
         prec, rec, thresholds = precision_recall_curve(y_bin, scores)
         ap = average_precision_score(y_bin, scores)
 
-        curves.append(CurveData(
-            label=classes[pos_idx],
-            x=_numpy_to_list(rec),
-            y=_numpy_to_list(prec),
-            thresholds=_numpy_to_list(np.append(thresholds, [0.0])) if include_thresholds else None,
-        ))
+        curves.append(
+            CurveData(
+                label=classes[pos_idx],
+                x=_numpy_to_list(rec),
+                y=_numpy_to_list(prec),
+                thresholds=_numpy_to_list(np.append(thresholds, [0.0]))
+                if include_thresholds
+                else None,
+            )
+        )
         ap_values[classes[pos_idx]] = float(ap)
 
     else:
@@ -234,12 +251,16 @@ def compute_pr_curve_data(
             prec_i, rec_i, thresholds_i = precision_recall_curve(y_bin[:, i], y_proba[:, i])
             ap_i = average_precision_score(y_bin[:, i], y_proba[:, i])
 
-            curves.append(CurveData(
-                label=cls,
-                x=_numpy_to_list(rec_i),
-                y=_numpy_to_list(prec_i),
-                thresholds=_numpy_to_list(np.append(thresholds_i, [0.0])) if include_thresholds else None,
-            ))
+            curves.append(
+                CurveData(
+                    label=cls,
+                    x=_numpy_to_list(rec_i),
+                    y=_numpy_to_list(prec_i),
+                    thresholds=_numpy_to_list(np.append(thresholds_i, [0.0]))
+                    if include_thresholds
+                    else None,
+                )
+            )
             ap_values[cls] = float(ap_i)
 
         # Micro-average
@@ -247,12 +268,16 @@ def compute_pr_curve_data(
             y_bin.ravel(), y_proba.ravel()
         )
         ap_micro = average_precision_score(y_bin, y_proba, average="micro")
-        curves.append(CurveData(
-            label="micro",
-            x=_numpy_to_list(rec_micro),
-            y=_numpy_to_list(prec_micro),
-            thresholds=_numpy_to_list(np.append(thresholds_micro, [0.0])) if include_thresholds else None,
-        ))
+        curves.append(
+            CurveData(
+                label="micro",
+                x=_numpy_to_list(rec_micro),
+                y=_numpy_to_list(prec_micro),
+                thresholds=_numpy_to_list(np.append(thresholds_micro, [0.0]))
+                if include_thresholds
+                else None,
+            )
+        )
         ap_values["micro"] = float(ap_micro)
 
     return PlotCurve(
@@ -310,11 +335,13 @@ def compute_averaged_roc_data(
         interp_tpr[0] = 0.0
         all_tpr_interp.append(interp_tpr)
 
-        fold_curves.append(CurveData(
-            label=f"Fold {i + 1}",
-            x=_numpy_to_list(fpr),
-            y=_numpy_to_list(tpr),
-        ))
+        fold_curves.append(
+            CurveData(
+                label=f"Fold {i + 1}",
+                x=_numpy_to_list(fpr),
+                y=_numpy_to_list(tpr),
+            )
+        )
 
     mean_tpr = np.mean(all_tpr_interp, axis=0)
     std_tpr = np.std(all_tpr_interp, axis=0)
@@ -324,11 +351,13 @@ def compute_averaged_roc_data(
     std_auc = float(np.std(all_aucs))
 
     # Mean curve
-    curves = [CurveData(
-        label="mean",
-        x=_numpy_to_list(mean_fpr),
-        y=_numpy_to_list(mean_tpr),
-    )]
+    curves = [
+        CurveData(
+            label="mean",
+            x=_numpy_to_list(mean_fpr),
+            y=_numpy_to_list(mean_tpr),
+        )
+    ]
 
     # Std band
     tpr_upper = np.minimum(mean_tpr + std_tpr, 1)
@@ -395,11 +424,13 @@ def compute_averaged_pr_data(
         interp_prec = np.interp(mean_rec, rec[::-1], prec[::-1])
         all_prec_interp.append(interp_prec)
 
-        fold_curves.append(CurveData(
-            label=f"Fold {i + 1}",
-            x=_numpy_to_list(rec),
-            y=_numpy_to_list(prec),
-        ))
+        fold_curves.append(
+            CurveData(
+                label=f"Fold {i + 1}",
+                x=_numpy_to_list(rec),
+                y=_numpy_to_list(prec),
+            )
+        )
 
     mean_prec = np.mean(all_prec_interp, axis=0)
     std_prec = np.std(all_prec_interp, axis=0)
@@ -408,11 +439,13 @@ def compute_averaged_pr_data(
     std_ap = float(np.std(all_aps))
 
     # Mean curve
-    curves = [CurveData(
-        label="mean",
-        x=_numpy_to_list(mean_rec),
-        y=_numpy_to_list(mean_prec),
-    )]
+    curves = [
+        CurveData(
+            label="mean",
+            x=_numpy_to_list(mean_rec),
+            y=_numpy_to_list(mean_prec),
+        )
+    ]
 
     # Std band
     prec_upper = np.minimum(mean_prec + std_prec, 1)
@@ -560,15 +593,23 @@ def generate_technical_validation_plots(
 
         # Compute ROC for this fold
         roc_data = compute_roc_curve_data(
-            y_true, y_proba, classes, run_id,
-            scope=PlotScope.FOLD, fold=fold_num,
+            y_true,
+            y_proba,
+            classes,
+            run_id,
+            scope=PlotScope.FOLD,
+            fold=fold_num,
         )
         fold_roc_curves.append(roc_data)
 
         # Compute PR for this fold
         pr_data = compute_pr_curve_data(
-            y_true, y_proba, classes, run_id,
-            scope=PlotScope.FOLD, fold=fold_num,
+            y_true,
+            y_proba,
+            classes,
+            run_id,
+            scope=PlotScope.FOLD,
+            fold=fold_num,
         )
         fold_pr_curves.append(pr_data)
 
@@ -581,8 +622,12 @@ def generate_technical_validation_plots(
             ap_key = classes[1]
         else:
             # Multiclass: use micro-average
-            roc_curve_data = next((c for c in roc_data.curves if c.label == "micro"), roc_data.curves[0])
-            pr_curve_data = next((c for c in pr_data.curves if c.label == "micro"), pr_data.curves[0])
+            roc_curve_data = next(
+                (c for c in roc_data.curves if c.label == "micro"), roc_data.curves[0]
+            )
+            pr_curve_data = next(
+                (c for c in pr_data.curves if c.label == "micro"), pr_data.curves[0]
+            )
             auc_key = "micro"
             ap_key = "micro"
 
@@ -686,7 +731,10 @@ def generate_inference_plots(
 
     # ROC curves
     roc_data = compute_roc_curve_data(
-        y_true, y_proba, classes, run_id,
+        y_true,
+        y_proba,
+        classes,
+        run_id,
         scope=PlotScope.INFERENCE,
     )
     save_plot_data(roc_data, plots_dir / "roc_inference.json")
@@ -694,7 +742,10 @@ def generate_inference_plots(
 
     # PR curves
     pr_data = compute_pr_curve_data(
-        y_true, y_proba, classes, run_id,
+        y_true,
+        y_proba,
+        classes,
+        run_id,
         scope=PlotScope.INFERENCE,
     )
     save_plot_data(pr_data, plots_dir / "pr_inference.json")

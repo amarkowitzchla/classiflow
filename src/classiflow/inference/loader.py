@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import logging
 import json
+import logging
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Any, Dict, List, Optional, Tuple
+
 import joblib
 import pandas as pd
-import numpy as np
 
 from classiflow.inference.config import RunManifest
 
@@ -70,7 +70,7 @@ class ArtifactLoader:
 
         if manifest_path.exists():
             try:
-                with open(manifest_path, "r") as f:
+                with open(manifest_path) as f:
                     data = json.load(f)
 
                 # TrainingRunManifest format (run.json)
@@ -82,7 +82,9 @@ class ArtifactLoader:
                         git_hash=data.get("git_hash"),
                         label_col=(data.get("config", {}) or {}).get("label_col"),
                         feature_list=data.get("feature_list", []) or [],
-                        preprocessing_steps=data.get("feature_summaries", {}).get("preprocessing", []),
+                        preprocessing_steps=data.get("feature_summaries", {}).get(
+                            "preprocessing", []
+                        ),
                         task_type=data.get("task_type", "binary"),
                         task_definitions=data.get("task_definitions", {}),
                         best_models=data.get("best_models", {}),
@@ -125,18 +127,21 @@ class ArtifactLoader:
                 return "hierarchical"
 
         # Check for meta-classifier (check this BEFORE binary)
-        if (fold_dir / "binary_none" / "meta_model.joblib").exists() or \
-           (fold_dir / "binary_smote" / "meta_model.joblib").exists():
+        if (fold_dir / "binary_none" / "meta_model.joblib").exists() or (
+            fold_dir / "binary_smote" / "meta_model.joblib"
+        ).exists():
             return "meta"
 
         # Check for multiclass models
-        if (fold_dir / "multiclass_none" / "multiclass_model.joblib").exists() or \
-           (fold_dir / "multiclass_smote" / "multiclass_model.joblib").exists():
+        if (fold_dir / "multiclass_none" / "multiclass_model.joblib").exists() or (
+            fold_dir / "multiclass_smote" / "multiclass_model.joblib"
+        ).exists():
             return "multiclass"
 
         # Check for binary pipelines
-        if (fold_dir / "binary_none" / "binary_pipes.joblib").exists() or \
-           (fold_dir / "binary_smote" / "binary_pipes.joblib").exists():
+        if (fold_dir / "binary_none" / "binary_pipes.joblib").exists() or (
+            fold_dir / "binary_smote" / "binary_pipes.joblib"
+        ).exists():
             return "binary"
 
         # Legacy format
@@ -189,9 +194,7 @@ class ArtifactLoader:
 
         return pipes, best_models, feature_list
 
-    def load_meta_artifacts(
-        self, variant: str = "smote"
-    ) -> Tuple[Any, List[str], List[str]]:
+    def load_meta_artifacts(self, variant: str = "smote") -> Tuple[Any, List[str], List[str]]:
         """
         Load meta-classifier artifacts.
 
@@ -223,7 +226,9 @@ class ArtifactLoader:
         # Load meta features
         meta_features_path = var_dir / "meta_features.csv"
         if meta_features_path.exists():
-            meta_features = pd.read_csv(meta_features_path, header=None).iloc[:, 0].astype(str).tolist()
+            meta_features = (
+                pd.read_csv(meta_features_path, header=None).iloc[:, 0].astype(str).tolist()
+            )
         else:
             # Fallback: infer from model if possible
             meta_features = []
@@ -232,7 +237,9 @@ class ArtifactLoader:
         # Load meta classes
         meta_classes_path = var_dir / "meta_classes.csv"
         if meta_classes_path.exists():
-            meta_classes = pd.read_csv(meta_classes_path, header=None).iloc[:, 0].astype(str).tolist()
+            meta_classes = (
+                pd.read_csv(meta_classes_path, header=None).iloc[:, 0].astype(str).tolist()
+            )
         else:
             # Fallback to model classes if available
             if hasattr(meta_model, "classes_"):
@@ -241,12 +248,14 @@ class ArtifactLoader:
                 meta_classes = []
                 logger.warning("meta_classes.csv not found and model has no classes_ attribute")
 
-        logger.info(f"Loaded meta-classifier with {len(meta_features)} features and {len(meta_classes)} classes")
+        logger.info(
+            f"Loaded meta-classifier with {len(meta_features)} features and {len(meta_classes)} classes"
+        )
         calibration_path = var_dir / "calibration_metadata.json"
         calibration_metadata = {}
         if calibration_path.exists():
             try:
-                with open(calibration_path, "r") as handle:
+                with open(calibration_path) as handle:
                     calibration_metadata = json.load(handle)
             except Exception as exc:
                 logger.warning(f"Failed to load calibration metadata: {exc}")
@@ -369,7 +378,10 @@ class ArtifactLoader:
                         if hasattr(first_pipe, "feature_names_in_"):
                             return first_pipe.feature_names_in_.tolist()
                         # Try to get from StandardScaler step
-                        if hasattr(first_pipe, "named_steps") and "scaler" in first_pipe.named_steps:
+                        if (
+                            hasattr(first_pipe, "named_steps")
+                            and "scaler" in first_pipe.named_steps
+                        ):
                             scaler = first_pipe.named_steps["scaler"]
                             if hasattr(scaler, "feature_names_in_"):
                                 return scaler.feature_names_in_.tolist()

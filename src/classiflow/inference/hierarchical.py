@@ -5,12 +5,11 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
+import joblib
 import numpy as np
 import pandas as pd
-import joblib
-import torch
 
 from classiflow.models.torch_mlp import TorchMLPWrapper
 
@@ -123,9 +122,7 @@ class HierarchicalInference:
             self.branch_encoders = None
             self.l2_classes_per_branch = None
 
-        logger.info(
-            f"Loaded {'hierarchical' if self.hierarchical else 'single-label'} model"
-        )
+        logger.info(f"Loaded {'hierarchical' if self.hierarchical else 'single-label'} model")
         logger.info(f"L1 classes: {self.l1_classes}")
         if self.hierarchical:
             logger.info(f"L2 branches: {list(self.branch_models.keys())}")
@@ -157,9 +154,7 @@ class HierarchicalInference:
         # model_level2_TypeA_fold1.pt -> model_config_l2_TypeA_fold1.json
         config_path = model_path.parent / model_path.name.replace(
             "model_level2_", "model_config_l2_"
-        ).replace(
-            ".pt", ".json"
-        )
+        ).replace(".pt", ".json")
 
         # If config doesn't exist, use L1 config as template
         if config_path.exists():
@@ -225,7 +220,7 @@ class HierarchicalInference:
                 model_l2 = self.branch_models[l1_class]
                 le_l2 = self.branch_encoders[l1_class]
 
-                y_l2_pred_enc = model_l2.predict(X_scaled[i:i+1])[0]
+                y_l2_pred_enc = model_l2.predict(X_scaled[i : i + 1])[0]
                 y_l2_pred = le_l2.inverse_transform([y_l2_pred_enc])[0]
 
                 predictions.append(f"{l1_class}::{y_l2_pred}")
@@ -235,9 +230,7 @@ class HierarchicalInference:
 
         return np.array(predictions)
 
-    def predict_proba(
-        self, X: np.ndarray
-    ) -> Tuple[np.ndarray, Optional[Dict[str, np.ndarray]]]:
+    def predict_proba(self, X: np.ndarray) -> Tuple[np.ndarray, Optional[Dict[str, np.ndarray]]]:
         """
         Predict class probabilities.
 
@@ -279,7 +272,7 @@ class HierarchicalInference:
                 continue
 
             # Find samples predicted as this L1 class
-            mask = (y_l1_pred == l1_class)
+            mask = y_l1_pred == l1_class
             if mask.sum() == 0:
                 continue
 
@@ -288,9 +281,7 @@ class HierarchicalInference:
 
         return y_l1_proba, l2_probas
 
-    def predict_dataframe(
-        self, X: np.ndarray, include_proba: bool = True
-    ) -> pd.DataFrame:
+    def predict_dataframe(self, X: np.ndarray, include_proba: bool = True) -> pd.DataFrame:
         """
         Predict and return results as DataFrame.
 
@@ -360,7 +351,7 @@ class HierarchicalInference:
             y_l1_pred = self.le_l1.inverse_transform(y_l1_pred_enc)
 
             for l1_class, l2_proba in y_l2_proba.items():
-                mask = (y_l1_pred == l1_class)
+                mask = y_l1_pred == l1_class
                 if mask.sum() > 0:
                     l2_classes = self.l2_classes_per_branch[l1_class]
                     for i, l2_cls in enumerate(l2_classes):

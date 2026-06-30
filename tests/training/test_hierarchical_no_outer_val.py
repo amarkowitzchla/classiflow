@@ -12,10 +12,12 @@ import classiflow.training.hierarchical_cv as hier
 def test_hierarchical_es_split_uses_outer_train(tmp_path, monkeypatch):
     n_samples = 30
     labels = np.array(["A", "B"] * (n_samples // 2))
-    df = pd.DataFrame({
-        "label": labels,
-        "f": np.arange(n_samples, dtype=float),
-    })
+    df = pd.DataFrame(
+        {
+            "label": labels,
+            "f": np.arange(n_samples, dtype=float),
+        }
+    )
     data_path = tmp_path / "data.csv"
     df.to_csv(data_path, index=False)
 

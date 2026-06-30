@@ -11,7 +11,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PlotType(str, Enum):
@@ -39,25 +39,8 @@ class TaskType(str, Enum):
 class CurveData(BaseModel):
     """Individual curve data within a plot."""
 
-    label: str = Field(
-        ...,
-        description="Curve label: 'macro', 'micro', 'weighted', class name, or 'overall'"
-    )
-    x: list[float] = Field(
-        ...,
-        description="X-axis values (FPR for ROC, Recall for PR)"
-    )
-    y: list[float] = Field(
-        ...,
-        description="Y-axis values (TPR for ROC, Precision for PR)"
-    )
-    thresholds: Optional[list[float]] = Field(
-        default=None,
-        description="Decision thresholds corresponding to each point (optional)"
-    )
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "label": "micro",
                 "x": [0.0, 0.1, 0.2, 0.5, 1.0],
@@ -65,54 +48,38 @@ class CurveData(BaseModel):
                 "thresholds": [1.0, 0.8, 0.6, 0.4, 0.0],
             }
         }
+    )
+
+    label: str = Field(
+        ..., description="Curve label: 'macro', 'micro', 'weighted', class name, or 'overall'"
+    )
+    x: list[float] = Field(..., description="X-axis values (FPR for ROC, Recall for PR)")
+    y: list[float] = Field(..., description="Y-axis values (TPR for ROC, Precision for PR)")
+    thresholds: Optional[list[float]] = Field(
+        default=None, description="Decision thresholds corresponding to each point (optional)"
+    )
 
 
 class PlotSummary(BaseModel):
     """Summary statistics for the plot."""
 
-    auc: Optional[dict[str, float]] = Field(
-        default=None,
-        description="AUC values keyed by label (e.g., {'macro': 0.93, 'micro': 0.95})"
-    )
-    ap: Optional[dict[str, float]] = Field(
-        default=None,
-        description="Average Precision values for PR curves"
+    model_config = ConfigDict(
+        json_schema_extra={"example": {"auc": {"macro": 0.93, "micro": 0.95, "ClassA": 0.92}}}
     )
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "auc": {"macro": 0.93, "micro": 0.95, "ClassA": 0.92},
-            }
-        }
+    auc: Optional[dict[str, float]] = Field(
+        default=None, description="AUC values keyed by label (e.g., {'macro': 0.93, 'micro': 0.95})"
+    )
+    ap: Optional[dict[str, float]] = Field(
+        default=None, description="Average Precision values for PR curves"
+    )
 
 
 class PlotMetadata(BaseModel):
     """Metadata about how the plot was generated."""
 
-    generated_at: datetime = Field(
-        ...,
-        description="ISO8601 timestamp when the data was generated"
-    )
-    source: str = Field(
-        ...,
-        description="Source of the data: 'metrics.json', 'predictions.csv', 'internal'"
-    )
-    classiflow_version: str = Field(
-        ...,
-        description="Version of Classiflow that generated the data"
-    )
-    run_id: str = Field(
-        ...,
-        description="Run ID this plot belongs to"
-    )
-    fold: Optional[int] = Field(
-        default=None,
-        description="Fold number (1-indexed) if scope is 'fold'"
-    )
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "generated_at": "2024-01-15T10:30:00",
                 "source": "internal",
@@ -121,6 +88,19 @@ class PlotMetadata(BaseModel):
                 "fold": 1,
             }
         }
+    )
+
+    generated_at: datetime = Field(..., description="ISO8601 timestamp when the data was generated")
+    source: str = Field(
+        ..., description="Source of the data: 'metrics.json', 'predictions.csv', 'internal'"
+    )
+    classiflow_version: str = Field(
+        ..., description="Version of Classiflow that generated the data"
+    )
+    run_id: str = Field(..., description="Run ID this plot belongs to")
+    fold: Optional[int] = Field(
+        default=None, description="Fold number (1-indexed) if scope is 'fold'"
+    )
 
 
 class PlotCurve(BaseModel):
@@ -129,53 +109,8 @@ class PlotCurve(BaseModel):
     This is the main data structure for ROC and PR curve JSON files.
     """
 
-    plot_type: PlotType = Field(
-        ...,
-        description="Type of plot: 'roc' or 'pr'"
-    )
-    scope: PlotScope = Field(
-        ...,
-        description="Scope of the data: 'averaged', 'fold', or 'inference'"
-    )
-    task: TaskType = Field(
-        ...,
-        description="Classification task type: 'binary' or 'multiclass'"
-    )
-    labels: list[str] = Field(
-        ...,
-        description="Class labels in order"
-    )
-    curves: list[CurveData] = Field(
-        ...,
-        description="Individual curves to plot"
-    )
-    summary: PlotSummary = Field(
-        default_factory=PlotSummary,
-        description="Summary metrics (AUC, AP)"
-    )
-    metadata: PlotMetadata = Field(
-        ...,
-        description="Generation metadata"
-    )
-
-    # For averaged plots with standard deviation bands
-    std_band: Optional[dict[str, Any]] = Field(
-        default=None,
-        description="Standard deviation band for averaged plots: {x: [...], y_upper: [...], y_lower: [...]}"
-    )
-
-    # For fold-level plots, include individual fold data
-    fold_curves: Optional[list[CurveData]] = Field(
-        default=None,
-        description="Individual fold curves for averaged plots"
-    )
-    fold_metrics: Optional[dict[str, list[float]]] = Field(
-        default=None,
-        description="Per-fold metric values (e.g., AUC per fold)"
-    )
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "plot_type": "roc",
                 "scope": "averaged",
@@ -194,6 +129,34 @@ class PlotCurve(BaseModel):
                 },
             }
         }
+    )
+
+    plot_type: PlotType = Field(..., description="Type of plot: 'roc' or 'pr'")
+    scope: PlotScope = Field(
+        ..., description="Scope of the data: 'averaged', 'fold', or 'inference'"
+    )
+    task: TaskType = Field(..., description="Classification task type: 'binary' or 'multiclass'")
+    labels: list[str] = Field(..., description="Class labels in order")
+    curves: list[CurveData] = Field(..., description="Individual curves to plot")
+    summary: PlotSummary = Field(
+        default_factory=PlotSummary, description="Summary metrics (AUC, AP)"
+    )
+    metadata: PlotMetadata = Field(..., description="Generation metadata")
+
+    # For averaged plots with standard deviation bands
+    std_band: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Standard deviation band for averaged plots: {x: [...], y_upper: [...], y_lower: [...]}",
+    )
+
+    # For fold-level plots, include individual fold data
+    fold_curves: Optional[list[CurveData]] = Field(
+        default=None, description="Individual fold curves for averaged plots"
+    )
+    fold_metrics: Optional[dict[str, list[float]]] = Field(
+        default=None, description="Per-fold metric values (e.g., AUC per fold)"
+    )
+
 
 
 class PlotManifest(BaseModel):
@@ -203,25 +166,8 @@ class PlotManifest(BaseModel):
     and provides fallback PNG paths for backwards compatibility.
     """
 
-    available: dict[str, str] = Field(
-        default_factory=dict,
-        description="Mapping of plot key to relative JSON file path"
-    )
-    fallback_pngs: dict[str, str] = Field(
-        default_factory=dict,
-        description="Mapping of plot key to fallback PNG file path"
-    )
-    generated_at: datetime = Field(
-        default_factory=datetime.now,
-        description="When the manifest was generated"
-    )
-    classiflow_version: str = Field(
-        default="",
-        description="Classiflow version that generated the manifest"
-    )
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "available": {
                     "roc_averaged": "plots/roc_averaged.json",
@@ -237,6 +183,20 @@ class PlotManifest(BaseModel):
                 "classiflow_version": "0.1.0",
             }
         }
+    )
+
+    available: dict[str, str] = Field(
+        default_factory=dict, description="Mapping of plot key to relative JSON file path"
+    )
+    fallback_pngs: dict[str, str] = Field(
+        default_factory=dict, description="Mapping of plot key to fallback PNG file path"
+    )
+    generated_at: datetime = Field(
+        default_factory=datetime.now, description="When the manifest was generated"
+    )
+    classiflow_version: str = Field(
+        default="", description="Classiflow version that generated the manifest"
+    )
 
 
 # Plot key constants for standardized naming

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import List, Dict, Optional
 import warnings
+from pathlib import Path
+from typing import Dict, List, Optional
 
+import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
 
 from classiflow.stats.config import VizConfig
 
@@ -176,8 +176,8 @@ def plot_tsne(
     Returns:
         Path to saved plot or None if error
     """
-    from sklearn.manifold import TSNE
     from sklearn.impute import SimpleImputer
+    from sklearn.manifold import TSNE
     from sklearn.preprocessing import StandardScaler
 
     print(f"    • Running t-SNE (perplexity={perplexity})...")
@@ -419,7 +419,9 @@ def plot_all_projections(
     results = {}
 
     if "umap" in methods:
-        results["umap"] = plot_umap(df, features, label_col, classes, outdir, config, supervised=False)
+        results["umap"] = plot_umap(
+            df, features, label_col, classes, outdir, config, supervised=False
+        )
 
     if "tsne" in methods:
         results["tsne"] = plot_tsne(df, features, label_col, classes, outdir, config, perplexity=30)

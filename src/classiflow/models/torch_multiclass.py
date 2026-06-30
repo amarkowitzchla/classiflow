@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from classiflow.backends.torch.estimators import (
-    TorchSoftmaxRegressionClassifier,
     TorchMLPMulticlassClassifier,
+    TorchSoftmaxRegressionClassifier,
 )
 
 
@@ -47,7 +47,7 @@ class TorchLinearClassifier(TorchSoftmaxRegressionClassifier):
         params["random_state"] = self.random_state
         return params
 
-    def set_params(self, **params: Any) -> "TorchLinearClassifier":
+    def set_params(self, **params: Any) -> TorchLinearClassifier:
         if "random_state" in params:
             self.random_state = params["random_state"]
             self.seed = params["random_state"]
@@ -93,7 +93,7 @@ class TorchMLPClassifier(TorchMLPMulticlassClassifier):
         params["random_state"] = self.random_state
         return params
 
-    def set_params(self, **params: Any) -> "TorchMLPClassifier":
+    def set_params(self, **params: Any) -> TorchMLPClassifier:
         if "random_state" in params:
             self.random_state = params["random_state"]
             self.seed = params["random_state"]

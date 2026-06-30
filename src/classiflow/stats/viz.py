@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import List, Dict, Any
 import itertools
 import warnings
+from pathlib import Path
+from typing import Dict, List
 
+import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-from matplotlib.backends.backend_pdf import PdfPages
 import seaborn as sns
+from matplotlib.backends.backend_pdf import PdfPages
 from scipy import stats as sp_stats
 from statsmodels.stats.multitest import multipletests
 
@@ -249,7 +249,13 @@ def plot_foldchange_all_pairs(
         fig, ax = plt.subplots(figsize=(8, 0.33 * top_display + 1.5), dpi=config.fig_dpi)
         sub = tbl.head(top_display)
 
-        ax.barh(sub["feature"], sub["log2FC_g1_over_g2"], color=colors[g1], edgecolor="black", linewidth=0.6)
+        ax.barh(
+            sub["feature"],
+            sub["log2FC_g1_over_g2"],
+            color=colors[g1],
+            edgecolor="black",
+            linewidth=0.6,
+        )
         ax.axvline(0, color="black", lw=1)
         ax.set_xlabel(f"log2FC ({g1}/{g2}) — center={config.fc_center}")
         ax.set_title(f"Top {top_display} Fold Changes: {g1} vs {g2}")
@@ -286,7 +292,6 @@ def plot_volcano_all_pairs(
         List of paths to created plots
     """
     volcano_dir = viz_dir / "volcano"
-    colors = choose_colors(classes)
     pairs = list(itertools.combinations(classes, 2))
     outputs = []
 
@@ -441,7 +446,6 @@ def plot_heatmap_top_features(
         return None
 
     heatmap_dir = viz_dir / "heatmaps"
-    colors = choose_colors(classes)
 
     # Load Dunn p-values to rank features
     dunn_lookup = load_dunn_pvalues(config.stats_dir)

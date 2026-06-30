@@ -4,9 +4,9 @@ import numpy as np
 import pandas as pd
 
 from classiflow.splitting import (
-    iter_outer_splits,
-    iter_inner_splits,
     assert_no_patient_leakage,
+    iter_inner_splits,
+    iter_outer_splits,
     make_group_labels,
 )
 
@@ -36,10 +36,14 @@ def test_group_stratified_outer_and_inner_no_leakage():
 
         df_tr = df.iloc[tr_idx]
         y_tr = y.iloc[tr_idx]
-        inner_splits = list(iter_inner_splits(df_tr, y_tr, "patient_id", n_splits=2, n_repeats=2, random_state=13))
+        inner_splits = list(
+            iter_inner_splits(df_tr, y_tr, "patient_id", n_splits=2, n_repeats=2, random_state=13)
+        )
         assert inner_splits, "Expected inner splits"
         for split_idx, (in_tr_idx, in_va_idx) in enumerate(inner_splits, 1):
-            assert_no_patient_leakage(df_tr, "patient_id", in_tr_idx, in_va_idx, f"inner split {split_idx}")
+            assert_no_patient_leakage(
+                df_tr, "patient_id", in_tr_idx, in_va_idx, f"inner split {split_idx}"
+            )
 
 
 def test_make_group_labels_conflict_raises():

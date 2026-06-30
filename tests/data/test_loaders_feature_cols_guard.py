@@ -5,10 +5,12 @@ from classiflow.io import load_data, load_data_with_groups
 
 
 def test_load_data_rejects_label_in_features(tmp_path):
-    df = pd.DataFrame({
-        "label": ["A", "B", "A"],
-        "f1": [1, 2, 3],
-    })
+    df = pd.DataFrame(
+        {
+            "label": ["A", "B", "A"],
+            "f1": [1, 2, 3],
+        }
+    )
     path = tmp_path / "data.csv"
     df.to_csv(path, index=False)
 
@@ -17,11 +19,13 @@ def test_load_data_rejects_label_in_features(tmp_path):
 
 
 def test_load_data_with_groups_rejects_label_or_patient(tmp_path):
-    df = pd.DataFrame({
-        "label": ["A", "B", "A"],
-        "patient_id": ["p1", "p2", "p3"],
-        "f1": [1, 2, 3],
-    })
+    df = pd.DataFrame(
+        {
+            "label": ["A", "B", "A"],
+            "patient_id": ["p1", "p2", "p3"],
+            "f1": [1, 2, 3],
+        }
+    )
     path = tmp_path / "data.csv"
     df.to_csv(path, index=False)
 

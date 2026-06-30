@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
+
 import pandas as pd
-import xlsxwriter
 
 
-def autosize_column(ws: Any, df: pd.DataFrame, col_idx: int, col_name: str, min_width: int = 12, max_width: int = 50):
+def autosize_column(
+    ws: Any, df: pd.DataFrame, col_idx: int, col_name: str, min_width: int = 12, max_width: int = 50
+):
     """Set column width based on content.
 
     Args:
@@ -47,7 +49,6 @@ def write_sheet_with_formatting(
 
     df.to_excel(writer, sheet_name=sheet_name, index=False)
     ws = writer.sheets[sheet_name]
-    workbook = writer.book
 
     # Freeze header row
     ws.freeze_panes(1, 0)
@@ -224,9 +225,13 @@ def write_legacy_workbook(
             write_sheet_with_formatting(writer, parametric_posthoc, "Parametric_PostHoc", formats)
 
         if not nonparametric_overall.empty:
-            write_sheet_with_formatting(writer, nonparametric_overall, "Nonparametric_Overall", formats)
+            write_sheet_with_formatting(
+                writer, nonparametric_overall, "Nonparametric_Overall", formats
+            )
         if not nonparametric_posthoc.empty:
-            write_sheet_with_formatting(writer, nonparametric_posthoc, "Nonparametric_PostHoc", formats)
+            write_sheet_with_formatting(
+                writer, nonparametric_posthoc, "Nonparametric_PostHoc", formats
+            )
 
     return out_xlsx
 

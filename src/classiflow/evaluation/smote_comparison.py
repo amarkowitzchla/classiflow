@@ -78,7 +78,9 @@ class SMOTEComparisonResult:
     per_class_deltas: Optional[pd.DataFrame] = None  # For meta/hierarchical
 
     # Recommendation
-    recommendation: Literal["use_smote", "no_smote", "equivalent", "insufficient_data"] = "insufficient_data"
+    recommendation: Literal[
+        "use_smote", "no_smote", "equivalent", "insufficient_data"
+    ] = "insufficient_data"
     confidence: Literal["high", "medium", "low"] = "low"
     reasoning: List[str] = field(default_factory=list)
 
@@ -130,7 +132,9 @@ class SMOTEComparisonResult:
             p_val = self.paired_t_pvalues.get(metric, np.nan)
             effect = self.effect_sizes.get(metric, np.nan)
 
-            sig = " ***" if p_val < 0.001 else " **" if p_val < 0.01 else " *" if p_val < 0.05 else ""
+            sig = (
+                " ***" if p_val < 0.001 else " **" if p_val < 0.01 else " *" if p_val < 0.05 else ""
+            )
 
             lines.append(f"\n{metric}:")
             lines.append(f"  SMOTE:     {smote:.4f}")
@@ -153,14 +157,11 @@ class SMOTEComparisonResult:
         lines.append("RECOMMENDATION")
         lines.append("-" * 70)
 
-        rec_emoji = {
-            "use_smote": "✓",
-            "no_smote": "✗",
-            "equivalent": "~",
-            "insufficient_data": "?"
-        }
+        rec_emoji = {"use_smote": "✓", "no_smote": "✗", "equivalent": "~", "insufficient_data": "?"}
 
-        lines.append(f"\n{rec_emoji.get(self.recommendation, '?')} {self.recommendation.upper().replace('_', ' ')}")
+        lines.append(
+            f"\n{rec_emoji.get(self.recommendation, '?')} {self.recommendation.upper().replace('_', ' ')}"
+        )
         lines.append(f"Confidence: {self.confidence.upper()}")
         lines.append("\nReasoning:")
         for reason in self.reasoning:
@@ -223,9 +224,19 @@ class SMOTEComparison:
         self.n_folds = len(smote_data["fold"].unique())
 
         # Infer metric columns (numeric columns excluding identifiers)
-        exclude_cols = {"fold", "task", "model_name", "sampler", "phase", "n", "pos_rate", "variant"}
+        exclude_cols = {
+            "fold",
+            "task",
+            "model_name",
+            "sampler",
+            "phase",
+            "n",
+            "pos_rate",
+            "variant",
+        }
         self.metric_columns = [
-            col for col in smote_data.columns
+            col
+            for col in smote_data.columns
             if col not in exclude_cols and pd.api.types.is_numeric_dtype(smote_data[col])
         ]
 
@@ -285,8 +296,9 @@ class SMOTEComparison:
                 )
 
             if model_type is None:
-                if (result_dir / "fold1" / "binary_smote").exists() or \
-                   "binary_smote" in str(combined.get("model_dir", "").iloc[0] if "model_dir" in combined.columns else ""):
+                if (result_dir / "fold1" / "binary_smote").exists() or "binary_smote" in str(
+                    combined.get("model_dir", "").iloc[0] if "model_dir" in combined.columns else ""
+                ):
                     model_type = "meta"
                 elif (result_dir / "fold1" / "hierarchical_l1").exists():
                     model_type = "hierarchical"
@@ -368,8 +380,12 @@ class SMOTEComparison:
 
             # Aggregate data if requested
             if aggregate_by:
-                smote_agg = self.smote_data.groupby(aggregate_by + ["fold"])[metric].mean().reset_index()
-                no_smote_agg = self.no_smote_data.groupby(aggregate_by + ["fold"])[metric].mean().reset_index()
+                smote_agg = (
+                    self.smote_data.groupby(aggregate_by + ["fold"])[metric].mean().reset_index()
+                )
+                no_smote_agg = (
+                    self.no_smote_data.groupby(aggregate_by + ["fold"])[metric].mean().reset_index()
+                )
 
                 # Average across tasks/classes per fold for paired test
                 smote_vals = smote_agg.groupby("fold")[metric].mean().values
@@ -518,33 +534,39 @@ class SMOTEComparison:
             if smote_better:
                 recommendation = "use_smote"
                 confidence = "high"
-                reasoning.append(f"SMOTE significantly improves {primary_metric} with meaningful effect size")
+                reasoning.append(
+                    f"SMOTE significantly improves {primary_metric} with meaningful effect size"
+                )
             else:
                 recommendation = "no_smote"
                 confidence = "high"
-                reasoning.append(f"No-SMOTE significantly better with meaningful effect size")
+                reasoning.append("No-SMOTE significantly better with meaningful effect size")
         elif is_significant:
             if smote_better:
                 recommendation = "use_smote"
                 confidence = "medium"
-                reasoning.append(f"SMOTE significantly improves {primary_metric} but effect size is small")
+                reasoning.append(
+                    f"SMOTE significantly improves {primary_metric} but effect size is small"
+                )
             else:
                 recommendation = "no_smote"
                 confidence = "medium"
-                reasoning.append(f"No-SMOTE significantly better but effect size is small")
+                reasoning.append("No-SMOTE significantly better but effect size is small")
         elif is_meaningful:
             if smote_better:
                 recommendation = "use_smote"
                 confidence = "low"
-                reasoning.append(f"SMOTE shows meaningful improvement but not statistically significant")
+                reasoning.append(
+                    "SMOTE shows meaningful improvement but not statistically significant"
+                )
             else:
                 recommendation = "no_smote"
                 confidence = "low"
-                reasoning.append(f"No-SMOTE shows meaningful improvement but not significant")
+                reasoning.append("No-SMOTE shows meaningful improvement but not significant")
         else:
             recommendation = "equivalent"
             confidence = "high"
-            reasoning.append(f"No significant or meaningful difference detected")
+            reasoning.append("No significant or meaningful difference detected")
 
         # Check other metrics for consistency
         other_metrics = [m for m in statistics.keys() if m != primary_metric]
@@ -559,9 +581,7 @@ class SMOTEComparison:
                 discordant += 1
 
         if other_metrics:
-            reasoning.append(
-                f"{concordant}/{len(other_metrics)} other metrics show same direction"
-            )
+            reasoning.append(f"{concordant}/{len(other_metrics)} other metrics show same direction")
 
             if discordant > concordant and confidence == "high":
                 confidence = "medium"
@@ -681,15 +701,17 @@ class SMOTEComparison:
         # CSV summary
         summary_rows = []
         for metric in result.metrics:
-            summary_rows.append({
-                "metric": metric,
-                "smote_mean": result.smote_means[metric],
-                "no_smote_mean": result.no_smote_means[metric],
-                "delta": result.deltas[metric],
-                "paired_t_pvalue": result.paired_t_pvalues[metric],
-                "wilcoxon_pvalue": result.wilcoxon_pvalues[metric],
-                "cohens_d": result.effect_sizes[metric],
-            })
+            summary_rows.append(
+                {
+                    "metric": metric,
+                    "smote_mean": result.smote_means[metric],
+                    "no_smote_mean": result.no_smote_means[metric],
+                    "delta": result.deltas[metric],
+                    "paired_t_pvalue": result.paired_t_pvalues[metric],
+                    "wilcoxon_pvalue": result.wilcoxon_pvalues[metric],
+                    "cohens_d": result.effect_sizes[metric],
+                }
+            )
 
         csv_path = outdir / f"{prefix}_summary_{timestamp}.csv"
         pd.DataFrame(summary_rows).to_csv(csv_path, index=False)

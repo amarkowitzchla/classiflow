@@ -5,65 +5,63 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, Callable, Optional, Tuple, List
-from collections import defaultdict
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import joblib
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import StratifiedKFold, RepeatedStratifiedKFold, GridSearchCV
-from sklearn.calibration import CalibratedClassifierCV
+from imblearn.pipeline import Pipeline as ImbPipeline
 from sklearn.base import clone
-from sklearn.preprocessing import label_binarize, StandardScaler, LabelEncoder
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import (
     accuracy_score,
+    auc,
+    average_precision_score,
     balanced_accuracy_score,
+    confusion_matrix,
     f1_score,
     matthews_corrcoef,
-    confusion_matrix,
-    roc_auc_score,
-    roc_curve,
-    auc,
     precision_recall_curve,
-    average_precision_score,
+    roc_curve,
 )
-from imblearn.pipeline import Pipeline as ImbPipeline
-import joblib
+from sklearn.model_selection import GridSearchCV, RepeatedStratifiedKFold, StratifiedKFold
+from sklearn.preprocessing import LabelEncoder, StandardScaler, label_binarize
 
+from classiflow.backends.registry import get_backend, get_model_set
 from classiflow.config import MetaConfig
 from classiflow.io import load_data, load_data_with_groups, validate_data
-from classiflow.tasks import TaskBuilder, load_composite_tasks
-from classiflow.models import AdaptiveSMOTE
-from classiflow.backends.registry import get_backend, get_model_set
-from classiflow.metrics.scorers import get_scorers, SCORER_ORDER
+from classiflow.lineage.hashing import get_file_metadata
+from classiflow.lineage.manifest import create_training_manifest
 from classiflow.metrics.binary import compute_binary_metrics
-from classiflow.metrics.calibration import compute_probability_quality
-from classiflow.metrics.calibration_policy import decide_calibration
-from classiflow.metrics.decision import compute_decision_metrics
 from classiflow.metrics.binary_learners import (
     evaluate_binary_learner_health,
     persist_binary_ovr_fold_outputs,
 )
+from classiflow.metrics.calibration import compute_probability_quality
+from classiflow.metrics.calibration_policy import decide_calibration
+from classiflow.metrics.decision import compute_decision_metrics
+from classiflow.metrics.scorers import SCORER_ORDER, get_scorers
+from classiflow.models import AdaptiveSMOTE
+from classiflow.plots import (
+    plot_averaged_pr_curves,
+    plot_averaged_roc_curves,
+    plot_confusion_matrix,
+    plot_pr_curve,
+    plot_roc_curve,
+)
+from classiflow.splitting import (
+    assert_no_patient_leakage,
+    iter_inner_splits,
+    iter_outer_splits,
+    make_group_labels,
+)
+from classiflow.tasks import TaskBuilder, load_composite_tasks
+from classiflow.tracking import extract_loggable_params, get_tracker, summarize_metrics
 from classiflow.training.probability_quality import (
     attach_probability_quality_to_run_manifest,
     serialize_probability_quality_metrics,
     write_probability_quality_curve_artifacts,
 )
-from classiflow.plots import (
-    plot_roc_curve,
-    plot_pr_curve,
-    plot_confusion_matrix,
-    plot_averaged_roc_curves,
-    plot_averaged_pr_curves,
-)
-from classiflow.lineage.manifest import create_training_manifest
-from classiflow.lineage.hashing import get_file_metadata
-from classiflow.splitting import (
-    iter_outer_splits,
-    iter_inner_splits,
-    assert_no_patient_leakage,
-    make_group_labels,
-)
-from classiflow.tracking import get_tracker, extract_loggable_params, summarize_metrics
 
 logger = logging.getLogger(__name__)
 

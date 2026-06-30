@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Optional, Dict, Any
-import shutil
+from typing import Any, Dict, Optional
 
-import pandas as pd
-import numpy as np
 
 from classiflow.lineage import TrainingRunManifest
 
@@ -73,10 +71,10 @@ class BundleLoader:
         elif run_manifest_path.exists():
             manifest_path = run_manifest_path
         else:
-            raise FileNotFoundError(f"No run.json or run_manifest.json in bundle")
+            raise FileNotFoundError("No run.json or run_manifest.json in bundle")
 
         # Load the JSON data
-        with open(manifest_path, "r") as f:
+        with open(manifest_path) as f:
             data = json.load(f)
 
         # Check if it's new format (has run_id) or legacy (has config at root)
@@ -115,7 +113,7 @@ class BundleLoader:
         # Load artifact registry
         artifacts_path = self.extract_dir / "artifacts.json"
         if artifacts_path.exists():
-            with open(artifacts_path, "r") as f:
+            with open(artifacts_path) as f:
                 self.artifacts = json.load(f)
         else:
             logger.warning("No artifacts.json in bundle")

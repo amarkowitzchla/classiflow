@@ -63,12 +63,14 @@ def _find_runs(
                     if not run_dir.is_dir():
                         continue
 
-                    runs.append({
-                        "project_id": project_dir.name,
-                        "phase": phase,
-                        "run_id": run_dir.name,
-                        "run_dir": run_dir,
-                    })
+                    runs.append(
+                        {
+                            "project_id": project_dir.name,
+                            "phase": phase,
+                            "run_id": run_dir.name,
+                            "run_dir": run_dir,
+                        }
+                    )
 
     return runs
 
@@ -94,14 +96,12 @@ def _backfill_technical_validation(run_dir: Path, run_id: str, dry_run: bool = F
     import pandas as pd
 
     from classiflow.plots.data_export import (
-        compute_roc_curve_data,
-        compute_pr_curve_data,
-        compute_averaged_roc_data,
         compute_averaged_pr_data,
-        save_plot_data,
+        compute_averaged_roc_data,
         create_plot_manifest,
+        save_plot_data,
     )
-    from classiflow.plots.schemas import PlotKey, PlotScope
+    from classiflow.plots.schemas import PlotKey
 
     result = {"status": "success", "files_created": [], "errors": []}
 
@@ -145,30 +145,10 @@ def _backfill_technical_validation(run_dir: Path, run_id: str, dry_run: bool = F
         return result
 
     # Try to collect data from folds
-    fold_data = []
     all_fpr, all_tpr, all_aucs = [], [], []
     all_rec, all_prec, all_aps = [], [], []
 
     for fold_dir in fold_dirs:
-        fold_num = int(fold_dir.name.replace("fold", ""))
-
-        # Look for metrics CSV or predictions
-        # Try different possible locations
-        metrics_file = None
-        for name in ["metrics.csv", "metrics_outer_multiclass_eval.csv", "metrics_outer_eval.csv"]:
-            path = fold_dir / name
-            if path.exists():
-                metrics_file = path
-                break
-
-        # Look for predictions or probabilities
-        proba_file = None
-        for pattern in ["*_proba.csv", "*_probabilities.csv", "val_predictions.csv"]:
-            matches = list(fold_dir.glob(pattern))
-            if matches:
-                proba_file = matches[0]
-                break
-
         # Try different model subdirectories
         for subdir_name in ["multiclass_smote", "multiclass_none", "multiclass", ""]:
             subdir = fold_dir / subdir_name if subdir_name else fold_dir
@@ -297,10 +277,10 @@ def _backfill_independent_test(run_dir: Path, run_id: str, dry_run: bool = False
     import pandas as pd
 
     from classiflow.plots.data_export import (
-        compute_roc_curve_data,
         compute_pr_curve_data,
-        save_plot_data,
+        compute_roc_curve_data,
         create_plot_manifest,
+        save_plot_data,
     )
     from classiflow.plots.schemas import PlotKey, PlotScope
 
@@ -388,7 +368,10 @@ def _backfill_independent_test(run_dir: Path, run_id: str, dry_run: bool = False
 
         # Generate ROC curve data
         roc_data = compute_roc_curve_data(
-            y_true, y_proba, classes, run_id,
+            y_true,
+            y_proba,
+            classes,
+            run_id,
             scope=PlotScope.INFERENCE,
         )
         save_plot_data(roc_data, plots_dir / "roc_inference.json")
@@ -397,7 +380,10 @@ def _backfill_independent_test(run_dir: Path, run_id: str, dry_run: bool = False
 
         # Generate PR curve data
         pr_data = compute_pr_curve_data(
-            y_true, y_proba, classes, run_id,
+            y_true,
+            y_proba,
+            classes,
+            run_id,
             scope=PlotScope.INFERENCE,
         )
         save_plot_data(pr_data, plots_dir / "pr_inference.json")
@@ -485,7 +471,12 @@ def backfill_plots(
     typer.echo(f"Scanning for runs in: {projects_root}")
     typer.echo(f"Phases: {', '.join(phases_list)}")
 
-    all_runs = _find_runs(projects_root.parent if projects_root.name in ["projects", "personal_projects"] else projects_root, phases_list)
+    all_runs = _find_runs(
+        projects_root.parent
+        if projects_root.name in ["projects", "personal_projects"]
+        else projects_root,
+        phases_list,
+    )
 
     # Filter if specific project/run requested
     if project_id:
@@ -541,20 +532,26 @@ def backfill_plots(
                 typer.echo(f"  Would create: {', '.join(result['would_create'])}")
         elif verbose:
             if status == "success":
-                typer.secho(f"  ✓ Created: {', '.join(result.get('files_created', []))}", fg=typer.colors.GREEN)
+                typer.secho(
+                    f"  ✓ Created: {', '.join(result.get('files_created', []))}",
+                    fg=typer.colors.GREEN,
+                )
             elif status == "skipped":
                 typer.echo(f"  → Skipped: {result.get('reason', 'unknown')}")
             elif status == "partial":
-                typer.secho(f"  ⚠ Partial: {', '.join(result.get('files_created', []))}", fg=typer.colors.YELLOW)
+                typer.secho(
+                    f"  ⚠ Partial: {', '.join(result.get('files_created', []))}",
+                    fg=typer.colors.YELLOW,
+                )
                 for err in result.get("errors", []):
                     typer.echo(f"    Error: {err}")
             else:
-                typer.secho(f"  ✗ Failed", fg=typer.colors.RED)
+                typer.secho("  ✗ Failed", fg=typer.colors.RED)
                 for err in result.get("errors", []):
                     typer.echo(f"    Error: {err}")
 
     # Summary
-    typer.echo("\n" + "="*50)
+    typer.echo("\n" + "=" * 50)
     typer.echo("Summary:")
     typer.echo(f"  Success: {stats['success']}")
     typer.echo(f"  Skipped: {stats['skipped']}")

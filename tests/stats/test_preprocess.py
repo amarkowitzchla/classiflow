@@ -1,13 +1,12 @@
 """Tests for stats preprocessing."""
 
-import pytest
 import pandas as pd
-import numpy as np
+import pytest
 
 from classiflow.stats.preprocess import (
-    select_numeric_features,
-    prepare_data,
     compute_class_stats,
+    prepare_data,
+    select_numeric_features,
 )
 
 

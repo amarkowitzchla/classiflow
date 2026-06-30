@@ -85,9 +85,13 @@ def test_write_technical_report_includes_probability_quality_section(tmp_path: P
     assert "probability_quality_plots/prob_quality_reliability_top1.png" in text
     assert "probability_quality_plots/prob_quality_confidence_gap.png" in text
     assert "probability_quality_plots/prob_quality_calibration_deltas.png" in text
-    assert (reports_dir / "probability_quality_plots" / "prob_quality_reliability_top1.png").exists()
+    assert (
+        reports_dir / "probability_quality_plots" / "prob_quality_reliability_top1.png"
+    ).exists()
     assert (reports_dir / "probability_quality_plots" / "prob_quality_confidence_gap.png").exists()
-    assert (reports_dir / "probability_quality_plots" / "prob_quality_calibration_deltas.png").exists()
+    assert (
+        reports_dir / "probability_quality_plots" / "prob_quality_calibration_deltas.png"
+    ).exists()
     assert "Promotion gate impact: None" in text
     assert "WARN: Promotion gates reference calibration metrics" in text
 

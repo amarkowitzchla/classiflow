@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
 import pandas as pd
 
@@ -144,18 +145,20 @@ def compute_drift_scores(
         else:
             median_shift = 0.0
 
-        records.append({
-            "feature": feature,
-            "z_shift": z_shift,
-            "missing_delta": missing_delta,
-            "median_shift": median_shift,
-            "mean_train": train_stats["mean"],
-            "mean_inference": inf_stats["mean"],
-            "std_train": train_stats["std"],
-            "std_inference": inf_stats["std"],
-            "missing_rate_train": train_stats["missing_rate"],
-            "missing_rate_inference": inf_stats["missing_rate"],
-        })
+        records.append(
+            {
+                "feature": feature,
+                "z_shift": z_shift,
+                "missing_delta": missing_delta,
+                "median_shift": median_shift,
+                "mean_train": train_stats["mean"],
+                "mean_inference": inf_stats["mean"],
+                "std_train": train_stats["std"],
+                "std_inference": inf_stats["std"],
+                "missing_rate_train": train_stats["missing_rate"],
+                "missing_rate_inference": inf_stats["missing_rate"],
+            }
+        )
 
     drift_df = pd.DataFrame(records)
 
@@ -199,13 +202,15 @@ def detect_drift(
         return drift_df, []
 
     flagged = drift_df[
-        (drift_df["abs_z_shift"] > z_threshold) |
-        (drift_df["abs_missing_delta"] > missing_threshold) |
-        (drift_df["abs_median_shift"] > median_threshold)
+        (drift_df["abs_z_shift"] > z_threshold)
+        | (drift_df["abs_missing_delta"] > missing_threshold)
+        | (drift_df["abs_median_shift"] > median_threshold)
     ].copy()
 
     # Sort by severity (max absolute drift)
-    flagged["max_drift"] = flagged[["abs_z_shift", "abs_missing_delta", "abs_median_shift"]].max(axis=1)
+    flagged["max_drift"] = flagged[["abs_z_shift", "abs_missing_delta", "abs_median_shift"]].max(
+        axis=1
+    )
     flagged = flagged.sort_values("max_drift", ascending=False)
 
     # Generate warnings
@@ -330,7 +335,7 @@ def load_feature_summaries(input_path: Path) -> Dict[str, Dict[str, float]]:
     summary : Dict[str, Dict[str, float]]
         Feature summaries
     """
-    with open(input_path, "r") as f:
+    with open(input_path) as f:
         summary = json.load(f)
     logger.info(f"Loaded feature summaries: {input_path}")
     return summary

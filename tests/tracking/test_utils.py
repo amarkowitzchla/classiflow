@@ -1,13 +1,14 @@
 """Tests for tracking utility functions."""
 
-import pytest
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
+
 from classiflow.tracking.utils import (
+    extract_loggable_params,
     flatten_dict,
     sanitize_metric_name,
-    extract_loggable_params,
     summarize_metrics,
 )
 
@@ -125,6 +126,7 @@ class TestExtractLoggableParams:
 
     def test_dataclass_input(self):
         """Dataclass input should be converted."""
+
         @dataclass
         class Config:
             lr: float = 0.01
@@ -137,6 +139,7 @@ class TestExtractLoggableParams:
 
     def test_object_with_to_dict(self):
         """Object with to_dict method should be supported."""
+
         class ConfigLike:
             def to_dict(self):
                 return {"a": 1, "b": 2}

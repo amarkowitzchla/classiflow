@@ -1,15 +1,15 @@
 """Lineage tracking for model training and inference runs."""
 
 from classiflow.lineage.hashing import (
-    compute_file_hash,
-    compute_dataframe_hash,
     compute_canonical_hash,
+    compute_dataframe_hash,
+    compute_file_hash,
 )
 from classiflow.lineage.manifest import (
-    TrainingRunManifest,
     InferenceRunManifest,
-    create_training_manifest,
+    TrainingRunManifest,
     create_inference_manifest,
+    create_training_manifest,
     load_training_manifest,
     validate_manifest_compatibility,
 )

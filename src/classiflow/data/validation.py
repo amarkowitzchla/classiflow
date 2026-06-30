@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -48,13 +48,17 @@ def validate_columns(
     available = set(df.columns)
 
     if label_col is not None and label_col not in available:
-        errors.append(f"Label column '{label_col}' not found. Available: {sorted(available)[:10]}...")
+        errors.append(
+            f"Label column '{label_col}' not found. Available: {sorted(available)[:10]}..."
+        )
 
     if id_col is not None and id_col not in available:
         errors.append(f"ID column '{id_col}' not found. Available: {sorted(available)[:10]}...")
 
     if group_col is not None and group_col not in available:
-        errors.append(f"Group column '{group_col}' not found. Available: {sorted(available)[:10]}...")
+        errors.append(
+            f"Group column '{group_col}' not found. Available: {sorted(available)[:10]}..."
+        )
 
     if feature_cols is not None:
         missing = set(feature_cols) - available
@@ -235,8 +239,7 @@ def validate_labels(
     small_classes = class_counts[class_counts < min_samples_per_class]
     if len(small_classes) > 0:
         errors.append(
-            f"Classes with < {min_samples_per_class} samples: "
-            f"{small_classes.to_dict()}"
+            f"Classes with < {min_samples_per_class} samples: " f"{small_classes.to_dict()}"
         )
 
     # Check class imbalance
@@ -246,9 +249,7 @@ def validate_labels(
         if min_count > 0:
             imbalance_ratio = max_count / min_count
             if imbalance_ratio > 10:
-                warnings.append(
-                    f"Severe class imbalance detected (ratio: {imbalance_ratio:.1f}:1)"
-                )
+                warnings.append(f"Severe class imbalance detected (ratio: {imbalance_ratio:.1f}:1)")
 
     if errors:
         raise ValueError("Label validation failed:\n" + "\n".join(errors))

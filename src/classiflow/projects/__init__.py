@@ -1,14 +1,14 @@
 """Project module for end-to-end clinical test workflows."""
 
-from classiflow.projects.project_models import ProjectConfig, ThresholdsConfig
-from classiflow.projects.project_fs import ProjectPaths
 from classiflow.projects.dataset_registry import register_dataset
 from classiflow.projects.orchestrator import (
-    run_feasibility,
-    run_technical_validation,
     build_final_model,
+    run_feasibility,
     run_independent_test,
+    run_technical_validation,
 )
+from classiflow.projects.project_fs import ProjectPaths
+from classiflow.projects.project_models import ProjectConfig, ThresholdsConfig
 from classiflow.projects.promotion_templates import list_promotion_gate_templates
 
 __all__ = [

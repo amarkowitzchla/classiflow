@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Iterator, Tuple, Optional, Iterable, List
+from collections.abc import Iterable, Iterator
+from typing import List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -38,8 +39,7 @@ def make_group_labels(df: pd.DataFrame, patient_col: str, label_col: str) -> pd.
     conflicting = label_counts[label_counts > 1].index.tolist()
     if conflicting:
         raise ValueError(
-            "Patient label conflict for the following IDs: "
-            f"{sorted(map(str, conflicting))}"
+            "Patient label conflict for the following IDs: " f"{sorted(map(str, conflicting))}"
         )
 
     return subset.groupby(patient_col)[label_col].first()
@@ -93,7 +93,9 @@ def iter_outer_splits(
     folds = _greedy_patient_folds(patient_ids, y_patient, n_splits, random_state)
     for fold_idx in range(n_splits):
         va_patients = np.array(folds[fold_idx], dtype=object)
-        tr_patients = np.array([pid for i, f in enumerate(folds) if i != fold_idx for pid in f], dtype=object)
+        tr_patients = np.array(
+            [pid for i, f in enumerate(folds) if i != fold_idx for pid in f], dtype=object
+        )
         yield _expand_patient_indices(df, patient_col, tr_patients, va_patients)
 
 
@@ -137,10 +139,7 @@ def assert_no_patient_leakage(
     val_patients = set(df.iloc[val_idx][patient_col].astype(str).dropna())
     overlap = sorted(train_patients.intersection(val_patients))
     if overlap:
-        raise ValueError(
-            f"Patient leakage detected ({context}): "
-            f"{overlap}"
-        )
+        raise ValueError(f"Patient leakage detected ({context}): " f"{overlap}")
 
 
 def _as_series(values: Iterable, index: pd.Index, name: str) -> pd.Series:

@@ -72,9 +72,7 @@ class MetricsSummary(BaseModel):
     per_fold: dict[str, list[float]] = Field(
         default_factory=dict, description="Metrics per fold (for validation phases)"
     )
-    per_class: list[dict[str, Any]] = Field(
-        default_factory=list, description="Per-class metrics"
-    )
+    per_class: list[dict[str, Any]] = Field(default_factory=list, description="Per-class metrics")
     confusion_matrix: Optional[dict[str, Any]] = Field(
         default=None, description="Confusion matrix data"
     )
@@ -88,7 +86,9 @@ class RunBrief(BaseModel):
     run_id: str = Field(..., description="Short run identifier (directory name)")
     phase: str = Field(..., description="Phase name")
     created_at: Optional[datetime] = Field(default=None, description="Run timestamp")
-    task_type: Optional[str] = Field(default=None, description="Task type: binary/meta/hierarchical")
+    task_type: Optional[str] = Field(
+        default=None, description="Task type: binary/meta/hierarchical"
+    )
     headline_metrics: dict[str, float] = Field(
         default_factory=dict, description="Key metrics for display"
     )
@@ -103,8 +103,12 @@ class PlotManifestResponse(BaseModel):
     fallback_pngs: dict[str, str] = Field(
         default_factory=dict, description="Mapping of plot key to fallback PNG file path"
     )
-    generated_at: Optional[datetime] = Field(default=None, description="When the manifest was generated")
-    classiflow_version: Optional[str] = Field(default=None, description="Version that generated the manifest")
+    generated_at: Optional[datetime] = Field(
+        default=None, description="When the manifest was generated"
+    )
+    classiflow_version: Optional[str] = Field(
+        default=None, description="Version that generated the manifest"
+    )
 
 
 class RunDetail(BaseModel):
@@ -170,7 +174,10 @@ class GateCheck(BaseModel):
     threshold: float = Field(..., description="Required threshold")
     actual: Optional[float] = Field(default=None, description="Actual value")
     passed: bool = Field(default=False, description="Check passed")
-    check_type: str = Field(default="required", description="Check type: required, stability_std, stability_pass_rate, safety")
+    check_type: str = Field(
+        default="required",
+        description="Check type: required, stability_std, stability_pass_rate, safety",
+    )
 
 
 class GateResult(BaseModel):
@@ -199,9 +206,7 @@ class PromotionSummary(BaseModel):
     override_comment: Optional[str] = Field(default=None, description="Override comment")
     override_approver: Optional[str] = Field(default=None, description="Override approver")
     # Detailed gate results per phase
-    gates: dict[str, GateResult] = Field(
-        default_factory=dict, description="Gate results by phase"
-    )
+    gates: dict[str, GateResult] = Field(default_factory=dict, description="Gate results by phase")
 
 
 class ProjectCard(BaseModel):
@@ -211,15 +216,16 @@ class ProjectCard(BaseModel):
     name: str = Field(..., description="Human-readable project name")
     description: Optional[str] = Field(default=None, description="Project description")
     owner: Optional[str] = Field(default=None, description="Project owner")
-    task_mode: Optional[str] = Field(default=None, description="Task mode: binary/meta/hierarchical")
+    task_mode: Optional[str] = Field(
+        default=None, description="Task mode: binary/meta/hierarchical"
+    )
     updated_at: Optional[datetime] = Field(default=None, description="Last update time")
     phases_present: list[str] = Field(default_factory=list, description="Available phases")
     decision_badge: DecisionBadge = Field(
         default=DecisionBadge.PENDING, description="Promotion decision"
     )
     gate_status: dict[str, GateStatus] = Field(
-        default_factory=dict,
-        description="Per-gate status: technical_validation, independent_test"
+        default_factory=dict, description="Per-gate status: technical_validation, independent_test"
     )
     latest_runs_by_phase: dict[str, RunBrief] = Field(
         default_factory=dict, description="Latest run per phase"

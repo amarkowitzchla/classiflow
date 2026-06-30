@@ -1,11 +1,10 @@
 """Tests for bundle create/inspect/load roundtrip."""
 
-import pytest
-import json
-import joblib
-from pathlib import Path
-import tempfile
 import zipfile
+from pathlib import Path
+
+import joblib
+import pytest
 
 from classiflow.bundles import create_bundle, inspect_bundle, load_bundle
 from classiflow.lineage import create_training_manifest

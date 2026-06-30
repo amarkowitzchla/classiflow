@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Tuple, Optional, List, Union
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -46,7 +46,9 @@ def load_data(
     df = load_table(data_path)
 
     if label_col not in df.columns:
-        raise ValueError(f"Label column '{label_col}' not found in data. Available: {list(df.columns)}")
+        raise ValueError(
+            f"Label column '{label_col}' not found in data. Available: {list(df.columns)}"
+        )
 
     y = df[label_col].astype(str)
 
@@ -116,7 +118,9 @@ def load_data_with_groups(
 
     for col_name, role in [(label_col, "Label"), (patient_col, "Patient")]:
         if col_name not in df.columns:
-            raise ValueError(f"{role} column '{col_name}' not found in data. Available: {list(df.columns)}")
+            raise ValueError(
+                f"{role} column '{col_name}' not found in data. Available: {list(df.columns)}"
+            )
 
     y = df[label_col].astype(str)
     groups = df[patient_col].astype(str)
@@ -147,7 +151,9 @@ def load_data_with_groups(
     if X.shape[1] == 0:
         raise ValueError("No numeric feature columns found.")
 
-    logger.info(f"Loaded data: X shape={X.shape}, y nunique={y.nunique()}, groups={groups.nunique()}")
+    logger.info(
+        f"Loaded data: X shape={X.shape}, y nunique={y.nunique()}, groups={groups.nunique()}"
+    )
     return X, y, groups
 
 
@@ -182,7 +188,9 @@ def validate_data(X: pd.DataFrame, y: pd.Series) -> None:
     # Check for constant features (will be removed by VarianceThreshold)
     n_constant = (X.std() == 0).sum()
     if n_constant > 0:
-        logger.warning(f"{n_constant} constant features detected (will be removed by VarianceThreshold)")
+        logger.warning(
+            f"{n_constant} constant features detected (will be removed by VarianceThreshold)"
+        )
 
     # Check for missing values
     na_cols = X.columns[X.isna().any()].tolist()

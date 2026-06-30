@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import joblib
 import numpy as np
@@ -12,45 +12,45 @@ import pandas as pd
 from imblearn.pipeline import Pipeline as ImbPipeline
 from sklearn.metrics import (
     accuracy_score,
-    f1_score,
+    auc,
+    average_precision_score,
     confusion_matrix,
+    f1_score,
+    make_scorer,
     matthews_corrcoef,
+    precision_recall_curve,
     roc_auc_score,
     roc_curve,
-    auc,
-    precision_recall_curve,
-    average_precision_score,
-    make_scorer,
 )
-from sklearn.model_selection import StratifiedKFold, RepeatedStratifiedKFold, GridSearchCV
+from sklearn.model_selection import GridSearchCV, RepeatedStratifiedKFold, StratifiedKFold
 from sklearn.preprocessing import StandardScaler, label_binarize
 
 from classiflow.config import MulticlassConfig
 from classiflow.io import load_data, load_data_with_groups, validate_data
 from classiflow.lineage.hashing import get_file_metadata
 from classiflow.lineage.manifest import create_training_manifest
-from classiflow.models import AdaptiveSMOTE, get_estimators, get_param_grids, resolve_device
-from classiflow.metrics.decision import compute_decision_metrics
 from classiflow.metrics.calibration import compute_probability_quality
+from classiflow.metrics.decision import compute_decision_metrics
+from classiflow.models import AdaptiveSMOTE, get_estimators, get_param_grids, resolve_device
 from classiflow.plots import (
-    plot_roc_curve,
-    plot_pr_curve,
-    plot_confusion_matrix,
-    plot_averaged_roc_curves,
     plot_averaged_pr_curves,
+    plot_averaged_roc_curves,
+    plot_confusion_matrix,
+    plot_pr_curve,
+    plot_roc_curve,
 )
+from classiflow.splitting import (
+    assert_no_patient_leakage,
+    iter_inner_splits,
+    iter_outer_splits,
+    make_group_labels,
+)
+from classiflow.tracking import extract_loggable_params, get_tracker, summarize_metrics
 from classiflow.training.probability_quality import (
     attach_probability_quality_to_run_manifest,
     serialize_probability_quality_metrics,
     write_probability_quality_curve_artifacts,
 )
-from classiflow.splitting import (
-    iter_outer_splits,
-    iter_inner_splits,
-    assert_no_patient_leakage,
-    make_group_labels,
-)
-from classiflow.tracking import get_tracker, extract_loggable_params, summarize_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -155,12 +155,14 @@ def train_multiclass_classifier(config: MulticlassConfig) -> Dict[str, Any]:
 
     # Log to experiment tracker
     tracker.log_params(extract_loggable_params(config))
-    tracker.set_tags({
-        "task_type": "multiclass",
-        "smote_mode": config.smote_mode,
-        "run_id": manifest.run_id,
-        "num_classes": str(len(classes)),
-    })
+    tracker.set_tags(
+        {
+            "task_type": "multiclass",
+            "smote_mode": config.smote_mode,
+            "run_id": manifest.run_id,
+            "num_classes": str(len(classes)),
+        }
+    )
 
     # Log summary metrics if available
     if "summary" in results:
@@ -223,7 +225,9 @@ def _run_multiclass_nested_cv(
     df_groups = None
     groups_series = None
     if config.patient_col and groups is not None:
-        groups_series = groups if isinstance(groups, pd.Series) else pd.Series(groups, index=X_full.index)
+        groups_series = (
+            groups if isinstance(groups, pd.Series) else pd.Series(groups, index=X_full.index)
+        )
         df_groups = pd.DataFrame({config.patient_col: groups_series}, index=X_full.index)
         outer_splits = iter_outer_splits(
             df=df_groups,
@@ -403,19 +407,23 @@ def _run_multiclass_variant(
         min_class = int(y_tr.value_counts().min())
     n_splits_eff = max(2, min(config.inner_splits, min_class))
     if n_splits_eff < config.inner_splits:
-        logger.debug(f"Reducing inner_splits {config.inner_splits} -> {n_splits_eff} (minority={min_class})")
+        logger.debug(
+            f"Reducing inner_splits {config.inner_splits} -> {n_splits_eff} (minority={min_class})"
+        )
 
     if config.patient_col and groups_tr is not None:
         df_groups_tr = pd.DataFrame({config.patient_col: np.asarray(groups_tr)}, index=X_tr.index)
-        inner_splits = list(iter_inner_splits(
-            df_tr=df_groups_tr,
-            y_tr=y_tr,
-            patient_col=config.patient_col,
-            n_splits=n_splits_eff,
-            n_repeats=config.inner_repeats,
-            random_state=config.random_state,
-            stratify=config.group_stratify,
-        ))
+        inner_splits = list(
+            iter_inner_splits(
+                df_tr=df_groups_tr,
+                y_tr=y_tr,
+                patient_col=config.patient_col,
+                n_splits=n_splits_eff,
+                n_repeats=config.inner_repeats,
+                random_state=config.random_state,
+                stratify=config.group_stratify,
+            )
+        )
         for split_idx, (inner_tr_idx, inner_va_idx) in enumerate(inner_splits, 1):
             assert_no_patient_leakage(
                 df_groups_tr,
@@ -434,7 +442,11 @@ def _run_multiclass_variant(
         )
         n_inner_total = n_splits_eff * config.inner_repeats
 
-    sampler = AdaptiveSMOTE(k_max=5, random_state=config.random_state) if variant == "smote" else "passthrough"
+    sampler = (
+        AdaptiveSMOTE(k_max=5, random_state=config.random_state)
+        if variant == "smote"
+        else "passthrough"
+    )
 
     best_score = -np.inf
     best_model_name = None
@@ -444,11 +456,13 @@ def _run_multiclass_variant(
         model_backend = "Torch" if model_name.startswith("torch_") else "Sklearn"
         logger.info("Training %s Model %s", model_backend, model_name)
         scaler = _make_scaler(X_tr)
-        pipe = ImbPipeline([
-            ("sampler", sampler),
-            ("scaler", scaler),
-            ("clf", est),
-        ])
+        pipe = ImbPipeline(
+            [
+                ("sampler", sampler),
+                ("scaler", scaler),
+                ("clf", est),
+            ]
+        )
 
         grid = GridSearchCV(
             pipe,
@@ -475,9 +489,15 @@ def _run_multiclass_variant(
                 "sampler": variant,
                 "task": "multiclass",
                 "model_name": model_name,
-                "rank_test_f1_macro": int(cvres.get(f"rank_test_{REFIT_SCORER}", [np.nan] * len(cvres["params"]))[i]),
-                "mean_test_f1_macro": float(cvres.get(f"mean_test_{REFIT_SCORER}", [np.nan] * len(cvres["params"]))[i]),
-                "std_test_f1_macro": float(cvres.get(f"std_test_{REFIT_SCORER}", [np.nan] * len(cvres["params"]))[i]),
+                "rank_test_f1_macro": int(
+                    cvres.get(f"rank_test_{REFIT_SCORER}", [np.nan] * len(cvres["params"]))[i]
+                ),
+                "mean_test_f1_macro": float(
+                    cvres.get(f"mean_test_{REFIT_SCORER}", [np.nan] * len(cvres["params"]))[i]
+                ),
+                "std_test_f1_macro": float(
+                    cvres.get(f"std_test_{REFIT_SCORER}", [np.nan] * len(cvres["params"]))[i]
+                ),
             }
             for k, v in cvres["params"][i].items():
                 row[k.replace("clf__", "")] = v
@@ -507,24 +527,30 @@ def _run_multiclass_variant(
             best_model_name = model_name
             best_estimator = grid.best_estimator_
 
-        model_train_metrics = _compute_multiclass_metrics(grid.best_estimator_, X_tr, y_tr, label_ids)
+        model_train_metrics = _compute_multiclass_metrics(
+            grid.best_estimator_, X_tr, y_tr, label_ids
+        )
         model_val_metrics = _compute_multiclass_metrics(grid.best_estimator_, X_va, y_va, label_ids)
-        outer_rows.append({
-            "fold": fold,
-            "sampler": variant,
-            "phase": "train",
-            "task": "multiclass",
-            "model_name": model_name,
-            **model_train_metrics,
-        })
-        outer_rows.append({
-            "fold": fold,
-            "sampler": variant,
-            "phase": "val",
-            "task": "multiclass",
-            "model_name": model_name,
-            **model_val_metrics,
-        })
+        outer_rows.append(
+            {
+                "fold": fold,
+                "sampler": variant,
+                "phase": "train",
+                "task": "multiclass",
+                "model_name": model_name,
+                **model_train_metrics,
+            }
+        )
+        outer_rows.append(
+            {
+                "fold": fold,
+                "sampler": variant,
+                "phase": "val",
+                "task": "multiclass",
+                "model_name": model_name,
+                **model_val_metrics,
+            }
+        )
 
     if best_estimator is None:
         logger.warning(f"No model succeeded for fold {fold} variant {variant}")
@@ -603,7 +629,9 @@ def _compute_multiclass_metrics(
         "accuracy": accuracy_score(y_true, y_pred),
         "balanced_accuracy": _balanced_accuracy_with_labels(y_true, y_pred, label_ids),
         "f1_macro": f1_score(y_true, y_pred, average="macro", labels=label_ids, zero_division=0),
-        "f1_weighted": f1_score(y_true, y_pred, average="weighted", labels=label_ids, zero_division=0),
+        "f1_weighted": f1_score(
+            y_true, y_pred, average="weighted", labels=label_ids, zero_division=0
+        ),
     }
     decision_metrics = compute_decision_metrics(
         y_true=np.asarray(y_true),
@@ -897,7 +925,10 @@ def _save_multiclass_results(
         inner_df.to_csv(outdir / "metrics_inner_cv.csv", index=False)
 
     if inner_cv_split_rows:
-        split_df = pd.DataFrame(inner_cv_split_rows, columns=["task_model", "outer_fold", "inner_split"] + MC_SCORER_ORDER)
+        split_df = pd.DataFrame(
+            inner_cv_split_rows,
+            columns=["task_model", "outer_fold", "inner_split"] + MC_SCORER_ORDER,
+        )
         split_df.to_csv(outdir / "inner_cv_splits.csv", index=False)
         split_df.to_csv(outdir / "metrics_inner_cv_splits.csv", index=False)
 

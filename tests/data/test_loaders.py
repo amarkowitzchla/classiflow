@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
+
 import numpy as np
 import pandas as pd
 import pytest
-from pathlib import Path
 
-from classiflow.data import DataSpec, DataFormat, LoadedDataset, load_table, load_data, infer_format
-
+from classiflow.data import DataFormat, DataSpec, LoadedDataset, infer_format, load_data, load_table
 
 # ============================================================================
 # Fixtures
@@ -279,9 +278,7 @@ class TestLoadData:
 
     def test_class_filtering(self, temp_csv_file):
         """Test filtering to subset of classes."""
-        spec = DataSpec(
-            path=temp_csv_file, label_col="species", classes=["setosa", "versicolor"]
-        )
+        spec = DataSpec(path=temp_csv_file, label_col="species", classes=["setosa", "versicolor"])
         dataset = load_data(spec)
 
         assert dataset.n_classes == 2

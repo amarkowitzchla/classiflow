@@ -17,22 +17,22 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import joblib
 import numpy as np
 import pandas as pd
-import joblib
+from imblearn.pipeline import Pipeline as ImbPipeline
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
-from imblearn.pipeline import Pipeline as ImbPipeline
 
+from classiflow.backends.registry import get_backend, get_model_set
 from classiflow.io import load_data
 from classiflow.models import AdaptiveSMOTE
-from classiflow.backends.registry import get_backend, get_model_set
 from classiflow.tasks import TaskBuilder
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ class SelectedBinaryConfig:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SelectedBinaryConfig":
+    def from_dict(cls, data: Dict[str, Any]) -> SelectedBinaryConfig:
         return cls(**data)
 
 
@@ -75,7 +75,7 @@ class SelectedMetaConfig:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SelectedMetaConfig":
+    def from_dict(cls, data: Dict[str, Any]) -> SelectedMetaConfig:
         return cls(**data)
 
 
@@ -258,10 +258,19 @@ def extract_selected_configs_from_technical_run(
     ascending = direction == "min"
 
     exclude_cols = {
-        "fold", "sampler", "task", "model_name",
-        "rank_test_score", "rank_test_f1", "rank_test_F1 Score",
-        "mean_test_f1", "std_test_f1", "mean_test_score", "std_test_score",
-        "mean_test_F1 Score", "std_test_F1 Score",
+        "fold",
+        "sampler",
+        "task",
+        "model_name",
+        "rank_test_score",
+        "rank_test_f1",
+        "rank_test_F1 Score",
+        "mean_test_f1",
+        "std_test_f1",
+        "mean_test_score",
+        "std_test_score",
+        "mean_test_F1 Score",
+        "std_test_F1 Score",
     }
 
     for task_name in df["task"].unique():
@@ -382,8 +391,15 @@ def _filter_model_params(estimator, params: Dict[str, Any]) -> Dict[str, Any]:
     defaults = estimator.get_params()
 
     int_param_hints = {
-        "hidden_dim", "n_layers", "epochs", "batch_size", "max_iter",
-        "n_estimators", "max_depth", "min_samples_split", "min_samples_leaf",
+        "hidden_dim",
+        "n_layers",
+        "epochs",
+        "batch_size",
+        "max_iter",
+        "n_estimators",
+        "max_depth",
+        "min_samples_split",
+        "min_samples_leaf",
     }
 
     for key, value in params.items():
@@ -472,16 +488,18 @@ def run_sanity_checks(
     for task_name, model_name in best_models.items():
         key = f"{task_name}__{model_name}"
         if key not in binary_pipes:
-            results.append(SanityCheckResult(
-                task_name=task_name,
-                check_type="existence",
-                passed=False,
-                mean=0.0,
-                std=0.0,
-                min_val=0.0,
-                max_val=0.0,
-                message=f"Pipeline '{key}' not found in trained pipelines",
-            ))
+            results.append(
+                SanityCheckResult(
+                    task_name=task_name,
+                    check_type="existence",
+                    passed=False,
+                    mean=0.0,
+                    std=0.0,
+                    min_val=0.0,
+                    max_val=0.0,
+                    message=f"Pipeline '{key}' not found in trained pipelines",
+                )
+            )
             continue
 
         pipe = binary_pipes[key]
@@ -489,16 +507,18 @@ def run_sanity_checks(
         # Get task-specific labels
         y_bin = tasks[task_name](y).dropna()
         if y_bin.empty or y_bin.nunique() < 2:
-            results.append(SanityCheckResult(
-                task_name=task_name,
-                check_type="data",
-                passed=True,  # Not a failure, just insufficient data
-                mean=0.0,
-                std=0.0,
-                min_val=0.0,
-                max_val=0.0,
-                message=f"Skipped - insufficient data or single class",
-            ))
+            results.append(
+                SanityCheckResult(
+                    task_name=task_name,
+                    check_type="data",
+                    passed=True,  # Not a failure, just insufficient data
+                    mean=0.0,
+                    std=0.0,
+                    min_val=0.0,
+                    max_val=0.0,
+                    message="Skipped - insufficient data or single class",
+                )
+            )
             continue
 
         X_subset = X.loc[y_bin.index]
@@ -507,16 +527,18 @@ def run_sanity_checks(
         try:
             scores = _get_scores(pipe, X_subset)
         except Exception as e:
-            results.append(SanityCheckResult(
-                task_name=task_name,
-                check_type="prediction",
-                passed=False,
-                mean=0.0,
-                std=0.0,
-                min_val=0.0,
-                max_val=0.0,
-                message=f"Prediction failed: {e}",
-            ))
+            results.append(
+                SanityCheckResult(
+                    task_name=task_name,
+                    check_type="prediction",
+                    passed=False,
+                    mean=0.0,
+                    std=0.0,
+                    min_val=0.0,
+                    max_val=0.0,
+                    message=f"Prediction failed: {e}",
+                )
+            )
             continue
 
         mean_score = float(np.mean(scores))
@@ -528,50 +550,56 @@ def run_sanity_checks(
         if std_score < min_std:
             # Additional check: if mean is near 0.5, it's likely random
             if abs(mean_score - 0.5) < max_mean_deviation:
-                results.append(SanityCheckResult(
+                results.append(
+                    SanityCheckResult(
+                        task_name=task_name,
+                        check_type="variance_collapse",
+                        passed=False,
+                        mean=mean_score,
+                        std=std_score,
+                        min_val=min_score,
+                        max_val=max_score,
+                        message=(
+                            f"FAILED: Near-random predictions detected. "
+                            f"Mean={mean_score:.4f}, Std={std_score:.4f}. "
+                            f"Model may not have trained properly."
+                        ),
+                    )
+                )
+                continue
+
+        # Check 2: Probability range
+        if min_score < -0.1 or max_score > 1.1:
+            results.append(
+                SanityCheckResult(
                     task_name=task_name,
-                    check_type="variance_collapse",
+                    check_type="probability_range",
                     passed=False,
                     mean=mean_score,
                     std=std_score,
                     min_val=min_score,
                     max_val=max_score,
                     message=(
-                        f"FAILED: Near-random predictions detected. "
-                        f"Mean={mean_score:.4f}, Std={std_score:.4f}. "
-                        f"Model may not have trained properly."
+                        f"FAILED: Predictions outside valid range. "
+                        f"Min={min_score:.4f}, Max={max_score:.4f}."
                     ),
-                ))
-                continue
+                )
+            )
+            continue
 
-        # Check 2: Probability range
-        if min_score < -0.1 or max_score > 1.1:
-            results.append(SanityCheckResult(
+        # All checks passed
+        results.append(
+            SanityCheckResult(
                 task_name=task_name,
-                check_type="probability_range",
-                passed=False,
+                check_type="all",
+                passed=True,
                 mean=mean_score,
                 std=std_score,
                 min_val=min_score,
                 max_val=max_score,
-                message=(
-                    f"FAILED: Predictions outside valid range. "
-                    f"Min={min_score:.4f}, Max={max_score:.4f}."
-                ),
-            ))
-            continue
-
-        # All checks passed
-        results.append(SanityCheckResult(
-            task_name=task_name,
-            check_type="all",
-            passed=True,
-            mean=mean_score,
-            std=std_score,
-            min_val=min_score,
-            max_val=max_score,
-            message=f"PASSED: Mean={mean_score:.4f}, Std={std_score:.4f}",
-        ))
+                message=f"PASSED: Mean={mean_score:.4f}, Std={std_score:.4f}",
+            )
+        )
 
     return results
 
@@ -730,7 +758,7 @@ def train_final_meta_model(config: FinalTrainConfig) -> FinalTrainResult:
 
     # Train binary classifiers
     logger.info("\n[3/6] Training binary classifiers (from scratch)...")
-    logger.info(f"  Using per-task configs from technical validation")
+    logger.info("  Using per-task configs from technical validation")
     logger.info(f"  Sampler: {config.sampler}")
 
     sampler = _create_sampler(config.sampler, config.random_state)
@@ -770,11 +798,13 @@ def train_final_meta_model(config: FinalTrainConfig) -> FinalTrainResult:
         cleaned = _filter_model_params(estimator, params)
         clf_params = {f"clf__{k}": v for k, v in cleaned.items()}
 
-        pipe = ImbPipeline([
-            ("sampler", sampler),
-            ("scaler", StandardScaler()),
-            ("clf", estimator),
-        ])
+        pipe = ImbPipeline(
+            [
+                ("sampler", sampler),
+                ("scaler", StandardScaler()),
+                ("clf", estimator),
+            ]
+        )
 
         if clf_params:
             try:
@@ -826,8 +856,9 @@ def train_final_meta_model(config: FinalTrainConfig) -> FinalTrainResult:
 
         error_msg = (
             f"SANITY CHECK FAILURE: {len(failures)} check(s) failed.\n"
-            f"Failures:\n" + "\n".join(f"  - {f}" for f in failures) +
-            f"\n\nSee {sanity_path} for details.\n"
+            f"Failures:\n"
+            + "\n".join(f"  - {f}" for f in failures)
+            + f"\n\nSee {sanity_path} for details.\n"
             f"The final model has degenerate predictions and cannot be used for inference."
         )
         raise ValueError(error_msg)
@@ -877,11 +908,13 @@ def train_final_meta_model(config: FinalTrainConfig) -> FinalTrainResult:
             )
             calibrator.fit(X_meta.values, y_full.values)
             meta_model = calibrator
-            calibration_metadata.update({
-                "enabled": True,
-                "method_used": method,
-                "cv": cv,
-            })
+            calibration_metadata.update(
+                {
+                    "enabled": True,
+                    "method_used": method,
+                    "cv": cv,
+                }
+            )
             logger.info(f"  Calibration: {method} (cv={cv})")
         except Exception as e:
             calibration_metadata["warnings"].append(f"Calibration failed: {e}")

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Dict, Any, Optional
-
 import logging
+from typing import Any, Dict, Optional
 
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 
 logger = logging.getLogger(__name__)
 

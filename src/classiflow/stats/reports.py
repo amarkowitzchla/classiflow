@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from typing import List, Dict, Any
+import itertools
 from datetime import datetime
 from pathlib import Path
-import itertools
+from typing import Any, Dict, List
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from classiflow import __version__
-from classiflow.stats.preprocess import compute_class_stats
 from classiflow.stats.effects import compute_all_effect_sizes
+from classiflow.stats.preprocess import compute_class_stats
 
 
 def build_run_manifest(

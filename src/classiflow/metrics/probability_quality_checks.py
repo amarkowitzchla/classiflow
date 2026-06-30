@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Literal, Mapping, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import pandas as pd
 
@@ -341,11 +342,17 @@ def _build_context(
         if isinstance(final_payload, dict):
             final_entries.append(final_payload)
 
-    selected_sources = [a.selected_curve_path for a in fold_artifacts if a.selected_curve_path is not None]
+    selected_sources = [
+        a.selected_curve_path for a in fold_artifacts if a.selected_curve_path is not None
+    ]
     selected_curve_df = _combine_top1_curves([p for p in selected_sources if p is not None])
     selected_curve_kind = fold_artifacts[0].curve_kind if fold_artifacts else "top1"
     n_samples_total = sum(a.n_samples for a in fold_artifacts if a.n_samples is not None) or None
-    if n_samples_total is None and selected_curve_df is not None and "n" in selected_curve_df.columns:
+    if (
+        n_samples_total is None
+        and selected_curve_df is not None
+        and "n" in selected_curve_df.columns
+    ):
         n_samples_total = int(selected_curve_df["n"].sum())
 
     return _ProbQualityContext(
@@ -510,7 +517,9 @@ def rule_pq_003_overconfidence(ctx: _ProbQualityContext) -> Optional[ProbQuality
     gap = _to_float(ctx.final_metrics_mean.get("confidence_gap_top1"))
     if gap is None or gap < float(ctx.thresholds["overconfidence_warn_gap"]):
         return None
-    severity: Severity = "ERROR" if gap >= float(ctx.thresholds["overconfidence_error_gap"]) else "WARN"
+    severity: Severity = (
+        "ERROR" if gap >= float(ctx.thresholds["overconfidence_error_gap"]) else "WARN"
+    )
     summary = "Predicted confidence exceeds observed top-1 accuracy."
     recommendations = [
         "Consider enabling calibration (sigmoid/isotonic) or tightening thresholds.",
@@ -561,7 +570,9 @@ def rule_pq_003_overconfidence(ctx: _ProbQualityContext) -> Optional[ProbQuality
     )
 
 
-def rule_pq_004_calibration_helpfulness(ctx: _ProbQualityContext) -> Optional[ProbQualityRuleResult]:
+def rule_pq_004_calibration_helpfulness(
+    ctx: _ProbQualityContext,
+) -> Optional[ProbQualityRuleResult]:
     if not ctx.uncal_metrics_mean or not ctx.cal_metrics_mean:
         return None
 
@@ -662,9 +673,8 @@ def rule_pq_005_distribution_shift(ctx: _ProbQualityContext) -> Optional[ProbQua
 
     brier_delta = test_brier - cv_brier
     log_loss_delta = test_log_loss - cv_log_loss
-    if (
-        brier_delta <= float(ctx.thresholds["shift_brier_delta"])
-        and log_loss_delta <= float(ctx.thresholds["shift_log_loss_delta"])
+    if brier_delta <= float(ctx.thresholds["shift_brier_delta"]) and log_loss_delta <= float(
+        ctx.thresholds["shift_log_loss_delta"]
     ):
         return None
 
@@ -740,7 +750,9 @@ def rule_pq_006_weak_class_ovr(ctx: _ProbQualityContext) -> Optional[ProbQuality
         )
     recommendations.append("Review per-class reliability curves if available.")
     if not support_known:
-        recommendations.append("Class support is unavailable; interpret OVR ECE qualitatively (low power).")
+        recommendations.append(
+            "Class support is unavailable; interpret OVR ECE qualitatively (low power)."
+        )
 
     evidence = [
         _evidence(

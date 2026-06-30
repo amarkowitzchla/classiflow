@@ -2,7 +2,7 @@
 
 from classiflow.bundles.create import create_bundle
 from classiflow.bundles.inspect import inspect_bundle, print_bundle_info
-from classiflow.bundles.loader import load_bundle, BundleLoader
+from classiflow.bundles.loader import BundleLoader, load_bundle
 
 __all__ = [
     "create_bundle",

@@ -264,7 +264,9 @@ def test_project_run_passes_backend_settings(tmp_path: Path, monkeypatch) -> Non
         return {}
 
     monkeypatch.setattr(orchestrator, "train_meta_classifier", _fake_train_meta)
-    monkeypatch.setattr(orchestrator, "_technical_metrics_from_run", lambda *_args, **_kwargs: ({}, {}))
+    monkeypatch.setattr(
+        orchestrator, "_technical_metrics_from_run", lambda *_args, **_kwargs: ({}, {})
+    )
     monkeypatch.setattr(orchestrator, "write_technical_report", lambda *_args, **_kwargs: None)
 
     orchestrator.run_technical_validation(paths, config)

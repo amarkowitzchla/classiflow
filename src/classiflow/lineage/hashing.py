@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 import logging
 from pathlib import Path
-from typing import Union, Optional
-import pandas as pd
+from typing import Optional, Union
+
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -74,9 +75,10 @@ def compute_dataframe_hash(
     # Convert to bytes using parquet-like serialization
     # This handles mixed types better than pickle
     try:
+        from io import BytesIO
+
         import pyarrow as pa
         import pyarrow.parquet as pq
-        from io import BytesIO
 
         table = pa.Table.from_pandas(df)
         buf = BytesIO()
@@ -86,6 +88,7 @@ def compute_dataframe_hash(
         # Fallback: use pickle (less stable across pandas versions)
         logger.warning("pyarrow not available, using pickle for hashing (less stable)")
         import pickle
+
         hasher.update(pickle.dumps(df, protocol=4))
 
     return hasher.hexdigest()

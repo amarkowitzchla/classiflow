@@ -1,8 +1,9 @@
 """② Statistics - Statistical analysis and visualization page."""
 
 from pathlib import Path
-import streamlit as st
+
 import pandas as pd
+import streamlit as st
 
 # Import the new stats API
 from classiflow.stats import run_stats, run_visualizations
@@ -57,9 +58,13 @@ with col1:
         key="stats_label_col",
     )
 
-    alpha = st.number_input("Significance level (α)", min_value=0.001, max_value=0.5, value=0.05, step=0.01)
+    alpha = st.number_input(
+        "Significance level (α)", min_value=0.001, max_value=0.5, value=0.05, step=0.01
+    )
 
-    min_n = st.number_input("Minimum n per class for Shapiro-Wilk", min_value=2, max_value=20, value=3, step=1)
+    min_n = st.number_input(
+        "Minimum n per class for Shapiro-Wilk", min_value=2, max_value=20, value=3, step=1
+    )
 
 with col2:
     dunn_adjust = st.selectbox(
@@ -68,7 +73,9 @@ with col2:
         index=0,
     )
 
-    top_n_features = st.number_input("Top N features in summary", min_value=10, max_value=100, value=30, step=10)
+    top_n_features = st.number_input(
+        "Top N features in summary", min_value=10, max_value=100, value=30, step=10
+    )
 
 # Class distribution preview
 with st.expander("Preview label distribution"):
@@ -219,7 +226,7 @@ if stats_dir.exists():
                     with st.expander(f"Preview {name}"):
                         st.dataframe(preview.head(10), use_container_width=True)
                     st.download_button(
-                        f"Download",
+                        "Download",
                         data=p.read_bytes(),
                         file_name=name,
                         mime="text/csv",

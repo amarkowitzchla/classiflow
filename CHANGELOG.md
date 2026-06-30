@@ -14,6 +14,52 @@ Guidelines:
 ## [Unreleased]
 
 ### Added
+- **`AGENTS.md`, `docs/adr/`, `docs/change-management/`** are now properly tracked in git. These
+  critical operational files were never committed due to an over-broad `docs/*` gitignore rule.
+  No behavioral change; purely a repository hygiene fix.
+
+### Changed
+- **`.gitignore` rewrite**: removed erroneous `docs/*`, `AGENTS.md`, and duplicate `derived/`
+  entries; added `classiflow-ui/node_modules/`, `.classiflow/ui.db`, `*.bak`, and explicit
+  `*.parquet` rules; fixed `.classflow/ui.db` typo. This prevents unintentional future omissions
+  of documentation and policy files.
+- **`pyproject.toml` tooling fixes** (no behavior change):
+  - Ruff `select`/`ignore` moved to `[tool.ruff.lint]` section (deprecated top-level syntax).
+  - `N803`/`N806` added to ruff ignore list (scikit-learn/ML convention for uppercase `X`, `y`
+    argument and variable names).
+  - `__init__.py` files exempt from `F401` (intentional public re-exports).
+  - `black` `target-version` set to `["py39", "py310", "py311"]`; removed `py312` which the
+    installed black 22.x does not recognise.
+  - `Documentation` URL added to `[project.urls]`.
+- **Code formatting**: `black` and `ruff --fix` applied across `src/` and `tests/`; 107 files
+  reformatted and 260 import/f-string issues auto-fixed. No logic changed.
+- **`plots/schemas.py`**: Pydantic `class Config` inner classes converted to `model_config =
+  ConfigDict(...)` to silence Pydantic V2 deprecation warnings.
+
+### Fixed
+- **`tasks/builder.py`**: Missing `Literal` import for `add_composite_task` type annotation
+  (caused `NameError` when `get_type_hints()` was called on the method).
+- **`ui_api/scanner.py`**: Missing `Any` import used in `_numeric_metrics` annotation.
+- **`cli/backfill.py`**: Removed dead variables `fold_data`, `fold_num`, `metrics_file`, and
+  `proba_file` — these were assigned inside the fold loop but never consumed (incomplete code
+  paths with no behavioral effect).
+- **`cli/infer.py`**: Removed unused `bundle_loader = None` sentinel; the variable was never
+  read after assignment.
+- **`cli/main.py`**: Dropped unused return-value assignment from `train_binary_task(config)`;
+  the CLI branch only needs the side-effects.
+- **Repository**: Removed `.classiflow/ui.db` (SQLite runtime database) and
+  `tests/stats/test_normality.py.bak` (backup file) from git tracking; added proper gitignore
+  rules so they stay untracked.
+- **`classiflow-ui/node_modules/`**: Removed 15 000+ vendored JS dependency files from git
+  tracking; added `classiflow-ui/node_modules/` to `.gitignore`.
+
+### Known pre-existing failures
+- `tests/integration/test_meta_class_alignment_deep.py::test_full_pipeline_class_alignment`:
+  Brier score mismatch (`0.023 ≥ 1e-6`). This failure predates this release and is in a
+  High-risk module (inference/metrics). Tracked for future investigation; no changes were made
+  to the affected code paths.
+
+### Added
 
 - **Experiment Tracking Integration**: Optional MLflow and Weights & Biases support for all training commands
   - New `tracking` module with pluggable tracker architecture

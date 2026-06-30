@@ -1,8 +1,8 @@
 """Tests for MLflow tracker (mocked)."""
 
+from unittest.mock import ANY, patch
+
 import pytest
-from pathlib import Path
-from unittest.mock import MagicMock, patch, ANY
 
 # Skip all tests if mlflow is not installed
 mlflow = pytest.importorskip("mlflow")
@@ -16,13 +16,13 @@ class TestMLflowTracker:
     @patch("classiflow.tracking.mlflow_tracker.mlflow")
     def test_init_sets_experiment(self, mock_mlflow):
         """Tracker init should set the experiment name."""
-        tracker = MLflowTracker(experiment_name="test-exp")
+        MLflowTracker(experiment_name="test-exp")
         mock_mlflow.set_experiment.assert_called_once_with("test-exp")
 
     @patch("classiflow.tracking.mlflow_tracker.mlflow")
     def test_init_with_tracking_uri(self, mock_mlflow):
         """Tracker should set tracking URI if provided."""
-        tracker = MLflowTracker(
+        MLflowTracker(
             experiment_name="test-exp",
             tracking_uri="http://localhost:5000",
         )

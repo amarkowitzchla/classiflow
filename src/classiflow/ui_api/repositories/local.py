@@ -73,7 +73,9 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
             # Query filter (search in name, ID, description)
             if query:
                 q = query.lower()
-                searchable = f"{project.id} {project.config.name} {project.config.description or ''}".lower()
+                searchable = (
+                    f"{project.id} {project.config.name} {project.config.description or ''}".lower()
+                )
                 if q not in searchable:
                     continue
 
@@ -215,7 +217,11 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
         promotion = PromotionSummary()
         if project.decision:
             dec = project.decision
-            promotion.decision = DecisionBadge(dec.decision) if dec.decision in ["PASS", "FAIL"] else DecisionBadge.PENDING
+            promotion.decision = (
+                DecisionBadge(dec.decision)
+                if dec.decision in ["PASS", "FAIL"]
+                else DecisionBadge.PENDING
+            )
             promotion.timestamp = dec.timestamp
             promotion.technical_run = dec.technical_run
             promotion.test_run = dec.test_run
@@ -235,16 +241,18 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
             for run_id in run_ids[:10]:  # Limit to 10 most recent
                 run = self.scanner.get_run(project.id, phase, run_id)
                 if run:
-                    runs.append(RunBrief(
-                        run_key=run.manifest.run_key,
-                        run_id=run.manifest.run_id,
-                        phase=phase,
-                        created_at=run.manifest.created_at,
-                        task_type=run.manifest.task_type,
-                        headline_metrics=self.scanner.get_headline_metrics(
-                            project.id, phase, run_id
-                        ),
-                    ))
+                    runs.append(
+                        RunBrief(
+                            run_key=run.manifest.run_key,
+                            run_id=run.manifest.run_id,
+                            phase=phase,
+                            created_at=run.manifest.created_at,
+                            task_type=run.manifest.task_type,
+                            headline_metrics=self.scanner.get_headline_metrics(
+                                project.id, phase, run_id
+                            ),
+                        )
+                    )
             if runs:
                 phases[phase] = runs
 
@@ -291,16 +299,18 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
             for run_id in run_ids:
                 run = self.scanner.get_run(project_id, phase, run_id)
                 if run:
-                    runs.append(RunBrief(
-                        run_key=run.manifest.run_key,
-                        run_id=run.manifest.run_id,
-                        phase=phase,
-                        created_at=run.manifest.created_at,
-                        task_type=run.manifest.task_type,
-                        headline_metrics=self.scanner.get_headline_metrics(
-                            project_id, phase, run_id
-                        ),
-                    ))
+                    runs.append(
+                        RunBrief(
+                            run_key=run.manifest.run_key,
+                            run_id=run.manifest.run_id,
+                            phase=phase,
+                            created_at=run.manifest.created_at,
+                            task_type=run.manifest.task_type,
+                            headline_metrics=self.scanner.get_headline_metrics(
+                                project_id, phase, run_id
+                            ),
+                        )
+                    )
             if runs:
                 result[phase] = runs
 
@@ -365,7 +375,9 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
     ) -> Optional[PlotManifestResponse]:
         """Load plot manifest for a run if available."""
         # Get run directory
-        run_dir = self.scanner.resolve_artifact_path(project_id, phase, run_id, "plots/plot_manifest.json")
+        run_dir = self.scanner.resolve_artifact_path(
+            project_id, phase, run_id, "plots/plot_manifest.json"
+        )
         if not run_dir or not run_dir.is_file():
             return None
 
@@ -376,7 +388,9 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
             return PlotManifestResponse(
                 available=data.get("available", {}),
                 fallback_pngs=data.get("fallback_pngs", {}),
-                generated_at=datetime.fromisoformat(data["generated_at"]) if data.get("generated_at") else None,
+                generated_at=datetime.fromisoformat(data["generated_at"])
+                if data.get("generated_at")
+                else None,
                 classiflow_version=data.get("classiflow_version"),
             )
         except Exception:
@@ -404,16 +418,18 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
                 for run_id in run_ids:
                     run = self.scanner.get_run(project.id, p, run_id)
                     if run:
-                        all_runs.append(RunBrief(
-                            run_key=run.manifest.run_key,
-                            run_id=run.manifest.run_id,
-                            phase=p,
-                            created_at=run.manifest.created_at,
-                            task_type=run.manifest.task_type,
-                            headline_metrics=self.scanner.get_headline_metrics(
-                                project.id, p, run_id
-                            ),
-                        ))
+                        all_runs.append(
+                            RunBrief(
+                                run_key=run.manifest.run_key,
+                                run_id=run.manifest.run_id,
+                                phase=p,
+                                created_at=run.manifest.created_at,
+                                task_type=run.manifest.task_type,
+                                headline_metrics=self.scanner.get_headline_metrics(
+                                    project.id, p, run_id
+                                ),
+                            )
+                        )
 
         # Sort by created_at descending
         all_runs.sort(key=lambda r: r.created_at or datetime.min, reverse=True)
@@ -463,18 +479,15 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
 
     def _to_artifact(self, scanned) -> Artifact:
         """Convert ScannedArtifact to Artifact model."""
-        parts = scanned.run_key.split(":")
-        project_id = parts[0] if len(parts) >= 1 else ""
-        phase = parts[1] if len(parts) >= 2 else ""
-        run_id = parts[2] if len(parts) >= 3 else ""
-
         view_url = None
         download_url = None
 
         if scanned.is_viewable:
             view_url = f"{self.api_base_url}/artifacts/{scanned.artifact_id}/content"
         if scanned.is_allowed:
-            download_url = f"{self.api_base_url}/artifacts/{scanned.artifact_id}/content?download=true"
+            download_url = (
+                f"{self.api_base_url}/artifacts/{scanned.artifact_id}/content?download=true"
+            )
 
         return Artifact(
             artifact_id=scanned.artifact_id,

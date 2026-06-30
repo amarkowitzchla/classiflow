@@ -1,4 +1,3 @@
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -7,10 +6,12 @@ import classiflow.training.hierarchical_cv as hier
 
 
 def test_group_inner_cv_no_patient_overlap():
-    df = pd.DataFrame({
-        "patient_id": ["p1", "p1", "p2", "p2", "p3", "p3"],
-        "label": ["A", "A", "B", "B", "A", "A"],
-    })
+    df = pd.DataFrame(
+        {
+            "patient_id": ["p1", "p1", "p2", "p2", "p3", "p3"],
+            "label": ["A", "A", "B", "B", "A", "A"],
+        }
+    )
     splits = hier._build_group_inner_splits(
         df_tr=df,
         y_tr=df["label"].values,
@@ -28,10 +29,12 @@ def test_group_inner_cv_no_patient_overlap():
 
 
 def test_group_inner_cv_conflicting_labels_raises():
-    df = pd.DataFrame({
-        "patient_id": ["p1", "p1", "p2", "p3"],
-        "label": ["A", "B", "A", "B"],
-    })
+    df = pd.DataFrame(
+        {
+            "patient_id": ["p1", "p1", "p2", "p3"],
+            "label": ["A", "B", "A", "B"],
+        }
+    )
     with pytest.raises(ValueError, match="Patient label conflict"):
         hier._build_group_inner_splits(
             df_tr=df,

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
+
 import numpy as np
 import pandas as pd
 
@@ -125,7 +126,9 @@ def add_binary_prediction_columns(
 
     score_col = sorted(score_cols)[0]
     candidate_pred_col = score_col.replace("_score", "_pred")
-    pred_col = candidate_pred_col if candidate_pred_col in predictions.columns else sorted(pred_cols)[0]
+    pred_col = (
+        candidate_pred_col if candidate_pred_col in predictions.columns else sorted(pred_cols)[0]
+    )
 
     if labels is None:
         logger.warning("Binary labels unavailable; cannot derive predicted_label.")
@@ -238,8 +241,11 @@ class MetaPredictor:
             y_proba = self.meta_model.predict_proba(X_meta)
 
             # Use meta_classes if available, otherwise get from model
-            classes = self.meta_classes if self.meta_classes else \
-                     [str(c) for c in self.meta_model.classes_]
+            classes = (
+                self.meta_classes
+                if self.meta_classes
+                else [str(c) for c in self.meta_model.classes_]
+            )
 
             if len(classes) == y_proba.shape[1]:
                 for i, cls in enumerate(classes):
@@ -356,14 +362,18 @@ class HierarchicalPredictor:
                     model_l2 = self.l2_models[l1_class]
                     le_l2 = self.l2_encoders.get(l1_class)
 
-                    X_sample = X_scaled[idx:idx+1]
+                    X_sample = X_scaled[idx : idx + 1]
                     y_l2_pred_enc = model_l2.predict(X_sample)[0]
 
                     if le_l2 is not None:
                         y_l2_pred = le_l2.inverse_transform([y_l2_pred_enc])[0]
                     else:
                         l2_classes = self.l2_classes_per_branch.get(l1_class, [])
-                        y_l2_pred = l2_classes[y_l2_pred_enc] if y_l2_pred_enc < len(l2_classes) else "Unknown"
+                        y_l2_pred = (
+                            l2_classes[y_l2_pred_enc]
+                            if y_l2_pred_enc < len(l2_classes)
+                            else "Unknown"
+                        )
 
                     l2_predictions.append(y_l2_pred)
                     pipeline_predictions.append(f"{l1_class}::{y_l2_pred}")

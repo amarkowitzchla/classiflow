@@ -104,6 +104,7 @@ classiflow = "classiflow.cli.main:app"
 Homepage = "https://github.com/alexmarkowitz/classiflow"
 Repository = "https://github.com/alexmarkowitz/classiflow"
 Issues = "https://github.com/alexmarkowitz/classiflow/issues"
+Documentation = "https://github.com/alexmarkowitz/classiflow/tree/main/docs"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -115,13 +116,21 @@ classiflow = ["py.typed"]
 
 [tool.black]
 line-length = 100
-target-version = ["py39", "py310", "py311", "py312"]
+target-version = ["py39", "py310", "py311"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py39"
+
+[tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
-ignore = ["E501"]
+# E501: line-too-long (black handles this)
+# N803/N806: sklearn/ML convention uses uppercase X, y — intentional
+ignore = ["E501", "N803", "N806"]
+
+[tool.ruff.lint.per-file-ignores]
+# __init__.py re-exports are intentional; suppress "imported but unused"
+"**/__init__.py" = ["F401"]
 
 [tool.mypy]
 python_version = "3.9"

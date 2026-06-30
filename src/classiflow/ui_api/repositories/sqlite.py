@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Generator, Optional
+from typing import Optional
 
 from classiflow.ui_api.models import (
     Comment,

@@ -6,7 +6,7 @@ import json
 import logging
 import zipfile
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,9 @@ def inspect_bundle(bundle_path: Path) -> Dict[str, Any]:
         info["valid"] = len(missing) == 0
         info["missing_files"] = missing
 
-    logger.info(f"Inspected bundle: {bundle_path} ({info['size_mb']:.2f} MB, {info['file_count']} files)")
+    logger.info(
+        f"Inspected bundle: {bundle_path} ({info['size_mb']:.2f} MB, {info['file_count']} files)"
+    )
 
     return info
 
@@ -129,7 +131,7 @@ def print_bundle_info(bundle_path: Path, verbose: bool = False) -> None:
         print(f"Data Rows: {manifest.get('training_data_row_count', 'N/A')}")
 
         if manifest.get("hierarchical"):
-            print(f"Hierarchical: Yes")
+            print("Hierarchical: Yes")
             print(f"L1 Classes: {len(manifest.get('l1_classes', []))}")
 
         print()

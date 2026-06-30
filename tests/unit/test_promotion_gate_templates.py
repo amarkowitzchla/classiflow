@@ -45,7 +45,9 @@ def test_manual_gates_override_template_and_record_ignored_template() -> None:
     thresholds = ThresholdsConfig(
         promotion_gate_template="clinical_conservative",
         promotion_gates=[
-            PromotionGateSpec(metric="Sensitivity", op=">=", threshold=0.90, scope="both", aggregation="mean")
+            PromotionGateSpec(
+                metric="Sensitivity", op=">=", threshold=0.90, scope="both", aggregation="mean"
+            )
         ],
     )
 
@@ -65,8 +67,12 @@ def test_manual_gates_override_template_and_record_ignored_template() -> None:
 def test_gate_evaluation_mean_and_min_aggregation() -> None:
     thresholds = ThresholdsConfig(
         promotion_gates=[
-            PromotionGateSpec(metric="Sensitivity", op=">=", threshold=0.90, scope="outer", aggregation="mean"),
-            PromotionGateSpec(metric="Sensitivity", op=">=", threshold=0.90, scope="outer", aggregation="min"),
+            PromotionGateSpec(
+                metric="Sensitivity", op=">=", threshold=0.90, scope="outer", aggregation="mean"
+            ),
+            PromotionGateSpec(
+                metric="Sensitivity", op=">=", threshold=0.90, scope="outer", aggregation="min"
+            ),
         ]
     )
 

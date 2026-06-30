@@ -10,15 +10,15 @@ import numpy as np
 import pytest
 
 from classiflow.plots.data_export import (
-    compute_roc_curve_data,
-    compute_pr_curve_data,
-    compute_averaged_roc_data,
     compute_averaged_pr_data,
-    save_plot_data,
+    compute_averaged_roc_data,
+    compute_pr_curve_data,
+    compute_roc_curve_data,
     create_plot_manifest,
     generate_inference_plots,
+    save_plot_data,
 )
-from classiflow.plots.schemas import PlotScope, PlotType, TaskType, PlotKey
+from classiflow.plots.schemas import PlotKey, PlotScope, PlotType, TaskType
 
 
 class TestComputeRocCurveData:
@@ -28,17 +28,22 @@ class TestComputeRocCurveData:
         """Test ROC computation for binary classification."""
         # Simple binary classification data
         y_true = np.array([0, 0, 1, 1, 1])
-        y_proba = np.array([
-            [0.9, 0.1],
-            [0.8, 0.2],
-            [0.3, 0.7],
-            [0.2, 0.8],
-            [0.1, 0.9],
-        ])
+        y_proba = np.array(
+            [
+                [0.9, 0.1],
+                [0.8, 0.2],
+                [0.3, 0.7],
+                [0.2, 0.8],
+                [0.1, 0.9],
+            ]
+        )
         classes = ["Negative", "Positive"]
 
         result = compute_roc_curve_data(
-            y_true, y_proba, classes, "test_run_001",
+            y_true,
+            y_proba,
+            classes,
+            "test_run_001",
             scope=PlotScope.INFERENCE,
         )
 
@@ -73,8 +78,12 @@ class TestComputeRocCurveData:
         y_proba = np.random.dirichlet([1] * n_classes, n_samples)
 
         result = compute_roc_curve_data(
-            y_true, y_proba, classes, "test_run_002",
-            scope=PlotScope.FOLD, fold=1,
+            y_true,
+            y_proba,
+            classes,
+            "test_run_002",
+            scope=PlotScope.FOLD,
+            fold=1,
         )
 
         assert result.plot_type == PlotType.ROC
@@ -97,11 +106,17 @@ class TestComputeRocCurveData:
         classes = ["Neg", "Pos"]
 
         result_with = compute_roc_curve_data(
-            y_true, y_proba, classes, "test",
+            y_true,
+            y_proba,
+            classes,
+            "test",
             include_thresholds=True,
         )
         result_without = compute_roc_curve_data(
-            y_true, y_proba, classes, "test",
+            y_true,
+            y_proba,
+            classes,
+            "test",
             include_thresholds=False,
         )
 
@@ -115,17 +130,22 @@ class TestComputePrCurveData:
     def test_binary_classification(self):
         """Test PR computation for binary classification."""
         y_true = np.array([0, 0, 1, 1, 1])
-        y_proba = np.array([
-            [0.9, 0.1],
-            [0.8, 0.2],
-            [0.3, 0.7],
-            [0.2, 0.8],
-            [0.1, 0.9],
-        ])
+        y_proba = np.array(
+            [
+                [0.9, 0.1],
+                [0.8, 0.2],
+                [0.3, 0.7],
+                [0.2, 0.8],
+                [0.1, 0.9],
+            ]
+        )
         classes = ["Negative", "Positive"]
 
         result = compute_pr_curve_data(
-            y_true, y_proba, classes, "test_run",
+            y_true,
+            y_proba,
+            classes,
+            "test_run",
         )
 
         assert result.plot_type == PlotType.PR
@@ -153,7 +173,10 @@ class TestComputePrCurveData:
         y_proba = np.random.dirichlet([1, 1, 1], n_samples)
 
         result = compute_pr_curve_data(
-            y_true, y_proba, classes, "test",
+            y_true,
+            y_proba,
+            classes,
+            "test",
         )
 
         assert result.task == TaskType.MULTICLASS
@@ -181,7 +204,11 @@ class TestAveragedCurves:
         classes = ["Neg", "Pos"]
 
         result = compute_averaged_roc_data(
-            all_fpr, all_tpr, all_aucs, classes, "test",
+            all_fpr,
+            all_tpr,
+            all_aucs,
+            classes,
+            "test",
         )
 
         assert result.scope == PlotScope.AVERAGED
@@ -224,7 +251,11 @@ class TestAveragedCurves:
         classes = ["A", "B"]
 
         result = compute_averaged_pr_data(
-            all_rec, all_prec, all_aps, classes, "test",
+            all_rec,
+            all_prec,
+            all_aps,
+            classes,
+            "test",
         )
 
         assert result.plot_type == PlotType.PR
@@ -245,7 +276,10 @@ class TestSavePlotData:
         classes = ["Neg", "Pos"]
 
         plot_data = compute_roc_curve_data(
-            y_true, y_proba, classes, "test",
+            y_true,
+            y_proba,
+            classes,
+            "test",
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -279,7 +313,10 @@ class TestCreatePlotManifest:
             }
 
             manifest = create_plot_manifest(
-                run_dir, "test_run", available, fallback,
+                run_dir,
+                "test_run",
+                available,
+                fallback,
             )
 
             assert manifest.available == available
@@ -312,7 +349,11 @@ class TestGenerateInferencePlots:
             run_dir = Path(tmpdir)
 
             manifest = generate_inference_plots(
-                run_dir, "test_run", y_true, y_proba, classes,
+                run_dir,
+                "test_run",
+                y_true,
+                y_proba,
+                classes,
             )
 
             # Check manifest
@@ -342,17 +383,22 @@ class TestEdgeCases:
         """Test handling when a fold has only one class."""
         # This can happen with small datasets
         y_true = np.array([0, 0, 0, 0])  # Only one class
-        y_proba = np.array([
-            [0.9, 0.1],
-            [0.8, 0.2],
-            [0.7, 0.3],
-            [0.6, 0.4],
-        ])
+        y_proba = np.array(
+            [
+                [0.9, 0.1],
+                [0.8, 0.2],
+                [0.7, 0.3],
+                [0.6, 0.4],
+            ]
+        )
         classes = ["Neg", "Pos"]
 
         # Should not raise an error
         result = compute_roc_curve_data(
-            y_true, y_proba, classes, "test",
+            y_true,
+            y_proba,
+            classes,
+            "test",
         )
         assert result is not None
 
@@ -366,22 +412,31 @@ class TestEdgeCases:
         # Empty input should raise an error (either ValueError, IndexError, or TypeError)
         with pytest.raises((ValueError, IndexError, TypeError)):
             compute_averaged_roc_data(
-                all_fpr, all_tpr, all_aucs, classes, "test",
+                all_fpr,
+                all_tpr,
+                all_aucs,
+                classes,
+                "test",
             )
 
     def test_valid_data_with_no_nans(self):
         """Test that valid data without NaN works correctly."""
         y_true = np.array([0, 1, 0, 1])
-        y_proba = np.array([
-            [0.8, 0.2],
-            [0.4, 0.6],
-            [0.7, 0.3],
-            [0.2, 0.8],
-        ])
+        y_proba = np.array(
+            [
+                [0.8, 0.2],
+                [0.4, 0.6],
+                [0.7, 0.3],
+                [0.2, 0.8],
+            ]
+        )
         classes = ["Neg", "Pos"]
 
         result = compute_roc_curve_data(
-            y_true, y_proba, classes, "test",
+            y_true,
+            y_proba,
+            classes,
+            "test",
         )
         # Curves should not contain NaN
         for curve in result.curves:

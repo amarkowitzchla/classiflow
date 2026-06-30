@@ -75,7 +75,7 @@ class MLflowTracker(ExperimentTracker):
         self,
         run_name: Optional[str] = None,
         tags: Optional[Dict[str, str]] = None,
-    ) -> "MLflowTracker":
+    ) -> MLflowTracker:
         """Start a new MLflow run."""
         if self._run_active:
             logger.warning("MLflow run already active, ending previous run")
@@ -195,7 +195,7 @@ class MLflowTracker(ExperimentTracker):
         except Exception as e:
             logger.warning(f"Failed to set tags: {e}")
 
-    def __enter__(self) -> "MLflowTracker":
+    def __enter__(self) -> MLflowTracker:
         """Context manager entry - run should already be started."""
         return self
 

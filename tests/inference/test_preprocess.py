@@ -1,13 +1,13 @@
 """Tests for feature preprocessing and alignment."""
 
-import pytest
-import pandas as pd
 import numpy as np
+import pandas as pd
+import pytest
 
 from classiflow.inference.preprocess import (
     FeatureAligner,
-    validate_input_data,
     compute_feature_stats,
+    validate_input_data,
 )
 
 
@@ -19,12 +19,14 @@ class TestFeatureAligner:
         required_features = ["a", "b", "c"]
         aligner = FeatureAligner(required_features, strict=True)
 
-        df = pd.DataFrame({
-            "a": [1, 2, 3],
-            "b": [4, 5, 6],
-            "c": [7, 8, 9],
-            "extra": [10, 11, 12],  # Extra column should be dropped
-        })
+        df = pd.DataFrame(
+            {
+                "a": [1, 2, 3],
+                "b": [4, 5, 6],
+                "c": [7, 8, 9],
+                "extra": [10, 11, 12],  # Extra column should be dropped
+            }
+        )
 
         X, metadata, warnings = aligner.align(df)
 
@@ -37,11 +39,13 @@ class TestFeatureAligner:
         required_features = ["a", "b", "c"]
         aligner = FeatureAligner(required_features, strict=True)
 
-        df = pd.DataFrame({
-            "a": [1, 2, 3],
-            "b": [4, 5, 6],
-            # Missing 'c'
-        })
+        df = pd.DataFrame(
+            {
+                "a": [1, 2, 3],
+                "b": [4, 5, 6],
+                # Missing 'c'
+            }
+        )
 
         with pytest.raises(ValueError, match="Strict mode"):
             aligner.align(df)
@@ -51,11 +55,13 @@ class TestFeatureAligner:
         required_features = ["a", "b", "c"]
         aligner = FeatureAligner(required_features, strict=False, fill_strategy="zero")
 
-        df = pd.DataFrame({
-            "a": [1, 2, 3],
-            "b": [4, 5, 6],
-            # Missing 'c'
-        })
+        df = pd.DataFrame(
+            {
+                "a": [1, 2, 3],
+                "b": [4, 5, 6],
+                # Missing 'c'
+            }
+        )
 
         X, metadata, warnings = aligner.align(df)
 
@@ -66,9 +72,7 @@ class TestFeatureAligner:
     def test_align_lenient_median_fill(self):
         """Test lenient mode with median fill."""
         required_features = ["a", "b", "c"]
-        training_stats = {
-            "c": {"median": 5.0}
-        }
+        training_stats = {"c": {"median": 5.0}}
         aligner = FeatureAligner(
             required_features,
             strict=False,
@@ -76,11 +80,13 @@ class TestFeatureAligner:
             training_stats=training_stats,
         )
 
-        df = pd.DataFrame({
-            "a": [1, 2, 3],
-            "b": [4, 5, 6],
-            # Missing 'c'
-        })
+        df = pd.DataFrame(
+            {
+                "a": [1, 2, 3],
+                "b": [4, 5, 6],
+                # Missing 'c'
+            }
+        )
 
         X, metadata, warnings = aligner.align(df)
 
@@ -91,12 +97,14 @@ class TestFeatureAligner:
         required_features = ["a", "b"]
         aligner = FeatureAligner(required_features, strict=True)
 
-        df = pd.DataFrame({
-            "id": ["s1", "s2", "s3"],
-            "a": [1, 2, 3],
-            "b": [4, 5, 6],
-            "label": ["A", "B", "A"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": ["s1", "s2", "s3"],
+                "a": [1, 2, 3],
+                "b": [4, 5, 6],
+                "label": ["A", "B", "A"],
+            }
+        )
 
         X, metadata, warnings = aligner.align(df, id_col="id", label_col="label")
 
@@ -109,10 +117,12 @@ class TestFeatureAligner:
         required_features = ["a", "b"]
         aligner = FeatureAligner(required_features, strict=True)
 
-        df = pd.DataFrame({
-            "a": ["1", "2", "3"],  # String numbers
-            "b": [4, 5, 6],
-        })
+        df = pd.DataFrame(
+            {
+                "a": ["1", "2", "3"],  # String numbers
+                "b": [4, 5, 6],
+            }
+        )
 
         X, metadata, warnings = aligner.align(df)
 
@@ -123,10 +133,12 @@ class TestFeatureAligner:
         required_features = ["a", "b"]
         aligner = FeatureAligner(required_features, strict=True)
 
-        df = pd.DataFrame({
-            "a": [1, np.nan, 3],
-            "b": [4, 5, 6],
-        })
+        df = pd.DataFrame(
+            {
+                "a": [1, np.nan, 3],
+                "b": [4, 5, 6],
+            }
+        )
 
         X, metadata, warnings = aligner.align(df)
 
@@ -148,10 +160,12 @@ class TestValidateInputData:
 
     def test_duplicate_ids(self):
         """Test detection of duplicate IDs."""
-        df = pd.DataFrame({
-            "id": ["a", "b", "a"],  # Duplicate 'a'
-            "x": [1, 2, 3],
-        })
+        df = pd.DataFrame(
+            {
+                "id": ["a", "b", "a"],  # Duplicate 'a'
+                "x": [1, 2, 3],
+            }
+        )
 
         warnings = validate_input_data(df, id_col="id")
 
@@ -159,10 +173,12 @@ class TestValidateInputData:
 
     def test_all_null_columns(self):
         """Test detection of all-null columns."""
-        df = pd.DataFrame({
-            "x": [1, 2, 3],
-            "null_col": [np.nan, np.nan, np.nan],
-        })
+        df = pd.DataFrame(
+            {
+                "x": [1, 2, 3],
+                "null_col": [np.nan, np.nan, np.nan],
+            }
+        )
 
         warnings = validate_input_data(df)
 
@@ -170,9 +186,11 @@ class TestValidateInputData:
 
     def test_infinite_values(self):
         """Test detection of infinite values."""
-        df = pd.DataFrame({
-            "x": [1, np.inf, 3],
-        })
+        df = pd.DataFrame(
+            {
+                "x": [1, np.inf, 3],
+            }
+        )
 
         warnings = validate_input_data(df)
 
@@ -184,10 +202,12 @@ class TestComputeFeatureStats:
 
     def test_compute_stats(self):
         """Test computation of feature statistics."""
-        df = pd.DataFrame({
-            "a": [1, 2, 3, 4, 5],
-            "b": [10, 20, 30, 40, 50],
-        })
+        df = pd.DataFrame(
+            {
+                "a": [1, 2, 3, 4, 5],
+                "b": [10, 20, 30, 40, 50],
+            }
+        )
 
         stats = compute_feature_stats(df)
 
@@ -200,9 +220,11 @@ class TestComputeFeatureStats:
 
     def test_handles_nan(self):
         """Test handling of NaN values."""
-        df = pd.DataFrame({
-            "a": [1, np.nan, 3],
-        })
+        df = pd.DataFrame(
+            {
+                "a": [1, np.nan, 3],
+            }
+        )
 
         stats = compute_feature_stats(df)
 

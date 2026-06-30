@@ -4,25 +4,33 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional, List
-import sys
+from typing import List, Optional
 
 import numpy as np
-import pandas as pd
 import typer
 
 from classiflow import __version__
-from classiflow.config import TrainConfig, MetaConfig, MulticlassConfig, HierarchicalConfig, _resolve_data_path
-from classiflow.training import train_binary_task, train_meta_classifier, train_multiclass_classifier
-from classiflow.io.compatibility import assess_data_compatibility
-from classiflow.evaluation.smote_comparison import SMOTEComparison
-from classiflow.cli.stats import stats_app
+from classiflow.cli.backfill import backfill_app
 from classiflow.cli.bundle import bundle_app
+from classiflow.cli.config import config_app
 from classiflow.cli.migrate import migrate_app
 from classiflow.cli.project import project_app
-from classiflow.cli.config import config_app
+from classiflow.cli.stats import stats_app
 from classiflow.cli.ui import ui_app
-from classiflow.cli.backfill import backfill_app
+from classiflow.config import (
+    HierarchicalConfig,
+    MetaConfig,
+    MulticlassConfig,
+    TrainConfig,
+    _resolve_data_path,
+)
+from classiflow.evaluation.smote_comparison import SMOTEComparison
+from classiflow.io.compatibility import assess_data_compatibility
+from classiflow.training import (
+    train_binary_task,
+    train_meta_classifier,
+    train_multiclass_classifier,
+)
 
 app = typer.Typer(
     name="classiflow",
@@ -88,7 +96,9 @@ def train_binary(
         help="Column with patient/slide IDs for stratification (optional; if not provided, sample-level stratification is used)",
     ),
     label_col: str = typer.Option(..., "--label-col", help="Name of label column"),
-    pos_label: Optional[str] = typer.Option(None, "--pos-label", help="Positive class label (default: minority)"),
+    pos_label: Optional[str] = typer.Option(
+        None, "--pos-label", help="Positive class label (default: minority)"
+    ),
     outdir: Path = typer.Option(Path("derived"), "--outdir", help="Output directory"),
     outer_folds: int = typer.Option(3, "--outer-folds", help="Number of outer CV folds"),
     inner_splits: int = typer.Option(5, "--inner-splits", help="Number of inner CV splits"),
@@ -202,12 +212,13 @@ def train_binary(
     )
 
     try:
-        results = train_binary_task(config)
+        train_binary_task(config)
         typer.secho(f"\n✓ Training complete. Results saved to {outdir}", fg=typer.colors.GREEN)
     except Exception as e:
         typer.secho(f"\n✗ Training failed: {e}", fg=typer.colors.RED, err=True)
         if verbose:
             import traceback
+
             traceback.print_exc()
         raise typer.Exit(code=1)
 
@@ -231,9 +242,15 @@ def train_meta(
         help="Column with patient/slide IDs for stratification (optional; if not provided, sample-level stratification is used)",
     ),
     label_col: str = typer.Option(..., "--label-col", help="Name of label column"),
-    classes: Optional[List[str]] = typer.Option(None, "--classes", help="Class labels to include (order matters)"),
-    tasks_json: Optional[Path] = typer.Option(None, "--tasks-json", help="Optional JSON with composite tasks"),
-    tasks_only: bool = typer.Option(False, "--tasks-only", help="If set, only use tasks from JSON (skip auto OvR/pairwise)"),
+    classes: Optional[List[str]] = typer.Option(
+        None, "--classes", help="Class labels to include (order matters)"
+    ),
+    tasks_json: Optional[Path] = typer.Option(
+        None, "--tasks-json", help="Optional JSON with composite tasks"
+    ),
+    tasks_only: bool = typer.Option(
+        False, "--tasks-only", help="If set, only use tasks from JSON (skip auto OvR/pairwise)"
+    ),
     outdir: Path = typer.Option(Path("derived"), "--outdir", help="Output directory"),
     outer_folds: int = typer.Option(3, "--outer-folds", help="Number of outer CV folds"),
     inner_splits: int = typer.Option(5, "--inner-splits", help="Number of inner CV splits"),
@@ -399,7 +416,9 @@ def train_meta(
     print(compat_result)
 
     if not compat_result.is_compatible:
-        typer.secho("\n✗ Data is not compatible with train-meta mode.", fg=typer.colors.RED, err=True)
+        typer.secho(
+            "\n✗ Data is not compatible with train-meta mode.", fg=typer.colors.RED, err=True
+        )
         typer.echo("\nPlease fix the issues above before training.")
         raise typer.Exit(code=1)
 
@@ -418,6 +437,7 @@ def train_meta(
         typer.secho(f"\n✗ Training failed: {e}", fg=typer.colors.RED, err=True)
         if verbose:
             import traceback
+
             traceback.print_exc()
         raise typer.Exit(code=1)
 
@@ -441,23 +461,31 @@ def train_multiclass(
         help="Column with patient/slide IDs for stratification (optional; if not provided, sample-level stratification is used)",
     ),
     label_col: str = typer.Option(..., "--label-col", help="Name of label column"),
-    classes: Optional[List[str]] = typer.Option(None, "--classes", help="Class labels to include (order matters)"),
+    classes: Optional[List[str]] = typer.Option(
+        None, "--classes", help="Class labels to include (order matters)"
+    ),
     outdir: Path = typer.Option(Path("derived"), "--outdir", help="Output directory"),
     outer_folds: int = typer.Option(3, "--outer-folds", help="Number of outer CV folds"),
     inner_splits: int = typer.Option(5, "--inner-splits", help="Number of inner CV splits"),
     inner_repeats: int = typer.Option(2, "--inner-repeats", help="Number of inner CV repeats"),
     random_state: int = typer.Option(42, "--random-state", help="Random seed"),
     smote: str = typer.Option("both", "--smote", help="SMOTE mode: off, on, both"),
-    max_iter: int = typer.Option(10000, "--max-iter", help="Max iterations for non-logreg linear models"),
+    max_iter: int = typer.Option(
+        10000, "--max-iter", help="Max iterations for non-logreg linear models"
+    ),
     group_stratify: bool = typer.Option(
         True,
         "--group-stratify/--no-group-stratify",
         help="Use stratified group splits when patient_col is provided",
     ),
     logreg_solver: str = typer.Option("saga", "--logreg-solver", help="LogisticRegression solver"),
-    logreg_multi_class: str = typer.Option("auto", "--logreg-multi-class", help="LogisticRegression multi_class"),
+    logreg_multi_class: str = typer.Option(
+        "auto", "--logreg-multi-class", help="LogisticRegression multi_class"
+    ),
     logreg_penalty: str = typer.Option("l2", "--logreg-penalty", help="LogisticRegression penalty"),
-    logreg_max_iter: int = typer.Option(5000, "--logreg-max-iter", help="LogisticRegression max_iter"),
+    logreg_max_iter: int = typer.Option(
+        5000, "--logreg-max-iter", help="LogisticRegression max_iter"
+    ),
     logreg_tol: float = typer.Option(1e-3, "--logreg-tol", help="LogisticRegression tolerance"),
     logreg_C: float = typer.Option(1.0, "--logreg-C", help="LogisticRegression C"),
     logreg_class_weight: Optional[str] = typer.Option(
@@ -520,7 +548,10 @@ def train_multiclass(
         raise typer.Exit(code=1)
 
     normalized_class_weight = logreg_class_weight
-    if isinstance(normalized_class_weight, str) and normalized_class_weight.lower() in {"none", "null"}:
+    if isinstance(normalized_class_weight, str) and normalized_class_weight.lower() in {
+        "none",
+        "null",
+    }:
         normalized_class_weight = None
 
     config = MulticlassConfig(
@@ -558,6 +589,7 @@ def train_multiclass(
         typer.secho(f"\n✗ Training failed: {e}", fg=typer.colors.RED, err=True)
         if verbose:
             import traceback
+
             traceback.print_exc()
         raise typer.Exit(code=1)
 
@@ -575,10 +607,20 @@ def check_compatibility(
         help="[DEPRECATED] Path to CSV with features + labels. Use --data instead.",
     ),
     mode: str = typer.Option(..., "--mode", help="Training mode: meta or hierarchical"),
-    label_col: str = typer.Option(..., "--label-col", help="Name of label column (or L1 for hierarchical)"),
-    label_l2: Optional[str] = typer.Option(None, "--label-l2", help="Level-2 label column (hierarchical only)"),
-    patient_col: Optional[str] = typer.Option(None, "--patient-col", help="Patient ID column for stratification (hierarchical only, optional)"),
-    classes: Optional[List[str]] = typer.Option(None, "--classes", help="Class labels to include (meta only)"),
+    label_col: str = typer.Option(
+        ..., "--label-col", help="Name of label column (or L1 for hierarchical)"
+    ),
+    label_l2: Optional[str] = typer.Option(
+        None, "--label-l2", help="Level-2 label column (hierarchical only)"
+    ),
+    patient_col: Optional[str] = typer.Option(
+        None,
+        "--patient-col",
+        help="Patient ID column for stratification (hierarchical only, optional)",
+    ),
+    classes: Optional[List[str]] = typer.Option(
+        None, "--classes", help="Class labels to include (meta only)"
+    ),
     outer_folds: int = typer.Option(3, "--outer-folds", help="Number of outer CV folds"),
 ):
     """
@@ -603,7 +645,11 @@ def check_compatibility(
         classiflow check-compatibility --data-csv data.csv --mode meta --label-col diagnosis --outer-folds 5
     """
     if mode not in ["meta", "hierarchical"]:
-        typer.secho(f"Error: Invalid mode '{mode}'. Must be 'meta' or 'hierarchical'", fg=typer.colors.RED, err=True)
+        typer.secho(
+            f"Error: Invalid mode '{mode}'. Must be 'meta' or 'hierarchical'",
+            fg=typer.colors.RED,
+            err=True,
+        )
         raise typer.Exit(code=1)
 
     # Resolve data path (--data takes precedence over --data-csv)
@@ -698,11 +744,21 @@ def train_hierarchical_cmd(
         "--data-csv",
         help="[DEPRECATED] Path to CSV with features + labels. Use --data instead.",
     ),
-    patient_col: Optional[str] = typer.Option(None, "--patient-col", help="Column with patient/slide IDs for stratification (optional; if not provided, sample-level stratification is used)"),
+    patient_col: Optional[str] = typer.Option(
+        None,
+        "--patient-col",
+        help="Column with patient/slide IDs for stratification (optional; if not provided, sample-level stratification is used)",
+    ),
     label_l1: str = typer.Option(..., "--label-l1", help="Level-1 label column"),
-    label_l2: Optional[str] = typer.Option(None, "--label-l2", help="Level-2 label column (enables hierarchical mode)"),
-    l2_classes: Optional[List[str]] = typer.Option(None, "--l2-classes", help="Subset of L2 classes to include"),
-    min_l2_classes_per_branch: int = typer.Option(2, "--min-l2-classes-per-branch", help="Min L2 classes per branch"),
+    label_l2: Optional[str] = typer.Option(
+        None, "--label-l2", help="Level-2 label column (enables hierarchical mode)"
+    ),
+    l2_classes: Optional[List[str]] = typer.Option(
+        None, "--l2-classes", help="Subset of L2 classes to include"
+    ),
+    min_l2_classes_per_branch: int = typer.Option(
+        2, "--min-l2-classes-per-branch", help="Min L2 classes per branch"
+    ),
     outdir: Path = typer.Option(Path("derived_hierarchical"), "--outdir", help="Output directory"),
     outer_folds: int = typer.Option(3, "--outer-folds", help="Number of outer CV folds"),
     inner_splits: int = typer.Option(3, "--inner-splits", help="Number of inner CV splits"),
@@ -712,7 +768,9 @@ def train_hierarchical_cmd(
     mlp_batch_size: int = typer.Option(256, "--mlp-batch-size", help="Batch size"),
     mlp_hidden: int = typer.Option(128, "--mlp-hidden", help="Base hidden dimension"),
     mlp_dropout: float = typer.Option(0.3, "--mlp-dropout", help="Dropout rate"),
-    early_stopping_patience: int = typer.Option(10, "--early-stopping-patience", help="Early stopping patience"),
+    early_stopping_patience: int = typer.Option(
+        10, "--early-stopping-patience", help="Early stopping patience"
+    ),
     use_smote: bool = typer.Option(False, "--use-smote", help="Apply SMOTE"),
     smote_k_neighbors: int = typer.Option(5, "--smote-k-neighbors", help="SMOTE k-neighbors"),
     output_format: str = typer.Option("xlsx", "--output-format", help="Output format: xlsx or csv"),
@@ -731,7 +789,9 @@ def train_hierarchical_cmd(
         "--run-name",
         help="Run name for tracking (default: auto-generated)",
     ),
-    verbose: int = typer.Option(1, "--verbose", help="Verbosity: 0=minimal, 1=standard, 2=detailed"),
+    verbose: int = typer.Option(
+        1, "--verbose", help="Verbosity: 0=minimal, 1=standard, 2=detailed"
+    ),
 ):
     """
     Train hierarchical classifier with optional patient-level stratified nested CV.
@@ -800,7 +860,11 @@ def train_hierarchical_cmd(
     print(compat_result)
 
     if not compat_result.is_compatible:
-        typer.secho("\n✗ Data is not compatible with train-hierarchical mode.", fg=typer.colors.RED, err=True)
+        typer.secho(
+            "\n✗ Data is not compatible with train-hierarchical mode.",
+            fg=typer.colors.RED,
+            err=True,
+        )
         typer.echo("\nPlease fix the issues above before training.")
         raise typer.Exit(code=1)
 
@@ -823,6 +887,7 @@ def train_hierarchical_cmd(
         typer.secho(f"\n✗ Training failed: {e}", fg=typer.colors.RED, err=True)
         if verbose >= 1:
             import traceback
+
             traceback.print_exc()
         raise typer.Exit(code=1)
 
@@ -839,11 +904,17 @@ def infer_hierarchical(
         "--data-csv",
         help="[DEPRECATED] Path to CSV with features. Use --data instead.",
     ),
-    model_dir: Path = typer.Option(..., "--model-dir", help="Directory with trained hierarchical models"),
+    model_dir: Path = typer.Option(
+        ..., "--model-dir", help="Directory with trained hierarchical models"
+    ),
     fold: int = typer.Option(1, "--fold", help="Which fold's model to use (1-indexed)"),
     device: str = typer.Option("auto", "--device", help="Device: auto, cpu, cuda, mps"),
-    outfile: Path = typer.Option(Path("predictions.csv"), "--outfile", help="Output predictions CSV"),
-    include_proba: bool = typer.Option(True, "--include-proba/--no-proba", help="Include probability columns"),
+    outfile: Path = typer.Option(
+        Path("predictions.csv"), "--outfile", help="Output predictions CSV"
+    ),
+    include_proba: bool = typer.Option(
+        True, "--include-proba/--no-proba", help="Include probability columns"
+    ),
     verbose: bool = typer.Option(False, "--verbose", help="Verbose logging"),
 ):
     """
@@ -892,6 +963,7 @@ def infer_hierarchical(
 
         # Load data using the new unified loader
         from classiflow.data import load_table
+
         typer.echo(f"\nLoading data from {resolved_path}...")
         df = load_table(resolved_path)
 
@@ -910,7 +982,7 @@ def infer_hierarchical(
         typer.secho(f"\n✓ Predictions saved to {outfile}", fg=typer.colors.GREEN)
 
         # Show summary
-        typer.echo(f"\nPrediction summary:")
+        typer.echo("\nPrediction summary:")
         if infer.hierarchical:
             typer.echo(df_pred["l1_class"].value_counts().to_string())
         else:
@@ -920,6 +992,7 @@ def infer_hierarchical(
         typer.secho(f"\n✗ Inference failed: {e}", fg=typer.colors.RED, err=True)
         if verbose:
             import traceback
+
             traceback.print_exc()
         raise typer.Exit(code=1)
 
@@ -936,20 +1009,42 @@ def infer(
         "--data-csv",
         help="[DEPRECATED] Path to CSV with features for inference. Use --data instead.",
     ),
-    run_dir: Optional[Path] = typer.Option(None, "--run-dir", help="Directory containing trained model artifacts"),
-    bundle: Optional[Path] = typer.Option(None, "--bundle", help="Bundle ZIP file containing trained model"),
+    run_dir: Optional[Path] = typer.Option(
+        None, "--run-dir", help="Directory containing trained model artifacts"
+    ),
+    bundle: Optional[Path] = typer.Option(
+        None, "--bundle", help="Bundle ZIP file containing trained model"
+    ),
     fold: int = typer.Option(1, "--fold", help="Fold number to use from bundle (default: 1)"),
-    outdir: Path = typer.Option(Path("inference_results"), "--outdir", help="Output directory for results"),
-    id_col: Optional[str] = typer.Option(None, "--id-col", help="Column name for sample ID (optional)"),
-    label_col: Optional[str] = typer.Option(None, "--label-col", help="Ground-truth label column for evaluation (optional)"),
-    strict: bool = typer.Option(True, "--strict/--lenient", help="Strict mode: fail if features missing; lenient: fill with zeros/median"),
-    fill_strategy: str = typer.Option("zero", "--fill-strategy", help="Fill strategy for missing features: zero or median"),
-    max_roc_curves: int = typer.Option(10, "--max-roc-curves", help="Max per-class ROC curves to plot"),
+    outdir: Path = typer.Option(
+        Path("inference_results"), "--outdir", help="Output directory for results"
+    ),
+    id_col: Optional[str] = typer.Option(
+        None, "--id-col", help="Column name for sample ID (optional)"
+    ),
+    label_col: Optional[str] = typer.Option(
+        None, "--label-col", help="Ground-truth label column for evaluation (optional)"
+    ),
+    strict: bool = typer.Option(
+        True,
+        "--strict/--lenient",
+        help="Strict mode: fail if features missing; lenient: fill with zeros/median",
+    ),
+    fill_strategy: str = typer.Option(
+        "zero", "--fill-strategy", help="Fill strategy for missing features: zero or median"
+    ),
+    max_roc_curves: int = typer.Option(
+        10, "--max-roc-curves", help="Max per-class ROC curves to plot"
+    ),
     no_plots: bool = typer.Option(False, "--no-plots", help="Skip generating plots"),
     no_excel: bool = typer.Option(False, "--no-excel", help="Skip generating Excel workbook"),
-    device: str = typer.Option("auto", "--device", help="Device for PyTorch models: auto, cpu, cuda, mps"),
+    device: str = typer.Option(
+        "auto", "--device", help="Device for PyTorch models: auto, cpu, cuda, mps"
+    ),
     batch_size: int = typer.Option(512, "--batch-size", help="Batch size for inference"),
-    verbose: int = typer.Option(1, "--verbose", help="Verbosity: 0=minimal, 1=standard, 2=detailed"),
+    verbose: int = typer.Option(
+        1, "--verbose", help="Verbosity: 0=minimal, 1=standard, 2=detailed"
+    ),
 ):
     """
     Run inference on new data using trained models.
@@ -980,10 +1075,12 @@ def infer(
         # Legacy CSV (deprecated)
         classiflow infer --data-csv test.csv --run-dir derived_hierarchical/fold1 --outdir results --device mps
     """
-    from classiflow.inference import run_inference, InferenceConfig
+    from classiflow.inference import InferenceConfig, run_inference
 
     # Set logging level
-    log_level = logging.WARNING if verbose == 0 else (logging.INFO if verbose == 1 else logging.DEBUG)
+    log_level = (
+        logging.WARNING if verbose == 0 else (logging.INFO if verbose == 1 else logging.DEBUG)
+    )
     logging.getLogger("classiflow").setLevel(log_level)
 
     # Resolve data path (--data takes precedence over --data-csv)
@@ -995,11 +1092,15 @@ def infer(
 
     # Validate inputs: must provide either --run-dir or --bundle
     if not run_dir and not bundle:
-        typer.secho("Error: Must provide either --run-dir or --bundle", fg=typer.colors.RED, err=True)
+        typer.secho(
+            "Error: Must provide either --run-dir or --bundle", fg=typer.colors.RED, err=True
+        )
         raise typer.Exit(code=1)
 
     if run_dir and bundle:
-        typer.secho("Error: Cannot provide both --run-dir and --bundle", fg=typer.colors.RED, err=True)
+        typer.secho(
+            "Error: Cannot provide both --run-dir and --bundle", fg=typer.colors.RED, err=True
+        )
         raise typer.Exit(code=1)
 
     # Handle bundle extraction
@@ -1037,7 +1138,7 @@ def infer(
         )
 
         # Run inference
-        typer.echo(f"Running inference...")
+        typer.echo("Running inference...")
         typer.echo(f"  Data: {resolved_path}")
         typer.echo(f"  Run directory: {run_dir}")
         typer.echo(f"  Output directory: {outdir}")
@@ -1045,18 +1146,18 @@ def infer(
         results = run_inference(config)
 
         # Print summary
-        typer.echo("\n" + "="*60)
+        typer.echo("\n" + "=" * 60)
         typer.secho("✓ Inference completed successfully!", fg=typer.colors.GREEN)
-        typer.echo("="*60)
+        typer.echo("=" * 60)
         typer.echo(f"Samples processed: {len(results['predictions'])}")
 
-        typer.echo(f"\nGenerated files:")
+        typer.echo("\nGenerated files:")
         for name, path in results.get("output_files", {}).items():
             typer.echo(f"  • {name}: {path}")
 
         # Show metrics if computed
         if "metrics" in results and "overall" in results["metrics"]:
-            typer.echo(f"\nPerformance Metrics:")
+            typer.echo("\nPerformance Metrics:")
             overall = results["metrics"]["overall"]
             typer.echo(f"  • Accuracy: {overall.get('accuracy', 0):.4f}")
             typer.echo(f"  • Balanced Accuracy: {overall.get('balanced_accuracy', 0):.4f}")
@@ -1077,21 +1178,46 @@ def infer(
         typer.secho(f"\n✗ Inference failed: {e}", fg=typer.colors.RED, err=True)
         if verbose >= 2:
             import traceback
+
             traceback.print_exc()
         raise typer.Exit(code=1)
 
 
 @app.command(name="compare-smote")
 def compare_smote(
-    result_dir: Path = typer.Argument(..., help="Directory with training results (contains fold1/, fold2/, etc.)"),
-    outdir: Path = typer.Option("smote_analysis", "--outdir", help="Output directory for comparison results"),
-    model_type: Optional[str] = typer.Option(None, "--model-type", help="Model type: binary, meta, or hierarchical (auto-detected if None)"),
-    metric_file: str = typer.Option("metrics_outer_meta_eval.csv", "--metric-file", help="Name of metrics CSV file to load from each fold"),
-    primary_metric: str = typer.Option("f1", "--primary-metric", help="Primary metric for recommendation (f1, accuracy, roc_auc, etc.)"),
-    secondary_metric: str = typer.Option("roc_auc", "--secondary-metric", help="Secondary metric for overfitting detection"),
-    overfitting_threshold: float = typer.Option(0.03, "--overfitting-threshold", help="Minimum absolute drop to flag overfitting"),
-    significance_level: float = typer.Option(0.05, "--significance-level", help="p-value threshold for statistical significance"),
-    min_effect_size: float = typer.Option(0.2, "--min-effect-size", help="Minimum Cohen's d for meaningful difference"),
+    result_dir: Path = typer.Argument(
+        ..., help="Directory with training results (contains fold1/, fold2/, etc.)"
+    ),
+    outdir: Path = typer.Option(
+        "smote_analysis", "--outdir", help="Output directory for comparison results"
+    ),
+    model_type: Optional[str] = typer.Option(
+        None,
+        "--model-type",
+        help="Model type: binary, meta, or hierarchical (auto-detected if None)",
+    ),
+    metric_file: str = typer.Option(
+        "metrics_outer_meta_eval.csv",
+        "--metric-file",
+        help="Name of metrics CSV file to load from each fold",
+    ),
+    primary_metric: str = typer.Option(
+        "f1",
+        "--primary-metric",
+        help="Primary metric for recommendation (f1, accuracy, roc_auc, etc.)",
+    ),
+    secondary_metric: str = typer.Option(
+        "roc_auc", "--secondary-metric", help="Secondary metric for overfitting detection"
+    ),
+    overfitting_threshold: float = typer.Option(
+        0.03, "--overfitting-threshold", help="Minimum absolute drop to flag overfitting"
+    ),
+    significance_level: float = typer.Option(
+        0.05, "--significance-level", help="p-value threshold for statistical significance"
+    ),
+    min_effect_size: float = typer.Option(
+        0.2, "--min-effect-size", help="Minimum Cohen's d for meaningful difference"
+    ),
     no_plots: bool = typer.Option(False, "--no-plots", help="Skip plot generation"),
     verbose: bool = typer.Option(False, "--verbose", help="Verbose output"),
 ):
@@ -1135,8 +1261,11 @@ def compare_smote(
     try:
         # Validate model type
         if model_type and model_type not in ["binary", "meta", "hierarchical"]:
-            typer.secho(f"Error: Invalid model type '{model_type}'. Must be 'binary', 'meta', or 'hierarchical'",
-                        fg=typer.colors.RED, err=True)
+            typer.secho(
+                f"Error: Invalid model type '{model_type}'. Must be 'binary', 'meta', or 'hierarchical'",
+                fg=typer.colors.RED,
+                err=True,
+            )
             raise typer.Exit(code=1)
 
         # Load comparison
@@ -1185,9 +1314,9 @@ def compare_smote(
                 typer.echo(f"  • {plot_type}: {plot_path.name}")
 
         # Final recommendation summary
-        typer.echo("\n" + "="*70)
+        typer.echo("\n" + "=" * 70)
         typer.secho("RECOMMENDATION SUMMARY", fg=typer.colors.CYAN, bold=True)
-        typer.echo("="*70)
+        typer.echo("=" * 70)
 
         rec_color = {
             "use_smote": typer.colors.GREEN,
@@ -1199,7 +1328,7 @@ def compare_smote(
         typer.secho(
             f"\n{result.recommendation.upper().replace('_', ' ')}",
             fg=rec_color.get(result.recommendation, typer.colors.WHITE),
-            bold=True
+            bold=True,
         )
         typer.echo(f"Confidence: {result.confidence.upper()}")
 
@@ -1207,7 +1336,7 @@ def compare_smote(
             typer.secho(
                 f"\n⚠️  WARNING: Overfitting detected in {', '.join(result.overfitting_metrics)}",
                 fg=typer.colors.RED,
-                bold=True
+                bold=True,
             )
             typer.echo(f"Reason: {result.overfitting_reason}")
 
@@ -1215,7 +1344,7 @@ def compare_smote(
         for reason in result.reasoning:
             typer.echo(f"  • {reason}")
 
-        typer.echo("\n" + "="*70)
+        typer.echo("\n" + "=" * 70)
         typer.echo(f"\nFor full details, see: {outdir}/")
 
     except FileNotFoundError as e:
@@ -1227,6 +1356,7 @@ def compare_smote(
         typer.secho(f"\n✗ Comparison failed: {e}", fg=typer.colors.RED, err=True)
         if verbose:
             import traceback
+
             traceback.print_exc()
         raise typer.Exit(code=1)
 

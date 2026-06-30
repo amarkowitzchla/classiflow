@@ -2,36 +2,41 @@
 
 from __future__ import annotations
 
-import logging
 import json
+import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import joblib
 import numpy as np
 import pandas as pd
-import joblib
-from sklearn.model_selection import StratifiedShuffleSplit, StratifiedKFold
-from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score, matthews_corrcoef
+from sklearn.model_selection import StratifiedKFold, StratifiedShuffleSplit
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 from tqdm import tqdm
 
 from classiflow.config import HierarchicalConfig
 from classiflow.lineage.hashing import get_file_metadata
 from classiflow.lineage.manifest import create_training_manifest
 from classiflow.metrics.calibration import compute_probability_quality
-from classiflow.models.torch_mlp import TorchMLPWrapper
 from classiflow.models.smote import apply_smote
+from classiflow.models.torch_mlp import TorchMLPWrapper
 from classiflow.plots import (
-    plot_roc_curve,
-    plot_pr_curve,
-    plot_averaged_roc_curves,
+    extract_feature_importance_mlp,
     plot_averaged_pr_curves,
+    plot_averaged_roc_curves,
     plot_confusion_matrix,
     plot_feature_importance,
-    extract_feature_importance_mlp,
+    plot_pr_curve,
+    plot_roc_curve,
 )
-from classiflow.splitting import iter_inner_splits, iter_outer_splits, assert_no_patient_leakage, make_group_labels
-from classiflow.tracking import get_tracker, extract_loggable_params, summarize_metrics
+from classiflow.splitting import (
+    assert_no_patient_leakage,
+    iter_inner_splits,
+    iter_outer_splits,
+    make_group_labels,
+)
+from classiflow.tracking import extract_loggable_params, get_tracker
 from classiflow.training.probability_quality import (
     attach_probability_quality_to_run_manifest,
     serialize_probability_quality_metrics,
@@ -60,10 +65,20 @@ def get_hyperparam_candidates(base_hidden: int, base_epochs: int) -> List[Dict]:
     return [
         {"hidden_dims": [base_hidden], "lr": 1e-3, "epochs": base_epochs, "dropout": 0.3},
         {"hidden_dims": [base_hidden * 2], "lr": 1e-3, "epochs": base_epochs, "dropout": 0.3},
-        {"hidden_dims": [base_hidden, base_hidden // 2], "lr": 1e-3, "epochs": base_epochs, "dropout": 0.3},
+        {
+            "hidden_dims": [base_hidden, base_hidden // 2],
+            "lr": 1e-3,
+            "epochs": base_epochs,
+            "dropout": 0.3,
+        },
         {"hidden_dims": [base_hidden], "lr": 5e-4, "epochs": base_epochs, "dropout": 0.2},
         {"hidden_dims": [base_hidden * 2], "lr": 5e-4, "epochs": base_epochs, "dropout": 0.4},
-        {"hidden_dims": [base_hidden, base_hidden], "lr": 1e-3, "epochs": base_epochs, "dropout": 0.3},
+        {
+            "hidden_dims": [base_hidden, base_hidden],
+            "lr": 1e-3,
+            "epochs": base_epochs,
+            "dropout": 0.3,
+        },
     ]
 
 
@@ -121,14 +136,16 @@ def _build_group_inner_splits(
     context: str,
 ) -> List[Tuple[np.ndarray, np.ndarray]]:
     """Build group-aware inner CV splits with explicit leakage checks."""
-    splits = list(iter_inner_splits(
-        df_tr=df_tr[[patient_col]],
-        y_tr=y_tr,
-        patient_col=patient_col,
-        n_splits=n_splits,
-        n_repeats=n_repeats,
-        random_state=random_state,
-    ))
+    splits = list(
+        iter_inner_splits(
+            df_tr=df_tr[[patient_col]],
+            y_tr=y_tr,
+            patient_col=patient_col,
+            n_splits=n_splits,
+            n_repeats=n_repeats,
+            random_state=random_state,
+        )
+    )
     for split_idx, (tr_idx, va_idx) in enumerate(splits, 1):
         assert_no_patient_leakage(
             df_tr[[patient_col]],
@@ -308,7 +325,9 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
 
     # Determine if using patient stratification
     use_patient_stratification = config.patient_col is not None
-    logger.info(f"Stratification mode: {'patient-level' if use_patient_stratification else 'sample-level'}")
+    logger.info(
+        f"Stratification mode: {'patient-level' if use_patient_stratification else 'sample-level'}"
+    )
 
     required_cols = [config.label_l1]
     if use_patient_stratification:
@@ -440,8 +459,12 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
     all_l1_roc_data = {"fpr": [], "tpr": [], "auc": []}
     all_l1_pr_data = {"rec": [], "prec": [], "ap": []}
 
-    all_l2_roc_data = {l1: {"fpr": [], "tpr": [], "auc": []} for l1 in l1_classes} if config.hierarchical else {}
-    all_l2_pr_data = {l1: {"rec": [], "prec": [], "ap": []} for l1 in l1_classes} if config.hierarchical else {}
+    all_l2_roc_data = (
+        {l1: {"fpr": [], "tpr": [], "auc": []} for l1 in l1_classes} if config.hierarchical else {}
+    )
+    all_l2_pr_data = (
+        {l1: {"rec": [], "prec": [], "ap": []} for l1 in l1_classes} if config.hierarchical else {}
+    )
     fold_probability_quality: Dict[str, Dict[str, object]] = {}
 
     # ========== Outer CV Loop ==========
@@ -466,10 +489,12 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
             patients_val = stratify_ids[strat_va_idx]
 
             # Save patient split
-            patient_split_df = pd.DataFrame({
-                config.patient_col: np.concatenate([patients_train, patients_val]),
-                "phase": ["train"] * len(patients_train) + ["val"] * len(patients_val),
-            })
+            patient_split_df = pd.DataFrame(
+                {
+                    config.patient_col: np.concatenate([patients_train, patients_val]),
+                    "phase": ["train"] * len(patients_train) + ["val"] * len(patients_val),
+                }
+            )
             patient_split_df.to_csv(fold_dir / f"patient_split_fold{fold_id}.csv", index=False)
 
             # Sample-level splits based on patient membership
@@ -481,10 +506,13 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
             sample_indices_val = stratify_ids[strat_va_idx]
 
             # Save sample split
-            sample_split_df = pd.DataFrame({
-                "sample_idx": np.concatenate([sample_indices_train, sample_indices_val]),
-                "phase": ["train"] * len(sample_indices_train) + ["val"] * len(sample_indices_val),
-            })
+            sample_split_df = pd.DataFrame(
+                {
+                    "sample_idx": np.concatenate([sample_indices_train, sample_indices_val]),
+                    "phase": ["train"] * len(sample_indices_train)
+                    + ["val"] * len(sample_indices_val),
+                }
+            )
             sample_split_df.to_csv(fold_dir / f"sample_split_fold{fold_id}.csv", index=False)
 
             # Create boolean masks
@@ -541,8 +569,14 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
             )
 
         best_cfg_l1, inner_results_l1 = tune_hyperparameters(
-            X_tr_scaled, y_l1_tr_enc, len(l1_classes), inner_cv_l1,
-            candidate_params, config, "L1", inner_splits=inner_splits_l1
+            X_tr_scaled,
+            y_l1_tr_enc,
+            len(l1_classes),
+            inner_cv_l1,
+            candidate_params,
+            config,
+            "L1",
+            inner_splits=inner_splits_l1,
         )
 
         for res in inner_results_l1:
@@ -557,7 +591,10 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
             test_size=0.2,
         )
         if es_tr_idx is None or es_va_idx is None:
-            logger.warning("Insufficient samples for early-stopping split; disabling early stopping for fold %s.", fold_id)
+            logger.warning(
+                "Insufficient samples for early-stopping split; disabling early stopping for fold %s.",
+                fold_id,
+            )
             X_es_tr, y_es_tr = X_tr_scaled, y_l1_tr_enc
             X_es_va, y_es_va = None, None
         else:
@@ -618,29 +655,33 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
         }
         outer_rows.append(l1_row)
 
-        logger.info(
-            f"[Level-1] Val: acc={l1_acc:.3f}, bal_acc={l1_bal_acc:.3f}, F1={l1_f1:.3f}"
-        )
+        logger.info(f"[Level-1] Val: acc={l1_acc:.3f}, bal_acc={l1_bal_acc:.3f}, F1={l1_f1:.3f}")
 
         # Plot L1 ROC/PR curves
         plot_roc_curve(
-            y_l1_va_enc, y_l1_proba, l1_classes,
+            y_l1_va_enc,
+            y_l1_proba,
+            l1_classes,
             f"Level-1 ROC – Fold {fold_id}",
-            fold_dir / f"roc_level1_fold{fold_id}.png"
+            fold_dir / f"roc_level1_fold{fold_id}.png",
         )
 
         plot_pr_curve(
-            y_l1_va_enc, y_l1_proba, l1_classes,
+            y_l1_va_enc,
+            y_l1_proba,
+            l1_classes,
             f"Level-1 PR – Fold {fold_id}",
-            fold_dir / f"pr_level1_fold{fold_id}.png"
+            fold_dir / f"pr_level1_fold{fold_id}.png",
         )
 
         # Plot L1 confusion matrix
         y_l1_pred_enc = model_l1.predict(X_va_scaled)
         plot_confusion_matrix(
-            y_l1_va_enc, y_l1_pred_enc, l1_classes,
+            y_l1_va_enc,
+            y_l1_pred_enc,
+            l1_classes,
             f"Level-1 Confusion Matrix – Fold {fold_id}",
-            fold_dir / f"cm_level1_fold{fold_id}.png"
+            fold_dir / f"cm_level1_fold{fold_id}.png",
         )
 
         # Compute feature importance for L1
@@ -650,13 +691,14 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
                 model_l1, X_va_scaled, y_l1_va_enc, feature_cols, n_permutations=5
             )
             plot_feature_importance(
-                l1_importance, feature_cols,
+                l1_importance,
+                feature_cols,
                 f"Level-1 Feature Importance – Fold {fold_id}",
-                fold_dir / f"feature_importance_l1_fold{fold_id}.png"
+                fold_dir / f"feature_importance_l1_fold{fold_id}.png",
             )
 
         # Store ROC/PR data for averaging
-        from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
+        from sklearn.metrics import auc, average_precision_score, precision_recall_curve, roc_curve
         from sklearn.preprocessing import label_binarize
 
         if len(l1_classes) == 2:
@@ -692,7 +734,10 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
         )
         class_counts = {
             str(k): int(v)
-            for k, v in pd.Series([str(v) for v in y_l1_va.tolist()]).value_counts().to_dict().items()
+            for k, v in pd.Series([str(v) for v in y_l1_va.tolist()])
+            .value_counts()
+            .to_dict()
+            .items()
         }
         fold_probability_quality[f"fold_{fold_id}_none"] = {
             "uncalibrated": serialize_probability_quality_metrics(prob_metrics),
@@ -724,8 +769,8 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
             for l1_val in l1_classes:
                 logger.info(f"\n  [Branch L1={l1_val}]")
 
-                branch_train_mask = (y_l1_tr == l1_val)
-                branch_val_mask = (y_l1_va == l1_val)
+                branch_train_mask = y_l1_tr == l1_val
+                branch_val_mask = y_l1_va == l1_val
 
                 X_tr_b = X_tr_scaled[branch_train_mask]
                 y_l2_tr_b = y_l2_tr[branch_train_mask]
@@ -754,7 +799,9 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
                     branch_trained[l1_val] = False
                     continue
 
-                logger.info(f"    Train samples (non-NA L2): {len(X_tr_b)}, L2 classes: {unique_l2_b}")
+                logger.info(
+                    f"    Train samples (non-NA L2): {len(X_tr_b)}, L2 classes: {unique_l2_b}"
+                )
 
                 # Create branch encoder
                 le_l2_b = LabelEncoder()
@@ -782,8 +829,14 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
                     )
 
                 best_cfg_l2, inner_results_l2 = tune_hyperparameters(
-                    X_tr_b, y_l2_tr_b_enc, n_l2_b, inner_cv_l2,
-                    candidate_params, config, f"L2_{l1_val}", inner_splits=inner_splits_l2
+                    X_tr_b,
+                    y_l2_tr_b_enc,
+                    n_l2_b,
+                    inner_cv_l2,
+                    candidate_params,
+                    config,
+                    f"L2_{l1_val}",
+                    inner_splits=inner_splits_l2,
                 )
 
                 for res in inner_results_l2:
@@ -873,7 +926,9 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
 
                     l2_acc = accuracy_score(y_l2_va_b_enc, y_l2_pred_b_enc)
                     l2_bal_acc = balanced_accuracy_score(y_l2_va_b_enc, y_l2_pred_b_enc)
-                    l2_f1 = f1_score(y_l2_va_b_enc, y_l2_pred_b_enc, average="macro", zero_division=0)
+                    l2_f1 = f1_score(
+                        y_l2_va_b_enc, y_l2_pred_b_enc, average="macro", zero_division=0
+                    )
 
                     l2_row = {
                         "fold": fold_id,
@@ -891,22 +946,28 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
 
                     # Plot L2 branch ROC/PR curves
                     plot_roc_curve(
-                        y_l2_va_b_enc, y_l2_proba_b, unique_l2_b,
+                        y_l2_va_b_enc,
+                        y_l2_proba_b,
+                        unique_l2_b,
                         f"Level-2 ROC ({l1_val}) – Fold {fold_id}",
-                        fold_dir / f"roc_level2_{safe_l1}_fold{fold_id}.png"
+                        fold_dir / f"roc_level2_{safe_l1}_fold{fold_id}.png",
                     )
 
                     plot_pr_curve(
-                        y_l2_va_b_enc, y_l2_proba_b, unique_l2_b,
+                        y_l2_va_b_enc,
+                        y_l2_proba_b,
+                        unique_l2_b,
                         f"Level-2 PR ({l1_val}) – Fold {fold_id}",
-                        fold_dir / f"pr_level2_{safe_l1}_fold{fold_id}.png"
+                        fold_dir / f"pr_level2_{safe_l1}_fold{fold_id}.png",
                     )
 
                     # Plot L2 confusion matrix
                     plot_confusion_matrix(
-                        y_l2_va_b_enc, y_l2_pred_b_enc, unique_l2_b,
+                        y_l2_va_b_enc,
+                        y_l2_pred_b_enc,
+                        unique_l2_b,
                         f"Level-2 CM ({l1_val}) – Fold {fold_id}",
-                        fold_dir / f"cm_level2_{safe_l1}_fold{fold_id}.png"
+                        fold_dir / f"cm_level2_{safe_l1}_fold{fold_id}.png",
                     )
 
                     # Store ROC/PR data for averaging
@@ -921,7 +982,9 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
                         if y_bin_b.ndim == 1:
                             y_bin_b = np.column_stack([1 - y_bin_b, y_bin_b])
                         fpr_b, tpr_b, _ = roc_curve(y_bin_b.ravel(), y_l2_proba_b.ravel())
-                        prec_b, rec_b, _ = precision_recall_curve(y_bin_b.ravel(), y_l2_proba_b.ravel())
+                        prec_b, rec_b, _ = precision_recall_curve(
+                            y_bin_b.ravel(), y_l2_proba_b.ravel()
+                        )
                         roc_auc_b = auc(fpr_b, tpr_b)
                         ap_b = average_precision_score(y_bin_b, y_l2_proba_b, average="micro")
 
@@ -950,14 +1013,16 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
                     y_l1_pred_enc_pipe = model_l1.predict(X_va_pipe)
                     y_l1_pred_labels_pipe = le_l1.inverse_transform(y_l1_pred_enc_pipe)
 
-                    hier_true = np.array([f"{l1}::{l2}" for l1, l2 in zip(y_l1_va_pipe, y_l2_va_pipe)])
+                    hier_true = np.array(
+                        [f"{l1}::{l2}" for l1, l2 in zip(y_l1_va_pipe, y_l2_va_pipe)]
+                    )
                     hier_pred = []
 
                     for i, l1_hat in enumerate(y_l1_pred_labels_pipe):
                         if branch_trained.get(l1_hat, False):
                             model_b = branch_models[l1_hat]
                             le_b = branch_encoders[l1_hat]
-                            l2_pred_enc = model_b.predict(X_va_pipe[i:i+1])[0]
+                            l2_pred_enc = model_b.predict(X_va_pipe[i : i + 1])[0]
                             l2_hat = le_b.inverse_transform([l2_pred_enc])[0]
                             hier_pred.append(f"{l1_hat}::{l2_hat}")
                         else:
@@ -1057,16 +1122,20 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
     # L1 averaged curves
     if len(all_l1_roc_data["fpr"]) > 1:
         plot_averaged_roc_curves(
-            all_l1_roc_data["fpr"], all_l1_roc_data["tpr"], all_l1_roc_data["auc"],
+            all_l1_roc_data["fpr"],
+            all_l1_roc_data["tpr"],
+            all_l1_roc_data["auc"],
             "Level-1 ROC – Averaged Across Folds",
             outdir / "roc_level1_averaged.png",
-            show_individual=(config.outer_folds <= 5)
+            show_individual=(config.outer_folds <= 5),
         )
         plot_averaged_pr_curves(
-            all_l1_pr_data["rec"], all_l1_pr_data["prec"], all_l1_pr_data["ap"],
+            all_l1_pr_data["rec"],
+            all_l1_pr_data["prec"],
+            all_l1_pr_data["ap"],
             "Level-1 PR – Averaged Across Folds",
             outdir / "pr_level1_averaged.png",
-            show_individual=(config.outer_folds <= 5)
+            show_individual=(config.outer_folds <= 5),
         )
 
     # L2 averaged curves (if hierarchical)
@@ -1075,18 +1144,20 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
             if len(all_l2_roc_data[l1_val]["fpr"]) > 1:
                 safe_l1 = l1_val.replace(" ", "_")
                 plot_averaged_roc_curves(
-                    all_l2_roc_data[l1_val]["fpr"], all_l2_roc_data[l1_val]["tpr"],
+                    all_l2_roc_data[l1_val]["fpr"],
+                    all_l2_roc_data[l1_val]["tpr"],
                     all_l2_roc_data[l1_val]["auc"],
                     f"Level-2 ({l1_val}) ROC – Averaged",
                     outdir / f"roc_level2_{safe_l1}_averaged.png",
-                    show_individual=(config.outer_folds <= 5)
+                    show_individual=(config.outer_folds <= 5),
                 )
                 plot_averaged_pr_curves(
-                    all_l2_pr_data[l1_val]["rec"], all_l2_pr_data[l1_val]["prec"],
+                    all_l2_pr_data[l1_val]["rec"],
+                    all_l2_pr_data[l1_val]["prec"],
                     all_l2_pr_data[l1_val]["ap"],
                     f"Level-2 ({l1_val}) PR – Averaged",
                     outdir / f"pr_level2_{safe_l1}_averaged.png",
-                    show_individual=(config.outer_folds <= 5)
+                    show_individual=(config.outer_folds <= 5),
                 )
 
     # ========== Print summary ==========
@@ -1112,16 +1183,18 @@ def train_hierarchical(config: HierarchicalConfig) -> Dict:
 
     logger.info(f"\nOutputs saved to: {outdir}/")
     logger.info(f"  • metrics_*.{config.output_format}")
-    logger.info(f"  • fold*/scaler.joblib, model_*.pt, label_encoder_*.joblib")
+    logger.info("  • fold*/scaler.joblib, model_*.pt, label_encoder_*.joblib")
 
     # Log to experiment tracker
     tracker.log_params(extract_loggable_params(config))
-    tracker.set_tags({
-        "task_type": "hierarchical",
-        "device": config.device,
-        "num_l1_classes": str(len(l1_classes)),
-        "hierarchical_mode": str(config.hierarchical),
-    })
+    tracker.set_tags(
+        {
+            "task_type": "hierarchical",
+            "device": config.device,
+            "num_l1_classes": str(len(l1_classes)),
+            "hierarchical_mode": str(config.hierarchical),
+        }
+    )
 
     # Log summary metrics from summary_df
     if not summary_df.empty:

@@ -1,12 +1,13 @@
 """Train Models page - refactored to use classiflow library."""
 
 from pathlib import Path
-import streamlit as st
-import pandas as pd
 
-from classiflow.config import TrainConfig, MetaConfig
-from classiflow.training import train_binary_task, train_meta_classifier
+import pandas as pd
+import streamlit as st
+
+from classiflow.config import MetaConfig, TrainConfig
 from classiflow.streamlit_app.ui.helpers import list_outputs
+from classiflow.training import train_binary_task, train_meta_classifier
 
 st.title("① Train Models")
 

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from typing import List, Tuple
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 from scipy import stats
 
 
@@ -70,9 +71,7 @@ def check_normality_by_class(
     return pd.DataFrame(rows)
 
 
-def determine_normality_flag(
-    normality_by_class: pd.DataFrame, alpha: float, min_n: int
-) -> str:
+def determine_normality_flag(normality_by_class: pd.DataFrame, alpha: float, min_n: int) -> str:
     """Determine overall normality flag for a feature.
 
     Args:
@@ -101,7 +100,12 @@ def determine_normality_flag(
 
 
 def check_normality_all_features(
-    df: pd.DataFrame, features: List[str], label_col: str, classes: List[str], alpha: float, min_n: int
+    df: pd.DataFrame,
+    features: List[str],
+    label_col: str,
+    classes: List[str],
+    alpha: float,
+    min_n: int,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Test normality for all features across all classes.
 

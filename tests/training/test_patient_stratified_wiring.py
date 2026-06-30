@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from classiflow.config import TrainConfig, MulticlassConfig, MetaConfig
+from classiflow.config import MetaConfig, MulticlassConfig, TrainConfig
 from classiflow.training.binary import train_binary_task
-from classiflow.training.multiclass import train_multiclass_classifier
 from classiflow.training.meta import train_meta_classifier
+from classiflow.training.multiclass import train_multiclass_classifier
 
 
 def _write_dataset(path: Path, n_patients: int = 4, rows_per_patient: int = 3) -> None:
@@ -38,7 +38,9 @@ def test_train_binary_patient_groups_passed(tmp_path, monkeypatch):
         captured["patient_col"] = patient_col
         return {"inner_cv_rows": [], "inner_cv_split_rows": [], "outer_rows": [], "folds": []}
 
-    monkeypatch.setattr("classiflow.training.binary.NestedCVOrchestrator.run_single_task", _stub_run_single_task)
+    monkeypatch.setattr(
+        "classiflow.training.binary.NestedCVOrchestrator.run_single_task", _stub_run_single_task
+    )
 
     config = TrainConfig(
         data_path=data_path,
@@ -69,7 +71,9 @@ def test_train_multiclass_patient_groups_passed(tmp_path, monkeypatch):
         captured["groups"] = kwargs.get("groups")
         return {"outdir": kwargs["config"].outdir, "n_folds": 2, "variants": ["none"]}
 
-    monkeypatch.setattr("classiflow.training.multiclass._run_multiclass_nested_cv", _stub_run_multiclass_nested_cv)
+    monkeypatch.setattr(
+        "classiflow.training.multiclass._run_multiclass_nested_cv", _stub_run_multiclass_nested_cv
+    )
 
     config = MulticlassConfig(
         data_path=data_path,

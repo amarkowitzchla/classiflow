@@ -13,10 +13,8 @@ The test uses the Iris dataset as a minimal, deterministic reproducer.
 from __future__ import annotations
 
 import logging
-import tempfile
-import shutil
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
+from typing import Any, Dict, Tuple
 
 import numpy as np
 import pandas as pd
@@ -52,9 +50,7 @@ def create_iris_datasets(tmp_path: Path) -> Tuple[Path, Path]:
     X["label"] = y
 
     # Stratified train/test split: 70% train, 30% test
-    train_df, test_df = train_test_split(
-        X, test_size=0.30, stratify=y, random_state=RANDOM_STATE
-    )
+    train_df, test_df = train_test_split(X, test_size=0.30, stratify=y, random_state=RANDOM_STATE)
 
     # Reset indices
     train_df = train_df.reset_index(drop=True)
@@ -102,7 +98,7 @@ def run_meta_technical_validation(
         calibration_cv=2,
     )
 
-    results = train_meta_classifier(config)
+    train_meta_classifier(config)
 
     # Load outer fold validation metrics
     metrics_path = output_dir / "metrics_outer_meta_eval.csv"
@@ -210,7 +206,7 @@ def verify_class_order_consistency(
     }
 
     if not classes_match:
-        logger.error(f"Class order mismatch!")
+        logger.error("Class order mismatch!")
         logger.error(f"  meta_classes.csv: {meta_classes}")
         logger.error(f"  model.classes_:   {model_classes}")
 
@@ -240,6 +236,7 @@ def verify_meta_feature_schema(
 
     # Load binary pipes to get task names
     import joblib
+
     binary_pipes_path = fold_dir / "binary_pipes.joblib"
     if binary_pipes_path.exists():
         bundle = joblib.load(binary_pipes_path)
@@ -264,7 +261,7 @@ def verify_meta_feature_schema(
     if not features_complete:
         missing = set(expected_features) - set(meta_features)
         extra = set(meta_features) - set(expected_features)
-        logger.error(f"Meta-feature schema mismatch!")
+        logger.error("Meta-feature schema mismatch!")
         logger.error(f"  Missing: {missing}")
         logger.error(f"  Extra: {extra}")
 
@@ -281,8 +278,11 @@ def verify_probability_validity(predictions: pd.DataFrame) -> Dict[str, Any]:
     - No NaN values in probabilities
     """
     # Find probability columns
-    proba_cols = [c for c in predictions.columns
-                  if c.startswith("predicted_proba_") and c != "predicted_proba"]
+    proba_cols = [
+        c
+        for c in predictions.columns
+        if c.startswith("predicted_proba_") and c != "predicted_proba"
+    ]
 
     if not proba_cols:
         return {
@@ -313,7 +313,7 @@ def verify_probability_validity(predictions: pd.DataFrame) -> Dict[str, Any]:
     }
 
     if not result["valid"]:
-        logger.error(f"Invalid probabilities detected!")
+        logger.error("Invalid probabilities detected!")
         logger.error(f"  Has NaN: {has_nan}")
         logger.error(f"  In [0,1]: {in_range}")
         logger.error(f"  Sums to 1: {sums_to_one}")
@@ -354,10 +354,10 @@ class TestMetaInferenceConsistency:
         """CV performance on Iris should be high (>0.85)."""
         cv_results = iris_project["cv_results"]
 
-        assert cv_results["mean_accuracy"] > 0.85, \
-            f"CV accuracy too low: {cv_results['mean_accuracy']:.4f}"
-        assert cv_results["mean_f1"] > 0.85, \
-            f"CV F1 too low: {cv_results['mean_f1']:.4f}"
+        assert (
+            cv_results["mean_accuracy"] > 0.85
+        ), f"CV accuracy too low: {cv_results['mean_accuracy']:.4f}"
+        assert cv_results["mean_f1"] > 0.85, f"CV F1 too low: {cv_results['mean_f1']:.4f}"
 
     def test_independent_test_performance_matches_cv(self, iris_project):
         """
@@ -377,18 +377,21 @@ class TestMetaInferenceConsistency:
         accuracy_diff = abs(cv_accuracy - test_accuracy)
         f1_diff = abs(cv_f1 - test_f1)
 
-        logger.info(f"CV Accuracy: {cv_accuracy:.4f}, Test Accuracy: {test_accuracy:.4f}, Diff: {accuracy_diff:.4f}")
+        logger.info(
+            f"CV Accuracy: {cv_accuracy:.4f}, Test Accuracy: {test_accuracy:.4f}, Diff: {accuracy_diff:.4f}"
+        )
         logger.info(f"CV F1: {cv_f1:.4f}, Test F1: {test_f1:.4f}, Diff: {f1_diff:.4f}")
 
         # The key assertion - test performance should be similar to CV
-        assert accuracy_diff <= 0.15, \
-            f"Accuracy difference too large: CV={cv_accuracy:.4f}, Test={test_accuracy:.4f}, Diff={accuracy_diff:.4f}"
-        assert f1_diff <= 0.15, \
-            f"F1 difference too large: CV={cv_f1:.4f}, Test={test_f1:.4f}, Diff={f1_diff:.4f}"
+        assert (
+            accuracy_diff <= 0.15
+        ), f"Accuracy difference too large: CV={cv_accuracy:.4f}, Test={test_accuracy:.4f}, Diff={accuracy_diff:.4f}"
+        assert (
+            f1_diff <= 0.15
+        ), f"F1 difference too large: CV={cv_f1:.4f}, Test={test_f1:.4f}, Diff={f1_diff:.4f}"
 
         # Test should not collapse to random (1/3 for 3-class)
-        assert test_accuracy > 0.5, \
-            f"Test accuracy collapsed to near-random: {test_accuracy:.4f}"
+        assert test_accuracy > 0.5, f"Test accuracy collapsed to near-random: {test_accuracy:.4f}"
 
     def test_class_order_consistency(self, iris_project):
         """Class ordering should be consistent between saved artifacts and model."""
@@ -396,8 +399,9 @@ class TestMetaInferenceConsistency:
 
         result = verify_class_order_consistency(training_dir, fold=1, variant="none")
 
-        assert result["classes_match"], \
-            f"Class order mismatch: CSV={result['meta_classes_csv']}, Model={result['model_classes_']}"
+        assert result[
+            "classes_match"
+        ], f"Class order mismatch: CSV={result['meta_classes_csv']}, Model={result['model_classes_']}"
 
     def test_meta_feature_schema_completeness(self, iris_project):
         """Meta-feature schema should include all task scores."""
@@ -405,8 +409,9 @@ class TestMetaInferenceConsistency:
 
         result = verify_meta_feature_schema(training_dir, fold=1, variant="none")
 
-        assert result["features_complete"], \
-            f"Meta-feature schema incomplete: expected={result['expected_features']}, got={result['meta_features_csv']}"
+        assert result[
+            "features_complete"
+        ], f"Meta-feature schema incomplete: expected={result['expected_features']}, got={result['meta_features_csv']}"
 
     def test_probability_validity(self, iris_project):
         """Predicted probabilities should be valid (sum to 1, in [0,1], no NaN)."""
@@ -414,8 +419,9 @@ class TestMetaInferenceConsistency:
 
         result = verify_probability_validity(predictions)
 
-        assert result["valid"], \
-            f"Invalid probabilities: has_nan={result['has_nan']}, in_range={result['in_range']}, sums_to_one={result['sums_to_one']}"
+        assert result[
+            "valid"
+        ], f"Invalid probabilities: has_nan={result['has_nan']}, in_range={result['in_range']}, sums_to_one={result['sums_to_one']}"
 
     def test_prediction_uses_correct_class_labels(self, iris_project):
         """Predicted labels should be from the correct class set."""
@@ -430,8 +436,9 @@ class TestMetaInferenceConsistency:
         true_labels = set(test_df["label"].unique())
 
         # Predicted labels should be subset of true labels
-        assert pred_labels <= true_labels, \
-            f"Predicted labels not in expected set: predicted={pred_labels}, expected={true_labels}"
+        assert (
+            pred_labels <= true_labels
+        ), f"Predicted labels not in expected set: predicted={pred_labels}, expected={true_labels}"
 
     def test_inference_loads_saved_class_order(self, iris_project):
         """
@@ -447,13 +454,17 @@ class TestMetaInferenceConsistency:
 
         # Get probability column order from predictions
         predictions = test_results["predictions"]
-        proba_cols = [c for c in predictions.columns
-                      if c.startswith("predicted_proba_") and c != "predicted_proba"]
+        proba_cols = [
+            c
+            for c in predictions.columns
+            if c.startswith("predicted_proba_") and c != "predicted_proba"
+        ]
         proba_classes = [c.replace("predicted_proba_", "") for c in proba_cols]
 
         # They should match
-        assert proba_classes == saved_classes, \
-            f"Probability columns don't match saved class order: proba={proba_classes}, saved={saved_classes}"
+        assert (
+            proba_classes == saved_classes
+        ), f"Probability columns don't match saved class order: proba={proba_classes}, saved={saved_classes}"
 
 
 def run_standalone_reproducer():
@@ -464,7 +475,6 @@ def run_standalone_reproducer():
     and reports results to stdout.
     """
     import tempfile
-    import sys
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -503,7 +513,7 @@ def run_standalone_reproducer():
         test_f1 = test_results["f1_macro"]
         f1_diff = abs(cv_f1 - test_f1)
 
-        print(f"\nPerformance Metrics:")
+        print("\nPerformance Metrics:")
         print(f"  CV Accuracy:        {cv_acc:.4f}")
         print(f"  Test Accuracy:      {test_acc:.4f}")
         print(f"  Accuracy Diff:      {acc_diff:.4f} {'✓' if acc_diff <= 0.15 else '✗ MISMATCH'}")
@@ -511,9 +521,11 @@ def run_standalone_reproducer():
         print(f"  Test F1 Macro:      {test_f1:.4f}")
         print(f"  F1 Diff:            {f1_diff:.4f} {'✓' if f1_diff <= 0.15 else '✗ MISMATCH'}")
 
-        print(f"\nConsistency Checks:")
+        print("\nConsistency Checks:")
         print(f"  Class order match:  {'✓' if class_result['classes_match'] else '✗ MISMATCH'}")
-        print(f"  Schema complete:    {'✓' if schema_result['features_complete'] else '✗ MISMATCH'}")
+        print(
+            f"  Schema complete:    {'✓' if schema_result['features_complete'] else '✗ MISMATCH'}"
+        )
         print(f"  Probabilities valid: {'✓' if proba_result['valid'] else '✗ INVALID'}")
 
         if class_result["classes_match"]:
@@ -524,11 +536,11 @@ def run_standalone_reproducer():
 
         # Determine if bug is present
         bug_detected = (
-            acc_diff > 0.15 or
-            f1_diff > 0.15 or
-            test_acc < 0.5 or
-            not class_result["classes_match"] or
-            not proba_result["valid"]
+            acc_diff > 0.15
+            or f1_diff > 0.15
+            or test_acc < 0.5
+            or not class_result["classes_match"]
+            or not proba_result["valid"]
         )
 
         print("\n" + "=" * 70)
@@ -544,4 +556,5 @@ def run_standalone_reproducer():
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(run_standalone_reproducer())

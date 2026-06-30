@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
+
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (
     accuracy_score,
-    precision_recall_fscore_support,
-    f1_score,
     confusion_matrix,
+    f1_score,
+    precision_recall_fscore_support,
 )
 
 logger = logging.getLogger(__name__)
@@ -69,14 +70,17 @@ def compute_hierarchical_metrics(
     for level_idx in range(max_levels):
         level_name = f"l{level_idx + 1}"
 
-        y_true_level = [levels[level_idx] if level_idx < len(levels) else None
-                        for levels in y_true_levels]
-        y_pred_level = [levels[level_idx] if level_idx < len(levels) else None
-                        for levels in y_pred_levels]
+        y_true_level = [
+            levels[level_idx] if level_idx < len(levels) else None for levels in y_true_levels
+        ]
+        y_pred_level = [
+            levels[level_idx] if level_idx < len(levels) else None for levels in y_pred_levels
+        ]
 
         # Filter out None values
-        valid_mask = [(yt is not None and yp is not None)
-                      for yt, yp in zip(y_true_level, y_pred_level)]
+        valid_mask = [
+            (yt is not None and yp is not None) for yt, yp in zip(y_true_level, y_pred_level)
+        ]
         y_true_level_clean = [yt for yt, valid in zip(y_true_level, valid_mask) if valid]
         y_pred_level_clean = [yp for yp, valid in zip(y_pred_level, valid_mask) if valid]
 
@@ -169,9 +173,9 @@ def _compute_level_metrics(
     metrics["accuracy"] = float(accuracy_score(y_true, y_pred))
 
     # Macro F1
-    metrics["f1_macro"] = float(f1_score(
-        y_true, y_pred, labels=classes, average="macro", zero_division=0
-    ))
+    metrics["f1_macro"] = float(
+        f1_score(y_true, y_pred, labels=classes, average="macro", zero_division=0)
+    )
 
     # Per-class metrics
     precision, recall, f1, support = precision_recall_fscore_support(
@@ -180,13 +184,15 @@ def _compute_level_metrics(
 
     per_class = []
     for i, cls in enumerate(classes):
-        per_class.append({
-            "class": str(cls),
-            "precision": float(precision[i]),
-            "recall": float(recall[i]),
-            "f1": float(f1[i]),
-            "support": int(support[i]),
-        })
+        per_class.append(
+            {
+                "class": str(cls),
+                "precision": float(precision[i]),
+                "recall": float(recall[i]),
+                "f1": float(f1[i]),
+                "support": int(support[i]),
+            }
+        )
 
     metrics["per_class"] = per_class
 
@@ -195,7 +201,9 @@ def _compute_level_metrics(
     metrics["confusion_matrix"] = cm.tolist()
     metrics["confusion_matrix_classes"] = classes
 
-    logger.debug(f"Computed metrics for {level_name}: acc={metrics['accuracy']:.3f}, f1_macro={metrics['f1_macro']:.3f}")
+    logger.debug(
+        f"Computed metrics for {level_name}: acc={metrics['accuracy']:.3f}, f1_macro={metrics['f1_macro']:.3f}"
+    )
 
     return metrics
 
@@ -324,7 +332,9 @@ def _write_confusion_matrix_sheet(
 
     # Cap size for readability
     if len(classes) > max_classes:
-        logger.warning(f"Confusion matrix too large ({len(classes)} classes), truncating to {max_classes}")
+        logger.warning(
+            f"Confusion matrix too large ({len(classes)} classes), truncating to {max_classes}"
+        )
         cm = cm[:max_classes, :max_classes]
         classes = classes[:max_classes]
 
@@ -336,9 +346,7 @@ def _write_confusion_matrix_sheet(
     cm_df.to_excel(writer, sheet_name=sheet_name)
 
 
-def summarize_hierarchical_metrics(
-    metrics: Dict[str, Any]
-) -> pd.DataFrame:
+def summarize_hierarchical_metrics(metrics: Dict[str, Any]) -> pd.DataFrame:
     """
     Create summary table of hierarchical metrics across levels.
 
@@ -359,23 +367,27 @@ def summarize_hierarchical_metrics(
         level_name = f"l{level_idx + 1}"
         if level_name in metrics and "error" not in metrics[level_name]:
             lm = metrics[level_name]
-            rows.append({
-                "Level": f"L{level_idx + 1}",
-                "N_Samples": lm.get("n_samples", 0),
-                "N_Classes": lm.get("n_classes", 0),
-                "Accuracy": lm.get("accuracy", 0.0),
-                "F1_Macro": lm.get("f1_macro", 0.0),
-            })
+            rows.append(
+                {
+                    "Level": f"L{level_idx + 1}",
+                    "N_Samples": lm.get("n_samples", 0),
+                    "N_Classes": lm.get("n_classes", 0),
+                    "Accuracy": lm.get("accuracy", 0.0),
+                    "F1_Macro": lm.get("f1_macro", 0.0),
+                }
+            )
 
     # Add leaf
     if "overall" in metrics and "error" not in metrics["overall"]:
         om = metrics["overall"]
-        rows.append({
-            "Level": "Leaf",
-            "N_Samples": om.get("n_samples", 0),
-            "N_Classes": om.get("n_classes", 0),
-            "Accuracy": om.get("accuracy", 0.0),
-            "F1_Macro": om.get("f1_macro", 0.0),
-        })
+        rows.append(
+            {
+                "Level": "Leaf",
+                "N_Samples": om.get("n_samples", 0),
+                "N_Classes": om.get("n_classes", 0),
+                "Accuracy": om.get("accuracy", 0.0),
+                "F1_Macro": om.get("f1_macro", 0.0),
+            }
+        )
 
     return pd.DataFrame(rows)

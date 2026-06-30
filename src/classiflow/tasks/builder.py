@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 from itertools import combinations
-from typing import Dict, Callable, List, Set
-import pandas as pd
+from typing import Callable, Dict, List, Literal, Set
+
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -149,12 +150,12 @@ class TaskBuilder:
         return labeler
 
     @staticmethod
-    def _make_composite_fn(pos_set: Set[str], neg_set: Set[str]) -> Callable[[pd.Series], pd.Series]:
+    def _make_composite_fn(
+        pos_set: Set[str], neg_set: Set[str]
+    ) -> Callable[[pd.Series], pd.Series]:
         """Create composite labeling function."""
 
         def labeler(y: pd.Series) -> pd.Series:
-            return y.map(
-                lambda x: 1.0 if x in pos_set else (0.0 if x in neg_set else np.nan)
-            )
+            return y.map(lambda x: 1.0 if x in pos_set else (0.0 if x in neg_set else np.nan))
 
         return labeler

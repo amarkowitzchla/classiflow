@@ -1,8 +1,8 @@
 """Tests for W&B tracker (mocked)."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from pathlib import Path
-from unittest.mock import MagicMock, patch, ANY
 
 # Skip all tests if wandb is not installed
 wandb = pytest.importorskip("wandb")

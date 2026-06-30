@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 from typing import Dict
+
 import numpy as np
 from sklearn.metrics import (
     accuracy_score,
-    precision_score,
-    f1_score,
-    recall_score,
     balanced_accuracy_score,
+    confusion_matrix,
+    f1_score,
     matthews_corrcoef,
+    precision_score,
+    recall_score,
     roc_auc_score,
 )
-from sklearn.metrics import confusion_matrix
 
 
 def compute_binary_metrics(y_true: np.ndarray, scores: np.ndarray) -> Dict[str, float]:

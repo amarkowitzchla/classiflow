@@ -1,14 +1,13 @@
 """Tests for normality testing."""
 
-import pytest
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from classiflow.stats.normality import (
-    shapiro_safe,
+    check_normality_all_features,
     check_normality_by_class,
     determine_normality_flag,
-    check_normality_all_features,
+    shapiro_safe,
 )
 
 

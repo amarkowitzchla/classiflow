@@ -81,7 +81,7 @@ def test_brier_with_misaligned_classes():
     y_bin = label_binarize(y_true, classes=wrong_classes)
     wrong_brier = float(np.mean(np.sum((y_proba - y_bin) ** 2, axis=1)))
 
-    print(f"\nWith WRONG class order:")
+    print("\nWith WRONG class order:")
     print(f"y_bin (wrong order):\n{y_bin}")
     print(f"y_proba:\n{y_proba}")
     print(f"Wrong Brier: {wrong_brier}")
@@ -91,7 +91,7 @@ def test_brier_with_misaligned_classes():
         wrong_brier, 0.0
     ), f"Misaligned Brier should not be 0, but got {wrong_brier}"
 
-    print(f"\nThis demonstrates that class order matters for Brier score!")
+    print("\nThis demonstrates that class order matters for Brier score!")
 
 
 def test_brier_compute_function_uses_passed_classes():
@@ -194,8 +194,9 @@ def test_meta_predictor_class_order():
     """
     Test that MetaPredictor creates probability columns in the correct order.
     """
-    from classiflow.inference.predict import MetaPredictor
     from sklearn.linear_model import LogisticRegression
+
+    from classiflow.inference.predict import MetaPredictor
 
     # Create a simple model with known class order
     X_train = pd.DataFrame(

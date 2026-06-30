@@ -1,12 +1,12 @@
 """Tests for base tracker interface and no-op tracker."""
 
-import pytest
-from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
+from classiflow.tracking import get_tracker
 from classiflow.tracking.base import ExperimentTracker
 from classiflow.tracking.noop import NoOpTracker
-from classiflow.tracking import get_tracker
 
 
 class TestNoOpTracker:

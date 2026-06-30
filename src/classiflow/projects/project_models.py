@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import re
+import warnings
 from datetime import datetime
 from pathlib import Path
-import re
 from typing import Any, Dict, List, Literal, Optional, Tuple
-import warnings
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
@@ -113,9 +113,7 @@ def normalize_project_payload(payload: Dict[str, Any]) -> Tuple[Dict[str, Any], 
         for key in legacy_keys:
             if key in data:
                 data.pop(key, None)
-                warnings_out.append(
-                    f"Dropped legacy key '{key}' because execution.* is present."
-                )
+                warnings_out.append(f"Dropped legacy key '{key}' because execution.* is present.")
 
     if isinstance(data.get("multiclass"), dict):
         mc = dict(data["multiclass"])
@@ -126,7 +124,9 @@ def normalize_project_payload(payload: Dict[str, Any]) -> Tuple[Dict[str, Any], 
 
         if "estimator_mode" in mc and "backend" not in mc:
             est_mode = str(mc.pop("estimator_mode"))
-            execution_block = data.get("execution", {}) if isinstance(data.get("execution"), dict) else {}
+            execution_block = (
+                data.get("execution", {}) if isinstance(data.get("execution"), dict) else {}
+            )
             engine = str(execution_block.get("engine", "sklearn"))
             device = str(execution_block.get("device", "auto"))
             mc["backend"] = _map_legacy_multiclass_backend(est_mode, engine, device)
@@ -352,7 +352,9 @@ class BundleConfig(BaseModel):
 class ExecutionTorchSettings(BaseModel):
     """Torch execution options used when engine is torch or hybrid."""
 
-    dtype: Literal["float32", "float16"] = Field(default="float32", description="Torch tensor dtype")
+    dtype: Literal["float32", "float16"] = Field(
+        default="float32", description="Torch tensor dtype"
+    )
     num_workers: int = Field(default=0, description="DataLoader worker count")
     require_device: bool = Field(
         default=False,
@@ -411,7 +413,9 @@ class ProjectConfig(BaseModel):
     experiment_name: Optional[str] = None
 
     # Internal migration notes to surface in CLI normalization flows.
-    migration_notes: List[str] = Field(default_factory=list, alias="_migration_warnings", exclude=True)
+    migration_notes: List[str] = Field(
+        default_factory=list, alias="_migration_warnings", exclude=True
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -424,14 +428,12 @@ class ProjectConfig(BaseModel):
         return normalized
 
     @model_validator(mode="after")
-    def _validate_execution_and_mode(self) -> "ProjectConfig":
+    def _validate_execution_and_mode(self) -> ProjectConfig:
         engine = self.execution.engine
         mode = self.task.mode
 
         if self.task.tasks_only and not self.task.tasks_json:
-            raise ValueError(
-                "task.tasks_only requires task.tasks_json to be set."
-            )
+            raise ValueError("task.tasks_only requires task.tasks_json to be set.")
         if mode != "meta" and (self.task.tasks_json is not None or self.task.tasks_only):
             raise ValueError(
                 "task.tasks_json and task.tasks_only are only supported when task.mode=meta."
@@ -575,7 +577,7 @@ class ProjectConfig(BaseModel):
         return list(self.__dict__.get("migration_notes", []))
 
     @classmethod
-    def load(cls, path: Path) -> "ProjectConfig":
+    def load(cls, path: Path) -> ProjectConfig:
         """Load project configuration from YAML."""
         config, migration_warnings = cls.load_with_warnings(path)
         for warning_msg in migration_warnings:
@@ -583,7 +585,7 @@ class ProjectConfig(BaseModel):
         return config
 
     @classmethod
-    def load_with_warnings(cls, path: Path) -> Tuple["ProjectConfig", List[str]]:
+    def load_with_warnings(cls, path: Path) -> Tuple[ProjectConfig, List[str]]:
         """Load config and return migration warnings, if any."""
         data = load_yaml(path)
         normalized, migration_warnings = normalize_project_payload(data)
@@ -647,7 +649,7 @@ class ProjectConfig(BaseModel):
         device: Optional[ExecutionDevice] = None,
         tasks_json: Optional[str] = None,
         tasks_only: bool = False,
-    ) -> "ProjectConfig":
+    ) -> ProjectConfig:
         """Create a mode/engine-aware scaffold configuration."""
         execution: Dict[str, Any] = {"engine": engine}
         if engine in {"torch", "hybrid"}:
@@ -758,7 +760,7 @@ class DatasetRegistry(BaseModel):
     updated_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
     @classmethod
-    def load(cls, path: Path) -> "DatasetRegistry":
+    def load(cls, path: Path) -> DatasetRegistry:
         """Load registry from YAML if present."""
         if not path.exists():
             return cls()
@@ -871,7 +873,7 @@ class ThresholdsConfig(BaseModel):
     override: OverridePolicy = Field(default_factory=OverridePolicy)
 
     @classmethod
-    def load(cls, path: Path) -> "ThresholdsConfig":
+    def load(cls, path: Path) -> ThresholdsConfig:
         if not path.exists():
             return cls()
         data = load_yaml(path)
@@ -881,7 +883,9 @@ class ThresholdsConfig(BaseModel):
         dump_yaml(self.model_dump(mode="python"), path)
 
 
-def validate_project_payload(payload: Dict[str, Any]) -> Tuple[Optional[ProjectConfig], List[str], List[str]]:
+def validate_project_payload(
+    payload: Dict[str, Any]
+) -> Tuple[Optional[ProjectConfig], List[str], List[str]]:
     """Validate a project payload and return config, migration warnings, and errors."""
     normalized, migration_warnings = normalize_project_payload(payload)
     try:

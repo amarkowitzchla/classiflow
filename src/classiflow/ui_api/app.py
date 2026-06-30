@@ -7,26 +7,24 @@ import mimetypes
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 
 import classiflow
-from classiflow.ui_api.config import UIConfig, StorageMode
+from classiflow.ui_api.config import StorageMode, UIConfig
 from classiflow.ui_api.models import (
     Artifact,
     Comment,
     CommentCreate,
     HealthResponse,
     PaginatedResponse,
-    ProjectCard,
     ProjectDashboard,
     Review,
     ReviewCreate,
     ReviewStatus,
-    RunBrief,
     RunDetail,
 )
 from classiflow.ui_api.repositories.interfaces import (
@@ -161,7 +159,9 @@ def _register_routes(app: FastAPI):
     @app.get("/api/projects", response_model=PaginatedResponse, tags=["Projects"])
     async def list_projects(
         q: Optional[str] = Query(None, description="Search query"),
-        mode: Optional[str] = Query(None, description="Task mode filter: binary, meta, hierarchical"),
+        mode: Optional[str] = Query(
+            None, description="Task mode filter: binary, meta, hierarchical"
+        ),
         owner: Optional[str] = Query(None, description="Owner filter"),
         updated_after: Optional[str] = Query(None, description="ISO timestamp filter"),
         page: int = Query(1, ge=1, description="Page number"),
@@ -391,15 +391,14 @@ def _register_routes(app: FastAPI):
         if plot_key not in plot_files:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid plot_key. Must be one of: {', '.join(plot_files.keys())}"
+                detail=f"Invalid plot_key. Must be one of: {', '.join(plot_files.keys())}",
             )
 
         # Resolve path
         path = artifact_repo.resolve_artifact_path(project_id, phase, run_id, plot_files[plot_key])
         if not path or not path.is_file():
             raise HTTPException(
-                status_code=404,
-                detail=f"Plot data not available for this run (key: {plot_key})"
+                status_code=404, detail=f"Plot data not available for this run (key: {plot_key})"
             )
 
         return FileResponse(

@@ -9,9 +9,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.metrics import f1_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import f1_score
 
 from classiflow.backends.torch.modules import (
     BinaryLinear,
@@ -19,7 +19,7 @@ from classiflow.backends.torch.modules import (
     MulticlassLinear,
     MulticlassMLP,
 )
-from classiflow.backends.torch.utils import resolve_device, resolve_dtype, set_seed, make_dataloader
+from classiflow.backends.torch.utils import make_dataloader, resolve_device, resolve_dtype, set_seed
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +107,9 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         y_val: Optional[np.ndarray],
         loss_fn: nn.Module,
     ) -> None:
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        optimizer = torch.optim.Adam(
+            self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay
+        )
         best_state = None
         best_metric = -np.inf
         epochs_no_improve = 0
@@ -142,7 +144,9 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
 
             if metric > best_metric:
                 best_metric = metric
-                best_state = {k: v.detach().cpu().clone() for k, v in self.model.state_dict().items()}
+                best_state = {
+                    k: v.detach().cpu().clone() for k, v in self.model.state_dict().items()
+                }
                 epochs_no_improve = 0
             else:
                 epochs_no_improve += 1
@@ -159,12 +163,14 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
     def _prepare_target(self, yb: torch.Tensor) -> torch.Tensor:
         return yb
 
-    def fit(self, X: np.ndarray, y: np.ndarray) -> "_TorchBaseEstimator":
+    def fit(self, X: np.ndarray, y: np.ndarray) -> _TorchBaseEstimator:
         set_seed(self.seed)
         X, y_encoded = self._prepare(X, y)
         self._setup_device()
 
-        self.model = self._build_model(self._input_dim, self._num_classes).to(self._device, dtype=self._dtype)
+        self.model = self._build_model(self._input_dim, self._num_classes).to(
+            self._device, dtype=self._dtype
+        )
         try:
             param_device = next(self.model.parameters()).device
             logger.info("%s model parameters on device=%s", self.__class__.__name__, param_device)
@@ -199,7 +205,9 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
         state = self.__dict__.copy()
         model = state.pop("model", None)
         if model is not None:
-            state["_model_state_dict"] = {k: v.detach().cpu() for k, v in model.state_dict().items()}
+            state["_model_state_dict"] = {
+                k: v.detach().cpu() for k, v in model.state_dict().items()
+            }
         else:
             state["_model_state_dict"] = None
         return state
@@ -207,9 +215,15 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)
         model_state = state.get("_model_state_dict")
-        if model_state is not None and self._input_dim is not None and self._num_classes is not None:
+        if (
+            model_state is not None
+            and self._input_dim is not None
+            and self._num_classes is not None
+        ):
             self._setup_device()
-            self.model = self._build_model(self._input_dim, self._num_classes).to(self._device, dtype=self._dtype)
+            self.model = self._build_model(self._input_dim, self._num_classes).to(
+                self._device, dtype=self._dtype
+            )
             self.model.load_state_dict(model_state)
             self._is_fitted = True
 
@@ -228,7 +242,9 @@ class TorchLogisticRegressionClassifier(_TorchBaseEstimator):
                 pos_weight = torch.tensor([counts[0] / counts[1]], dtype=torch.float32)
         elif isinstance(self.class_weight, dict):
             if 1 in self.class_weight and 0 in self.class_weight:
-                pos_weight = torch.tensor([self.class_weight[1] / self.class_weight[0]], dtype=torch.float32)
+                pos_weight = torch.tensor(
+                    [self.class_weight[1] / self.class_weight[0]], dtype=torch.float32
+                )
         return nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
     def _validation_metric(self, logits: torch.Tensor, y_val: np.ndarray) -> float:

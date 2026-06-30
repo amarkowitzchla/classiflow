@@ -70,11 +70,12 @@ def run_server(
 
     # Open browser
     if open_browser:
-        import webbrowser
         import threading
+        import webbrowser
 
         def _open():
             import time
+
             time.sleep(1)
             webbrowser.open(f"http://{host}:{port}")
 

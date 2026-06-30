@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import List, Dict, Any
-import pandas as pd
+from typing import Any, Dict, List
+
 import numpy as np
+import pandas as pd
 from scipy import stats
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
@@ -72,7 +73,9 @@ def anova_oneway(groups: List[np.ndarray]) -> Dict[str, Any]:
     }
 
 
-def tukey_posthoc(df: pd.DataFrame, feature: str, label_col: str, alpha: float = 0.05) -> List[Dict[str, Any]]:
+def tukey_posthoc(
+    df: pd.DataFrame, feature: str, label_col: str, alpha: float = 0.05
+) -> List[Dict[str, Any]]:
     """Perform Tukey HSD post-hoc test.
 
     Args:
@@ -168,7 +171,10 @@ def dunn_posthoc(
 
     try:
         ph = sp.posthoc_dunn(
-            df[[feature, label_col]].dropna(), val_col=feature, group_col=label_col, p_adjust=p_adjust
+            df[[feature, label_col]].dropna(),
+            val_col=feature,
+            group_col=label_col,
+            p_adjust=p_adjust,
         )
 
         # Melt to long format
@@ -296,7 +302,6 @@ def run_nonparametric_tests(
             continue
 
         groups = [g[feat].values for _, g in sub.groupby(label_col)]
-        k = len(groups)
 
         # Kruskal-Wallis (always, even for k=2)
         result = kruskal_wallis(groups)

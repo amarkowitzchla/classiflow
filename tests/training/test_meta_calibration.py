@@ -30,9 +30,7 @@ def _build_dummy_meta():
 def test_sigmoid_calibration_enabled():
     X, y, model = _build_dummy_meta()
     config = _make_config("sigmoid")
-    calibrated, metadata = _calibrate_meta_classifier(
-        model, X, y, config, enabled_requested="true"
-    )
+    calibrated, metadata = _calibrate_meta_classifier(model, X, y, config, enabled_requested="true")
 
     assert isinstance(calibrated, CalibratedClassifierCV)
     assert metadata["enabled"]

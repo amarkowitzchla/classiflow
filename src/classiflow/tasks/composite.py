@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Any, Dict
 
 from classiflow.tasks.builder import TaskBuilder
 
@@ -47,7 +47,7 @@ def load_composite_tasks(
     """
     logger.info(f"Loading composite tasks from {json_path}")
 
-    with open(json_path, "r") as f:
+    with open(json_path) as f:
         spec = json.load(f)
 
     for name, rule in _iter_task_rules(spec):

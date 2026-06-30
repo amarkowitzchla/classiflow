@@ -3,24 +3,25 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
+
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (
     accuracy_score,
-    balanced_accuracy_score,
-    precision_recall_fscore_support,
-    f1_score,
-    matthews_corrcoef,
-    confusion_matrix,
-    log_loss,
-    roc_auc_score,
-    roc_curve,
     auc,
+    balanced_accuracy_score,
+    confusion_matrix,
+    f1_score,
+    log_loss,
+    matthews_corrcoef,
+    precision_recall_fscore_support,
+    roc_curve,
 )
 from sklearn.preprocessing import label_binarize
 
 from classiflow.metrics.decision import compute_decision_metrics
+
 logger = logging.getLogger(__name__)
 
 
@@ -72,7 +73,9 @@ def compute_classification_metrics(
 
     # Macro/weighted/micro F1
     for avg in ["macro", "weighted", "micro"]:
-        metrics[f"f1_{avg}"] = float(f1_score(y_true_clean, y_pred_clean, average=avg, zero_division=0))
+        metrics[f"f1_{avg}"] = float(
+            f1_score(y_true_clean, y_pred_clean, average=avg, zero_division=0)
+        )
 
     # Matthews Correlation Coefficient
     try:
@@ -90,13 +93,15 @@ def compute_classification_metrics(
 
     per_class = []
     for i, cls in enumerate(class_names):
-        per_class.append({
-            "class": str(cls),
-            "precision": float(precision[i]),
-            "recall": float(recall[i]),
-            "f1": float(f1[i]),
-            "support": int(support[i]),
-        })
+        per_class.append(
+            {
+                "class": str(cls),
+                "precision": float(precision[i]),
+                "recall": float(recall[i]),
+                "f1": float(f1[i]),
+                "support": int(support[i]),
+            }
+        )
 
     metrics["per_class"] = per_class
 
@@ -174,7 +179,9 @@ def compute_roc_auc(
 
     # Ensure y_proba has correct shape
     if y_proba.shape[1] != n_classes:
-        return {"error": f"Probability matrix has {y_proba.shape[1]} columns but {n_classes} classes"}
+        return {
+            "error": f"Probability matrix has {y_proba.shape[1]} columns but {n_classes} classes"
+        }
 
     # Binarize labels
     y_bin = label_binarize(y_true, classes=class_names)
@@ -190,26 +197,32 @@ def compute_roc_auc(
     for i, cls in enumerate(class_names):
         if y_bin[:, i].sum() == 0:
             # No positive samples for this class
-            per_class.append({
-                "class": str(cls),
-                "auc": np.nan,
-                "note": "No positive samples in test set",
-            })
+            per_class.append(
+                {
+                    "class": str(cls),
+                    "auc": np.nan,
+                    "note": "No positive samples in test set",
+                }
+            )
         else:
             try:
                 fpr, tpr, _ = roc_curve(y_bin[:, i], y_proba[:, i])
                 auc_score = auc(fpr, tpr)
-                per_class.append({
-                    "class": str(cls),
-                    "auc": float(auc_score),
-                })
+                per_class.append(
+                    {
+                        "class": str(cls),
+                        "auc": float(auc_score),
+                    }
+                )
                 valid_aucs.append(auc_score)
             except Exception as e:
-                per_class.append({
-                    "class": str(cls),
-                    "auc": np.nan,
-                    "note": f"Error: {str(e)}",
-                })
+                per_class.append(
+                    {
+                        "class": str(cls),
+                        "auc": np.nan,
+                        "note": f"Error: {str(e)}",
+                    }
+                )
 
     roc_metrics["per_class"] = per_class
 
@@ -323,23 +336,29 @@ def format_metrics_for_display(metrics: Dict[str, Any]) -> pd.DataFrame:
             else:
                 value_str = str(value)
 
-            rows.append({
-                "Metric": key,
-                "Value": value_str,
-            })
+            rows.append(
+                {
+                    "Metric": key,
+                    "Value": value_str,
+                }
+            )
 
     # ROC AUC
     if "roc_auc" in metrics:
         roc = metrics["roc_auc"]
         if "macro" in roc:
-            rows.append({
-                "Metric": "roc_auc_macro",
-                "Value": f"{roc['macro']:.4f}" if not np.isnan(roc['macro']) else "N/A",
-            })
+            rows.append(
+                {
+                    "Metric": "roc_auc_macro",
+                    "Value": f"{roc['macro']:.4f}" if not np.isnan(roc["macro"]) else "N/A",
+                }
+            )
         if "micro" in roc:
-            rows.append({
-                "Metric": "roc_auc_micro",
-                "Value": f"{roc['micro']:.4f}" if not np.isnan(roc['micro']) else "N/A",
-            })
+            rows.append(
+                {
+                    "Metric": "roc_auc_micro",
+                    "Value": f"{roc['micro']:.4f}" if not np.isnan(roc["micro"]) else "N/A",
+                }
+            )
 
     return pd.DataFrame(rows)

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
-from typing import Dict, List, Optional, Tuple
 import operator
+from dataclasses import asdict, dataclass
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -13,7 +13,6 @@ from classiflow.projects.promotion_templates import (
     TEMPLATE_DEFAULT_F1_BALACC,
     get_promotion_gate_template,
 )
-
 
 METRIC_ALIASES = {
     "sensitivity": "recall",
@@ -68,7 +67,9 @@ def resolve_metric(metrics: Dict[str, float], metric_name: str) -> Optional[floa
     return None
 
 
-def _resolve_per_fold_values(per_fold: Dict[str, List[float]], metric_name: str) -> Optional[List[float]]:
+def _resolve_per_fold_values(
+    per_fold: Dict[str, List[float]], metric_name: str
+) -> Optional[List[float]]:
     for key in _metric_candidates(metric_name):
         values = per_fold.get(key)
         if values:
@@ -150,19 +151,43 @@ def _legacy_gates(thresholds: ThresholdsConfig) -> List[PromotionGateSpec]:
     gates: List[PromotionGateSpec] = []
     for metric, threshold in thresholds.technical_validation.required.items():
         gates.append(
-            PromotionGateSpec(metric=metric, op=">=", threshold=float(threshold), scope="outer", aggregation="mean")
+            PromotionGateSpec(
+                metric=metric,
+                op=">=",
+                threshold=float(threshold),
+                scope="outer",
+                aggregation="mean",
+            )
         )
     for metric, threshold in thresholds.independent_test.required.items():
         gates.append(
-            PromotionGateSpec(metric=metric, op=">=", threshold=float(threshold), scope="independent", aggregation="mean")
+            PromotionGateSpec(
+                metric=metric,
+                op=">=",
+                threshold=float(threshold),
+                scope="independent",
+                aggregation="mean",
+            )
         )
     for metric, threshold in thresholds.technical_validation.safety.items():
         gates.append(
-            PromotionGateSpec(metric=metric, op="<=", threshold=float(threshold), scope="outer", aggregation="mean")
+            PromotionGateSpec(
+                metric=metric,
+                op="<=",
+                threshold=float(threshold),
+                scope="outer",
+                aggregation="mean",
+            )
         )
     for metric, threshold in thresholds.independent_test.safety.items():
         gates.append(
-            PromotionGateSpec(metric=metric, op="<=", threshold=float(threshold), scope="independent", aggregation="mean")
+            PromotionGateSpec(
+                metric=metric,
+                op="<=",
+                threshold=float(threshold),
+                scope="independent",
+                aggregation="mean",
+            )
         )
     return gates
 

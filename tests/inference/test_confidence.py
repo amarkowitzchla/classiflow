@@ -1,26 +1,28 @@
 """Tests for confidence metrics."""
 
-import pytest
 import numpy as np
 import pandas as pd
+import pytest
 
 from classiflow.inference.confidence import (
-    compute_confidence_metrics,
-    assign_confidence_buckets,
     annotate_predictions_with_confidence,
+    assign_confidence_buckets,
+    compute_confidence_metrics,
 )
 
 
 def test_compute_confidence_metrics_multiclass():
     """Test confidence metrics for multiclass predictions."""
     # Mock probabilities (n_samples=5, n_classes=3)
-    probabilities = np.array([
-        [0.7, 0.2, 0.1],  # High confidence
-        [0.5, 0.3, 0.2],  # Medium confidence
-        [0.4, 0.35, 0.25],  # Low confidence
-        [0.9, 0.05, 0.05],  # Very high confidence
-        [0.33, 0.33, 0.34],  # Very low confidence
-    ])
+    probabilities = np.array(
+        [
+            [0.7, 0.2, 0.1],  # High confidence
+            [0.5, 0.3, 0.2],  # Medium confidence
+            [0.4, 0.35, 0.25],  # Low confidence
+            [0.9, 0.05, 0.05],  # Very high confidence
+            [0.33, 0.33, 0.34],  # Very low confidence
+        ]
+    )
 
     confidence_df = compute_confidence_metrics(probabilities)
 
@@ -77,16 +79,20 @@ def test_assign_confidence_buckets_custom_thresholds():
 
 def test_annotate_predictions_with_confidence():
     """Test annotating predictions DataFrame with confidence."""
-    predictions_df = pd.DataFrame({
-        "sample_id": [1, 2, 3],
-        "predicted_label": ["A", "B", "A"],
-    })
+    predictions_df = pd.DataFrame(
+        {
+            "sample_id": [1, 2, 3],
+            "predicted_label": ["A", "B", "A"],
+        }
+    )
 
-    probabilities = np.array([
-        [0.8, 0.2],
-        [0.6, 0.4],
-        [0.55, 0.45],
-    ])
+    probabilities = np.array(
+        [
+            [0.8, 0.2],
+            [0.6, 0.4],
+            [0.55, 0.45],
+        ]
+    )
 
     annotated_df = annotate_predictions_with_confidence(
         predictions_df,

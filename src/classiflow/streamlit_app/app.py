@@ -1,10 +1,11 @@
 """Main Streamlit application entry point."""
 
 from pathlib import Path
+
 import streamlit as st
-import pandas as pd
-from classiflow.streamlit_app.ui.style import use_theme
+
 from classiflow.streamlit_app.ui.helpers import list_outputs
+from classiflow.streamlit_app.ui.style import use_theme
 
 st.set_page_config(page_title="SubtypeML", page_icon="🔬", layout="wide")
 use_theme()

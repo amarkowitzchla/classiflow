@@ -87,4 +87,4 @@ def choose_project_id(name: str, override: Optional[str] = None) -> str:
     if override:
         return override
     base = slugify(name).upper()
-    return (base[:12] if base else "PROJECT")
+    return base[:12] if base else "PROJECT"

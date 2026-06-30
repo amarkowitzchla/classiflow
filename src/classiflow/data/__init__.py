@@ -21,18 +21,18 @@ Example usage:
     df = load_table(Path("data.parquet"))
 """
 
-from classiflow.data.spec import DataSpec, DataFormat
 from classiflow.data.dataset import LoadedDataset
 from classiflow.data.loaders import (
-    load_table,
-    load_data,
     infer_format,
+    load_data,
+    load_table,
     validate_parquet_available,
 )
+from classiflow.data.spec import DataFormat, DataSpec
 from classiflow.data.validation import (
+    generate_missingness_report,
     validate_columns,
     validate_features,
-    generate_missingness_report,
 )
 
 __all__ = [

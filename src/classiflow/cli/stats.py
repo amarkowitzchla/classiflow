@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional
+
 import typer
 
 from classiflow.config import _resolve_data_path
@@ -35,7 +36,9 @@ def run_stats_cmd(
     classes: Optional[List[str]] = typer.Option(None, "--classes", help="Subset/order of classes"),
     alpha: float = typer.Option(0.05, "--alpha", help="Significance threshold"),
     min_n: int = typer.Option(3, "--min-n", help="Minimum n per class for Shapiro-Wilk"),
-    dunn_adjust: str = typer.Option("holm", "--dunn-adjust", help="P-value adjustment for Dunn test"),
+    dunn_adjust: str = typer.Option(
+        "holm", "--dunn-adjust", help="P-value adjustment for Dunn test"
+    ),
     top_n: int = typer.Option(30, "--top-n", help="Number of top features in summary"),
     no_legacy_csv: bool = typer.Option(False, "--no-legacy-csv", help="Skip legacy CSV outputs"),
     no_legacy_xlsx: bool = typer.Option(False, "--no-legacy-xlsx", help="Skip legacy xlsx output"),
@@ -91,9 +94,9 @@ def run_stats_cmd(
             write_legacy_xlsx=not no_legacy_xlsx,
         )
 
-        typer.secho(f"\n✓ Analysis complete!", fg=typer.colors.GREEN)
+        typer.secho("\n✓ Analysis complete!", fg=typer.colors.GREEN)
         typer.echo(f"  Publication workbook: {results['publication_xlsx']}")
-        if results['legacy_xlsx']:
+        if results["legacy_xlsx"]:
             typer.echo(f"  Legacy workbook: {results['legacy_xlsx']}")
         typer.echo(f"  Stats directory: {results['stats_dir']}")
         typer.echo(f"\n  Classes: {len(results['classes'])}")
@@ -118,14 +121,22 @@ def run_viz_cmd(
         help="[DEPRECATED] Path to CSV with features + labels. Use --data instead.",
     ),
     label_col: str = typer.Option(..., "--label-col", help="Name of label column"),
-    outdir: Path = typer.Option(Path("derived"), "--outdir", help="Output directory for visualizations"),
-    stats_dir: Optional[Path] = typer.Option(None, "--stats-dir", help="Directory with stats results"),
+    outdir: Path = typer.Option(
+        Path("derived"), "--outdir", help="Output directory for visualizations"
+    ),
+    stats_dir: Optional[Path] = typer.Option(
+        None, "--stats-dir", help="Directory with stats results"
+    ),
     classes: Optional[List[str]] = typer.Option(None, "--classes", help="Subset/order of classes"),
     alpha: float = typer.Option(0.05, "--alpha", help="Significance threshold for volcano"),
     fc_thresh: float = typer.Option(1.0, "--fc-thresh", help="|log2FC| threshold for volcano"),
-    fc_center: str = typer.Option("median", "--fc-center", help="Center for fold-change (mean/median)"),
+    fc_center: str = typer.Option(
+        "median", "--fc-center", help="Center for fold-change (mean/median)"
+    ),
     label_topk: int = typer.Option(12, "--label-topk", help="Top features to annotate on volcano"),
-    heatmap_topn: int = typer.Option(30, "--heatmap-topn", help="Top features for heatmap (0=skip)"),
+    heatmap_topn: int = typer.Option(
+        30, "--heatmap-topn", help="Top features for heatmap (0=skip)"
+    ),
     fig_dpi: int = typer.Option(160, "--fig-dpi", help="Figure DPI"),
 ):
     """
@@ -176,18 +187,18 @@ def run_viz_cmd(
             fig_dpi=fig_dpi,
         )
 
-        typer.secho(f"\n✓ Visualizations complete!", fg=typer.colors.GREEN)
+        typer.secho("\n✓ Visualizations complete!", fg=typer.colors.GREEN)
         typer.echo(f"  Output directory: {results['viz_dir']}")
         typer.echo(f"  Boxplots: {results['boxplots']['pdf']}")
         typer.echo(f"  Fold-change plots: {len(results['foldchange'])} files")
         typer.echo(f"  Volcano plots: {len(results['volcano'])} files")
-        if results['heatmap']:
+        if results["heatmap"]:
             typer.echo(f"  Heatmap: {results['heatmap']}")
 
         # Report projections
-        if results.get('projections'):
-            proj = results['projections']
-            typer.echo(f"\n  Dimensionality reduction:")
+        if results.get("projections"):
+            proj = results["projections"]
+            typer.echo("\n  Dimensionality reduction:")
             for method, path in proj.items():
                 if path:
                     typer.echo(f"    • {method.upper()}: {path}")
@@ -218,9 +229,15 @@ def run_umap_cmd(
     min_dist: float = typer.Option(0.1, "--min-dist", help="UMAP min_dist"),
     metric: str = typer.Option("euclidean", "--metric", help="UMAP metric"),
     random_state: int = typer.Option(40, "--random-state", help="Random seed"),
-    standardize: bool = typer.Option(True, "--standardize/--no-standardize", help="Standardize features"),
-    supervised: bool = typer.Option(False, "--supervised/--unsupervised", help="Use supervised UMAP"),
-    pca_components: Optional[int] = typer.Option(None, "--pca-components", help="Optional PCA pre-reduction"),
+    standardize: bool = typer.Option(
+        True, "--standardize/--no-standardize", help="Standardize features"
+    ),
+    supervised: bool = typer.Option(
+        False, "--supervised/--unsupervised", help="Use supervised UMAP"
+    ),
+    pca_components: Optional[int] = typer.Option(
+        None, "--pca-components", help="Optional PCA pre-reduction"
+    ),
 ):
     """
     Generate UMAP visualization.

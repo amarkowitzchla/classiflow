@@ -13,10 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def apply_smote(
-    X: np.ndarray,
-    y: np.ndarray,
-    k_neighbors: int = 5,
-    random_state: int = 42
+    X: np.ndarray, y: np.ndarray, k_neighbors: int = 5, random_state: int = 42
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Apply SMOTE to balance classes.

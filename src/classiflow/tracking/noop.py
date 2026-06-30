@@ -30,7 +30,7 @@ class NoOpTracker(ExperimentTracker):
         self,
         run_name: Optional[str] = None,
         tags: Optional[Dict[str, str]] = None,
-    ) -> "NoOpTracker":
+    ) -> NoOpTracker:
         """No-op: returns self for context manager."""
         return self
 

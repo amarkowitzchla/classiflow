@@ -30,7 +30,9 @@ class UIConfig:
     host: str = "127.0.0.1"
     port: int = 8765
     reload: bool = False
-    cors_origins: list[str] = field(default_factory=lambda: ["http://localhost:5173", "http://localhost:3000"])
+    cors_origins: list[str] = field(
+        default_factory=lambda: ["http://localhost:5173", "http://localhost:3000"]
+    )
 
     # Optional Postgres (for comments/reviews)
     postgres_url: Optional[str] = None

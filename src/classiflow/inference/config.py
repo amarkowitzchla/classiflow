@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, List, Literal, Dict, Any
-import json
+from typing import Any, Dict, List, Literal, Optional
 
 
 @dataclass
@@ -198,6 +198,6 @@ class RunManifest:
     @classmethod
     def load(cls, path: Path) -> RunManifest:
         """Load manifest from JSON file."""
-        with open(path, "r") as f:
+        with open(path) as f:
             data = json.load(f)
         return cls(**data)

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, List, Mapping, Optional
 import math
-
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass
+from typing import Any, Dict, List, Optional
 
 DEFAULT_POLICY_THRESHOLDS: Dict[str, float] = {
     "underconfidence_gap": -0.10,
@@ -112,10 +112,7 @@ def decide_calibration(
                 f" acc_top1={acc_top1:.6f} >= {float(thresholds_used['high_accuracy']):.6f}"
             )
 
-        if (
-            acc_top1 is not None
-            and acc_top1 >= float(thresholds_used["near_perfect_accuracy"])
-        ):
+        if acc_top1 is not None and acc_top1 >= float(thresholds_used["near_perfect_accuracy"]):
             reasons.append(
                 "R2_near_perfect_accuracy:"
                 f" acc_top1={acc_top1:.6f} >= {float(thresholds_used['near_perfect_accuracy']):.6f}"
@@ -160,14 +157,18 @@ def decide_calibration(
                 enabled_final=False,
                 enabled_requested=enabled_requested,
                 decision="disabled_by_metrics",
-                reasons=["Calibration unavailable for this fold; using uncalibrated probabilities."],
+                reasons=[
+                    "Calibration unavailable for this fold; using uncalibrated probabilities."
+                ],
                 comparisons=comparisons,
             )
         return CalibrationDecision(
             enabled_final=True,
             enabled_requested=enabled_requested,
             decision="retained",
-            reasons=[f"Auto policy not applied for mode={mode}; retaining existing calibration behavior."],
+            reasons=[
+                f"Auto policy not applied for mode={mode}; retaining existing calibration behavior."
+            ],
             comparisons=comparisons,
         )
 

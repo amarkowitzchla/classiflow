@@ -1,6 +1,5 @@
 """Tests for metrics computation."""
 
-import pytest
 import numpy as np
 
 from classiflow.metrics import compute_binary_metrics
@@ -29,8 +28,17 @@ def test_compute_binary_metrics_random():
     metrics = compute_binary_metrics(y_true, scores)
 
     # Should have all required keys
-    required_keys = ["n", "pos_rate", "accuracy", "balanced_accuracy",
-                     "precision", "recall", "f1", "mcc", "roc_auc"]
+    required_keys = [
+        "n",
+        "pos_rate",
+        "accuracy",
+        "balanced_accuracy",
+        "precision",
+        "recall",
+        "f1",
+        "mcc",
+        "roc_auc",
+    ]
     for key in required_keys:
         assert key in metrics
 

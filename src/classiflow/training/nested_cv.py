@@ -3,28 +3,33 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import Dict, Any, Optional, Literal
 import warnings
+from pathlib import Path
+from typing import Any, Dict, Literal, Optional
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import StratifiedKFold, RepeatedStratifiedKFold, GridSearchCV
-from sklearn.preprocessing import StandardScaler, LabelEncoder
 from imblearn.pipeline import Pipeline as ImbPipeline
 from sklearn.exceptions import FitFailedWarning
+from sklearn.model_selection import GridSearchCV, RepeatedStratifiedKFold, StratifiedKFold
+from sklearn.preprocessing import StandardScaler
 
-from classiflow.models import get_estimators, get_param_grids, AdaptiveSMOTE
-from classiflow.metrics.scorers import get_scorers, SCORER_ORDER
 from classiflow.metrics.binary import compute_binary_metrics
 from classiflow.metrics.calibration import compute_probability_quality
-from classiflow.splitting import iter_outer_splits, iter_inner_splits, assert_no_patient_leakage, make_group_labels
+from classiflow.metrics.scorers import SCORER_ORDER, get_scorers
+from classiflow.models import AdaptiveSMOTE, get_estimators, get_param_grids
 from classiflow.plots import (
-    plot_roc_curve,
-    plot_pr_curve,
-    plot_confusion_matrix,
-    plot_averaged_roc_curves,
     plot_averaged_pr_curves,
+    plot_averaged_roc_curves,
+    plot_confusion_matrix,
+    plot_pr_curve,
+    plot_roc_curve,
+)
+from classiflow.splitting import (
+    assert_no_patient_leakage,
+    iter_inner_splits,
+    iter_outer_splits,
+    make_group_labels,
 )
 from classiflow.training.probability_quality import (
     serialize_probability_quality_metrics,
@@ -182,7 +187,9 @@ class NestedCVOrchestrator:
             results["inner_cv_rows"].extend(fold_results["inner_cv_rows"])
             results["inner_cv_split_rows"].extend(fold_results["inner_cv_split_rows"])
             results["outer_rows"].extend(fold_results["outer_rows"])
-            results["fold_probability_quality"].update(fold_results.get("fold_probability_quality", {}))
+            results["fold_probability_quality"].update(
+                fold_results.get("fold_probability_quality", {})
+            )
 
             # Collect ROC/PR data for averaged plots
             if fold_results.get("roc_data"):
@@ -273,7 +280,9 @@ class NestedCVOrchestrator:
             fold_results["outer_rows"].extend(var_results["outer_rows"])
             if var_results.get("probability_quality_payload"):
                 key = f"fold_{fold_idx}_{variant}"
-                fold_results["fold_probability_quality"][key] = var_results["probability_quality_payload"]
+                fold_results["fold_probability_quality"][key] = var_results[
+                    "probability_quality_payload"
+                ]
 
             # Track best model for plotting (use first variant's best if multiple)
             if best_estimator is None and var_results["best_estimator"] is not None:
@@ -295,7 +304,12 @@ class NestedCVOrchestrator:
             classes = ["0", "1"]
 
             # ROC curve
-            from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
+            from sklearn.metrics import (
+                auc,
+                average_precision_score,
+                precision_recall_curve,
+                roc_curve,
+            )
 
             fpr, tpr, _ = roc_curve(y_va.values, y_va_scores)
             roc_auc = auc(fpr, tpr)
@@ -372,18 +386,22 @@ class NestedCVOrchestrator:
             min_class = int(y_tr.value_counts().min())
         n_splits_eff = max(2, min(self.inner_splits, min_class))
         if n_splits_eff < self.inner_splits:
-            logger.debug(f"Reducing inner_splits {self.inner_splits} → {n_splits_eff} (minority={min_class})")
+            logger.debug(
+                f"Reducing inner_splits {self.inner_splits} → {n_splits_eff} (minority={min_class})"
+            )
 
         if groups_tr is not None and patient_col is not None:
             df_groups_tr = pd.DataFrame({patient_col: np.asarray(groups_tr)}, index=X_tr.index)
-            inner_splits = list(iter_inner_splits(
-                df_tr=df_groups_tr,
-                y_tr=y_tr,
-                patient_col=patient_col,
-                n_splits=n_splits_eff,
-                n_repeats=self.inner_repeats,
-                random_state=self.random_state,
-            ))
+            inner_splits = list(
+                iter_inner_splits(
+                    df_tr=df_groups_tr,
+                    y_tr=y_tr,
+                    patient_col=patient_col,
+                    n_splits=n_splits_eff,
+                    n_repeats=self.inner_repeats,
+                    random_state=self.random_state,
+                )
+            )
             for split_idx, (inner_tr_idx, inner_va_idx) in enumerate(inner_splits, 1):
                 assert_no_patient_leakage(
                     df_groups_tr,
@@ -423,11 +441,13 @@ class NestedCVOrchestrator:
         for model_name, est in self.estimators.items():
             # Build pipeline without VarianceThreshold to avoid removing all features
             # in small CV splits (especially problematic with scaled data)
-            pipe = ImbPipeline([
-                ("sampler", sampler),
-                ("scaler", StandardScaler()),
-                ("clf", est),
-            ])
+            pipe = ImbPipeline(
+                [
+                    ("sampler", sampler),
+                    ("scaler", StandardScaler()),
+                    ("clf", est),
+                ]
+            )
 
             grid = GridSearchCV(
                 pipe,
@@ -455,9 +475,15 @@ class NestedCVOrchestrator:
                     "sampler": variant,
                     "task": task_name,
                     "model_name": model_name,
-                    "rank_test_f1": int(cvres.get("rank_test_F1 Score", [np.nan]*len(cvres["params"]))[i]),
-                    "mean_test_f1": float(cvres.get("mean_test_F1 Score", [np.nan]*len(cvres["params"]))[i]),
-                    "std_test_f1": float(cvres.get("std_test_F1 Score", [np.nan]*len(cvres["params"]))[i]),
+                    "rank_test_f1": int(
+                        cvres.get("rank_test_F1 Score", [np.nan] * len(cvres["params"]))[i]
+                    ),
+                    "mean_test_f1": float(
+                        cvres.get("mean_test_F1 Score", [np.nan] * len(cvres["params"]))[i]
+                    ),
+                    "std_test_f1": float(
+                        cvres.get("std_test_F1 Score", [np.nan] * len(cvres["params"]))[i]
+                    ),
                 }
                 # Flatten clf__ params
                 for k, v in cvres["params"][i].items():
@@ -491,25 +517,33 @@ class NestedCVOrchestrator:
                 best_estimator = grid.best_estimator_
 
             # Evaluate on train and val
-            train_metrics = compute_binary_metrics(y_tr.values, self._get_scores(grid.best_estimator_, X_tr))
-            val_metrics = compute_binary_metrics(y_va.values, self._get_scores(grid.best_estimator_, X_va))
+            train_metrics = compute_binary_metrics(
+                y_tr.values, self._get_scores(grid.best_estimator_, X_tr)
+            )
+            val_metrics = compute_binary_metrics(
+                y_va.values, self._get_scores(grid.best_estimator_, X_va)
+            )
 
-            var_results["outer_rows"].append({
-                "fold": fold_idx,
-                "sampler": variant,
-                "phase": "train",
-                "task": task_name,
-                "model_name": model_name,
-                **train_metrics,
-            })
-            var_results["outer_rows"].append({
-                "fold": fold_idx,
-                "sampler": variant,
-                "phase": "val",
-                "task": task_name,
-                "model_name": model_name,
-                **val_metrics,
-            })
+            var_results["outer_rows"].append(
+                {
+                    "fold": fold_idx,
+                    "sampler": variant,
+                    "phase": "train",
+                    "task": task_name,
+                    "model_name": model_name,
+                    **train_metrics,
+                }
+            )
+            var_results["outer_rows"].append(
+                {
+                    "fold": fold_idx,
+                    "sampler": variant,
+                    "phase": "val",
+                    "task": task_name,
+                    "model_name": model_name,
+                    **val_metrics,
+                }
+            )
 
         var_results["best_model"] = best_model_name
         var_results["best_estimator"] = best_estimator

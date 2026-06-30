@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List
 
 
 def flatten_dict(
@@ -168,7 +168,11 @@ def summarize_metrics(
         Dictionary of numeric metrics only
     """
     result = {}
-    flat = flatten_dict(metrics_dict) if any(isinstance(v, dict) for v in metrics_dict.values()) else metrics_dict
+    flat = (
+        flatten_dict(metrics_dict)
+        if any(isinstance(v, dict) for v in metrics_dict.values())
+        else metrics_dict
+    )
 
     for k, v in flat.items():
         if isinstance(v, (int, float)) and not isinstance(v, bool):

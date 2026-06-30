@@ -1,16 +1,17 @@
 """Streamlit page for model inference."""
 
-from pathlib import Path
-import streamlit as st
-import pandas as pd
 import sys
+from pathlib import Path
+
+import pandas as pd
+import streamlit as st
 
 # Add src to path for package imports
 root = Path(__file__).parent.parent.parent.parent
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
-from classiflow.inference import run_inference, InferenceConfig
+from classiflow.inference import InferenceConfig, run_inference
 
 st.set_page_config(page_title="Inference Pipeline", page_icon="🔮", layout="wide")
 
@@ -300,6 +301,7 @@ if st.button("🚀 Run Inference", type="primary", use_container_width=True):
         st.error(f"❌ Inference failed: {e}")
         with st.expander("🐛 Error details"):
             import traceback
+
             st.code(traceback.format_exc())
 
 # Footer

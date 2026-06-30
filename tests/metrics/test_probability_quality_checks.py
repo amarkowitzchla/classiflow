@@ -74,9 +74,7 @@ def _write_prob_quality_run(
         "config": {"task_mode": mode},
     }
     (run_dir / "run.json").write_text(json.dumps(payload), encoding="utf-8")
-    (var_dir / "calibration_metadata.json").write_text(
-        json.dumps({"bins": bins}), encoding="utf-8"
-    )
+    (var_dir / "calibration_metadata.json").write_text(json.dumps({"bins": bins}), encoding="utf-8")
 
     counts = curve_counts or [20] * bins
     curve = pd.DataFrame(
@@ -111,7 +109,11 @@ def test_pq_001_low_occupancy_triggers(tmp_path: Path) -> None:
 def test_pq_002_underconfidence_warn_triggers(tmp_path: Path) -> None:
     run_dir = _write_prob_quality_run(
         tmp_path,
-        uncalibrated={"confidence_gap_top1": -0.25, "accuracy_top1": 0.99, "mean_confidence_top1": 0.74},
+        uncalibrated={
+            "confidence_gap_top1": -0.25,
+            "accuracy_top1": 0.99,
+            "mean_confidence_top1": 0.74,
+        },
     )
     results = evaluate_probability_quality_checks(run_dir=run_dir, mode="meta")
     by_id = {r.rule_id: r for r in results}
@@ -122,7 +124,11 @@ def test_pq_002_underconfidence_warn_triggers(tmp_path: Path) -> None:
 def test_pq_003_overconfidence_error_triggers(tmp_path: Path) -> None:
     run_dir = _write_prob_quality_run(
         tmp_path,
-        uncalibrated={"confidence_gap_top1": 0.12, "accuracy_top1": 0.80, "mean_confidence_top1": 0.92},
+        uncalibrated={
+            "confidence_gap_top1": 0.12,
+            "accuracy_top1": 0.80,
+            "mean_confidence_top1": 0.92,
+        },
     )
     results = evaluate_probability_quality_checks(run_dir=run_dir, mode="meta")
     by_id = {r.rule_id: r for r in results}
@@ -133,8 +139,18 @@ def test_pq_003_overconfidence_error_triggers(tmp_path: Path) -> None:
 def test_pq_004_calibration_worsened_triggers(tmp_path: Path) -> None:
     run_dir = _write_prob_quality_run(
         tmp_path,
-        uncalibrated={"brier_recommended": 0.02, "log_loss": 0.20, "ece_top1": 0.08, "ece_ovr_macro": 0.04},
-        calibrated={"brier_recommended": 0.03, "log_loss": 0.25, "ece_top1": 0.12, "ece_ovr_macro": 0.06},
+        uncalibrated={
+            "brier_recommended": 0.02,
+            "log_loss": 0.20,
+            "ece_top1": 0.08,
+            "ece_ovr_macro": 0.04,
+        },
+        calibrated={
+            "brier_recommended": 0.03,
+            "log_loss": 0.25,
+            "ece_top1": 0.12,
+            "ece_ovr_macro": 0.06,
+        },
     )
     results = evaluate_probability_quality_checks(run_dir=run_dir, mode="meta")
     by_id = {r.rule_id: r for r in results}

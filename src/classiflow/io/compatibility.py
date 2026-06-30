@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import Dict, Any, List, Optional, Union
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import pandas as pd
 
-from classiflow.config import MetaConfig, HierarchicalConfig
-from classiflow.io.schema import DataSchema
+from classiflow.config import HierarchicalConfig, MetaConfig
 from classiflow.data import load_table
+from classiflow.io.schema import DataSchema
 
 logger = logging.getLogger(__name__)
 
@@ -49,15 +49,18 @@ class CompatibilityResult:
 
             if self.mode == "hierarchical":
                 # Show patient info only if using patient stratification
-                if self.data_summary.get('use_patient_stratification') and "n_patients" in self.data_summary:
+                if (
+                    self.data_summary.get("use_patient_stratification")
+                    and "n_patients" in self.data_summary
+                ):
                     lines.append(f"  • Patients: {self.data_summary.get('n_patients', 'N/A')}")
-                    lines.append(f"  • Stratification: Patient-level")
+                    lines.append("  • Stratification: Patient-level")
                 else:
-                    lines.append(f"  • Stratification: Sample-level")
-                if self.data_summary.get('hierarchical'):
-                    lines.append(f"  • Hierarchical: Yes")
+                    lines.append("  • Stratification: Sample-level")
+                if self.data_summary.get("hierarchical"):
+                    lines.append("  • Hierarchical: Yes")
                     lines.append(f"  • L1 Classes: {len(self.data_summary.get('l1_classes', []))}")
-                    l2_branches = self.data_summary.get('l2_classes_per_branch', {})
+                    l2_branches = self.data_summary.get("l2_classes_per_branch", {})
                     if l2_branches:
                         lines.append(f"  • L2 Branches: {len(l2_branches)}")
 
@@ -100,7 +103,9 @@ class CompatibilityResult:
             "errors": self.errors,
             "suggestions": self.suggestions,
             "data_summary": self.data_summary,
-            "schema": self.schema.model_dump() if isinstance(self.schema, DataSchema) else self.schema,
+            "schema": self.schema.model_dump()
+            if isinstance(self.schema, DataSchema)
+            else self.schema,
         }
 
 
@@ -156,7 +161,9 @@ def assess_data_compatibility(
         # PyArrow not installed for parquet
         result.is_compatible = False
         result.errors.append(str(e))
-        result.suggestions.append("Install with: pip install classiflow[parquet] or pip install pyarrow")
+        result.suggestions.append(
+            "Install with: pip install classiflow[parquet] or pip install pyarrow"
+        )
         return result
     except Exception as e:
         result.is_compatible = False
@@ -193,7 +200,9 @@ def _check_path_exists(data_path: Path, result: CompatibilityResult) -> bool:
         if not parquet_files:
             result.is_compatible = False
             result.errors.append(f"Directory contains no .parquet files: {data_path}")
-            result.suggestions.append("Ensure the directory contains .parquet files for dataset loading")
+            result.suggestions.append(
+                "Ensure the directory contains .parquet files for dataset loading"
+            )
             return False
 
     return True
@@ -212,7 +221,7 @@ def _assess_meta_compatibility(
         result.is_compatible = False
         result.errors.append(f"Label column '{config.label_col}' not found in CSV")
         result.suggestions.append(f"Available columns: {', '.join(df.columns)}")
-        result.suggestions.append(f"Update config.label_col to one of the available columns")
+        result.suggestions.append("Update config.label_col to one of the available columns")
         return
 
     # Extract labels
@@ -238,7 +247,9 @@ def _assess_meta_compatibility(
         df = df[mask]
         n_filtered = y_before - len(y)
         if n_filtered > 0:
-            result.warnings.append(f"Filtered to {len(config.classes)} classes, removed {n_filtered} samples")
+            result.warnings.append(
+                f"Filtered to {len(config.classes)} classes, removed {n_filtered} samples"
+            )
 
     # Extract features
     if config.feature_cols is not None:
@@ -246,7 +257,9 @@ def _assess_meta_compatibility(
         if missing:
             result.is_compatible = False
             result.errors.append(f"Feature columns not found: {missing}")
-            result.suggestions.append("Remove missing columns from config.feature_cols or update CSV")
+            result.suggestions.append(
+                "Remove missing columns from config.feature_cols or update CSV"
+            )
             return
         X = df[config.feature_cols].copy()
     else:
@@ -258,7 +271,9 @@ def _assess_meta_compatibility(
         result.is_compatible = False
         result.errors.append("No numeric feature columns found")
         result.suggestions.append("Ensure CSV contains numeric feature columns")
-        result.suggestions.append("Or specify feature_cols explicitly if columns need type conversion")
+        result.suggestions.append(
+            "Or specify feature_cols explicitly if columns need type conversion"
+        )
         return
 
     # Basic validation
@@ -293,7 +308,7 @@ def _assess_meta_compatibility(
     imbalance_ratio = max_samples_per_class / min_samples_per_class
     if imbalance_ratio > 10:
         result.warnings.append(f"Severe class imbalance detected (ratio: {imbalance_ratio:.1f}:1)")
-        result.suggestions.append(f"Consider using SMOTE: set smote_mode='on' or 'both'")
+        result.suggestions.append("Consider using SMOTE: set smote_mode='on' or 'both'")
 
     # Check CV feasibility
     if n_samples < config.outer_folds * n_classes:
@@ -338,7 +353,9 @@ def _assess_hierarchical_compatibility(
         result.is_compatible = False
         result.errors.append(f"Patient column '{config.patient_col}' not found in CSV")
         result.suggestions.append(f"Available columns: {', '.join(df.columns)}")
-        result.suggestions.append(f"Update config.patient_col or set to None for sample-level stratification")
+        result.suggestions.append(
+            "Update config.patient_col or set to None for sample-level stratification"
+        )
         return
 
     # Check L1 label column exists
@@ -346,7 +363,7 @@ def _assess_hierarchical_compatibility(
         result.is_compatible = False
         result.errors.append(f"L1 label column '{config.label_l1}' not found in CSV")
         result.suggestions.append(f"Available columns: {', '.join(df.columns)}")
-        result.suggestions.append(f"Update config.label_l1 or add the column to CSV")
+        result.suggestions.append("Update config.label_l1 or add the column to CSV")
         return
 
     # Check L2 label column exists if hierarchical mode
@@ -355,7 +372,7 @@ def _assess_hierarchical_compatibility(
         result.is_compatible = False
         result.errors.append(f"L2 label column '{config.label_l2}' not found in CSV")
         result.suggestions.append(f"Available columns: {', '.join(df.columns)}")
-        result.suggestions.append(f"Update config.label_l2 or set to None for single-level mode")
+        result.suggestions.append("Update config.label_l2 or set to None for single-level mode")
         return
 
     # Drop rows with missing L1 labels (and patient ID if using patient stratification)
@@ -393,7 +410,9 @@ def _assess_hierarchical_compatibility(
         if missing:
             result.is_compatible = False
             result.errors.append(f"Feature columns not found: {missing}")
-            result.suggestions.append("Remove missing columns from config.feature_cols or update CSV")
+            result.suggestions.append(
+                "Remove missing columns from config.feature_cols or update CSV"
+            )
             return
         X = df[config.feature_cols].copy()
     else:
@@ -447,10 +466,8 @@ def _assess_hierarchical_compatibility(
         # Sample-level checks (when not using patient stratification)
         if n_samples < config.outer_folds * 2:
             result.is_compatible = False
-            result.errors.append(
-                f"Too few samples ({n_samples}) for {config.outer_folds}-fold CV"
-            )
-            result.suggestions.append(f"Reduce outer_folds or collect more samples")
+            result.errors.append(f"Too few samples ({n_samples}) for {config.outer_folds}-fold CV")
+            result.suggestions.append("Reduce outer_folds or collect more samples")
 
     # Check L1 classes
     if n_l1_classes < 2:
@@ -585,7 +602,9 @@ def _check_feature_quality(X: pd.DataFrame, result: CompatibilityResult) -> None
         result.suggestions.append("Consider scaling/normalizing features before training")
 
 
-def print_compatibility_report(config: Union[MetaConfig, HierarchicalConfig]) -> CompatibilityResult:
+def print_compatibility_report(
+    config: Union[MetaConfig, HierarchicalConfig]
+) -> CompatibilityResult:
     """
     Assess and print data compatibility report.
 

@@ -78,9 +78,9 @@ def serve(
         # Open browser automatically
         classiflow ui serve --projects-root ./projects --open
     """
-    from classiflow.ui_api.server import run_server, run_dev_server
+    from classiflow.ui_api.server import run_dev_server, run_server
 
-    typer.echo(f"Starting Classiflow UI...")
+    typer.echo("Starting Classiflow UI...")
     typer.echo(f"  Projects root: {projects_root}")
     typer.echo(f"  Address: http://{host}:{port}")
 
@@ -148,7 +148,7 @@ def reindex(
         phases = ", ".join(project.phases.keys()) if project.phases else "no runs"
         typer.echo(f"  - {project.id}: {phases} ({project.run_count} runs)")
 
-    typer.secho(f"\n✓ Index complete", fg=typer.colors.GREEN)
+    typer.secho("\n✓ Index complete", fg=typer.colors.GREEN)
 
 
 @ui_app.command(name="open")
@@ -215,8 +215,8 @@ def check(
 
     Useful for debugging issues with project discovery.
     """
-    from classiflow.ui_api.scanner import LocalFilesystemScanner
     from classiflow.ui_api.adapters.manifest import parse_run_manifest
+    from classiflow.ui_api.scanner import LocalFilesystemScanner
 
     typer.echo(f"Checking projects in {projects_root}...\n")
 
@@ -273,7 +273,9 @@ def check(
         if project.datasets:
             typer.echo(f"\n  Datasets ({len(project.datasets)}):")
             for name, ds in project.datasets.items():
-                typer.echo(f"    - {name}: {ds.row_count or '?'} rows, {len(ds.feature_columns)} features")
+                typer.echo(
+                    f"    - {name}: {ds.row_count or '?'} rows, {len(ds.feature_columns)} features"
+                )
 
     typer.echo("")
     typer.secho(f"Total: {len(projects)} projects", fg=typer.colors.GREEN)

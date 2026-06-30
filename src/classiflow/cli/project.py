@@ -2,23 +2,22 @@
 
 from __future__ import annotations
 
-import logging
 import json
+import logging
 import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
 import pandas as pd
-
 import typer
 
 from classiflow.projects.dataset_registry import register_dataset
 from classiflow.projects.orchestrator import (
-    run_technical_validation,
-    run_feasibility,
     build_final_model,
+    run_feasibility,
     run_independent_test,
+    run_technical_validation,
 )
 from classiflow.projects.project_fs import ProjectPaths, choose_project_id, project_root
 from classiflow.projects.project_models import (
@@ -27,9 +26,9 @@ from classiflow.projects.project_models import (
     ThresholdsConfig,
     available_project_options,
 )
-from classiflow.projects.reporting import write_promotion_report
 from classiflow.projects.promotion import evaluate_promotion, per_gate_rows, promotion_decision
 from classiflow.projects.promotion_templates import list_promotion_gate_templates
+from classiflow.projects.reporting import write_promotion_report
 from classiflow.projects.yaml_utils import dump_yaml
 
 logger = logging.getLogger(__name__)
@@ -359,9 +358,7 @@ def bootstrap_project(
     if tasks_only and tasks_json is None:
         raise typer.BadParameter("--tasks-only requires --tasks-json")
     if selected_mode != "meta" and (tasks_json is not None or tasks_only):
-        raise typer.BadParameter(
-            "--tasks-json/--tasks-only are only supported when --mode meta"
-        )
+        raise typer.BadParameter("--tasks-json/--tasks-only are only supported when --mode meta")
 
     if selected_engine not in {"sklearn", "torch", "hybrid"}:
         raise typer.BadParameter("engine must be one of: sklearn, torch, hybrid")

@@ -2,47 +2,42 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import platform
-from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
-import hashlib
 
+import joblib
 import numpy as np
 import pandas as pd
-import joblib
 
 from classiflow import __version__
-from classiflow.config import TrainConfig, MetaConfig, HierarchicalConfig, MulticlassConfig
+from classiflow.backends.registry import get_backend, get_model_set
+from classiflow.config import HierarchicalConfig, MetaConfig, MulticlassConfig, TrainConfig
 from classiflow.evaluation.smote_comparison import SMOTEComparison
 from classiflow.inference import InferenceConfig, run_inference
-from classiflow.lineage.manifest import TrainingRunManifest
 from classiflow.lineage.hashing import compute_file_hash
-from classiflow.models import get_estimators, AdaptiveSMOTE
-from classiflow.backends.registry import get_backend, get_model_set
+from classiflow.lineage.manifest import TrainingRunManifest
+from classiflow.models import AdaptiveSMOTE, get_estimators
+from classiflow.projects.dataset_registry import verify_manifest_hash
+from classiflow.projects.final_train import (
+    FinalTrainConfig,
+    extract_selected_configs_from_technical_run,
+    save_selected_configs,
+    train_final_meta_model,
+)
+from classiflow.projects.project_fs import ProjectPaths
+from classiflow.projects.project_models import DatasetRegistry, ProjectConfig, ThresholdsConfig
+from classiflow.projects.promotion import normalize_metric_name
+from classiflow.projects.reporting import write_technical_report, write_test_report
 from classiflow.tasks import TaskBuilder
 from classiflow.training import (
     train_binary_task,
     train_meta_classifier,
     train_multiclass_classifier,
-)
-from classiflow.projects.dataset_registry import verify_manifest_hash
-from classiflow.projects.project_fs import ProjectPaths
-from classiflow.projects.project_models import ProjectConfig, DatasetRegistry, ThresholdsConfig
-from classiflow.projects.reporting import write_technical_report, write_test_report
-from classiflow.projects.promotion import normalize_metric_name
-from classiflow.projects.final_train import (
-    FinalTrainConfig,
-    SelectedBinaryConfig,
-    SelectedMetaConfig,
-    extract_selected_configs_from_technical_run,
-    save_selected_configs,
-    train_final_meta_model,
-    run_sanity_checks,
-    validate_sanity_checks,
 )
 
 logger = logging.getLogger(__name__)
@@ -284,7 +279,9 @@ def _probability_quality_metrics_from_manifest(
         run_payload = json.loads(run_manifest_path.read_text(encoding="utf-8"))
     except Exception:
         return {}, {}
-    prob_quality = ((run_payload.get("artifact_registry", {}) or {}).get("probability_quality", {}) or {})
+    prob_quality = (run_payload.get("artifact_registry", {}) or {}).get(
+        "probability_quality", {}
+    ) or {}
     folds = prob_quality.get("folds")
     if not isinstance(folds, dict) or not folds:
         return {}, {}
@@ -516,9 +513,7 @@ def run_technical_validation(
         if config.task.tasks_only and tasks_json_path is None:
             raise ValueError("task.tasks_only requires task.tasks_json in project.yaml")
         if tasks_json_path is not None and not tasks_json_path.exists():
-            raise ValueError(
-                f"Configured task.tasks_json does not exist: {tasks_json_path}"
-            )
+            raise ValueError(f"Configured task.tasks_json does not exist: {tasks_json_path}")
         train_config = MetaConfig(
             data_csv=train_manifest,
             label_col=config.key_columns.label,
@@ -658,8 +653,8 @@ def run_technical_validation(
         if run_manifest_path.exists():
             try:
                 run_payload = json.loads(run_manifest_path.read_text(encoding="utf-8"))
-                prob_quality = (
-                    (run_payload.get("artifact_registry", {}) or {}).get("probability_quality", {})
+                prob_quality = (run_payload.get("artifact_registry", {}) or {}).get(
+                    "probability_quality", {}
                 )
                 folds = prob_quality.get("folds", {}) if isinstance(prob_quality, dict) else {}
                 if isinstance(folds, dict) and folds:
@@ -982,8 +977,8 @@ def _train_final_binary(
     if best_cfg.get("sampler") == "none":
         sampler = "passthrough"
 
-    from sklearn.preprocessing import StandardScaler
     from imblearn.pipeline import Pipeline as ImbPipeline
+    from sklearn.preprocessing import StandardScaler
 
     pipe = ImbPipeline(
         [
@@ -1038,8 +1033,9 @@ def _train_final_meta(
         Path to technical validation run directory. If provided, binary pipelines
         are copied from this run. Otherwise, pipelines are retrained (legacy behavior).
     """
-    from classiflow.io import load_data
     from sklearn.calibration import CalibratedClassifierCV
+
+    from classiflow.io import load_data
 
     X_full, y_full = load_data(train_manifest, config.key_columns.label)
     classes = sorted(y_full.unique().tolist())
@@ -1084,8 +1080,9 @@ def _train_final_meta(
             config, X_full, y_full, tasks, technical_run, variant
         )
 
-    from classiflow.training.meta import _build_meta_features
     from sklearn.linear_model import LogisticRegression
+
+    from classiflow.training.meta import _build_meta_features
 
     X_meta = _build_meta_features(X_full, y_full, best_pipes, best_models, tasks, config)
 
@@ -1248,8 +1245,8 @@ def _retrain_binary_pipelines_per_task(
     This fixes the bug where the global best configuration was used for all tasks,
     which could result in suboptimal or failed models.
     """
-    from sklearn.preprocessing import StandardScaler
     from imblearn.pipeline import Pipeline as ImbPipeline
+    from sklearn.preprocessing import StandardScaler
 
     best_pipes = {}
     best_models = {}
@@ -1406,8 +1403,8 @@ def _train_final_multiclass(
     if best_cfg.get("sampler") == "none":
         sampler = "passthrough"
 
-    from sklearn.preprocessing import StandardScaler
     from imblearn.pipeline import Pipeline as ImbPipeline
+    from sklearn.preprocessing import StandardScaler
 
     pipe = ImbPipeline(
         [
@@ -1437,9 +1434,11 @@ def _train_final_hierarchical(
     metrics_path: Path,
 ) -> None:
     import json as jsonlib
+
     import numpy as np
-    from sklearn.preprocessing import LabelEncoder, StandardScaler
     from sklearn.model_selection import StratifiedShuffleSplit
+    from sklearn.preprocessing import LabelEncoder, StandardScaler
+
     from classiflow.models.smote import apply_smote
 
     df = pd.read_csv(train_manifest)
@@ -1737,7 +1736,7 @@ def build_final_model(
             )
 
         if result.warnings:
-            logger.warning(f"Warnings during training:")
+            logger.warning("Warnings during training:")
             for w in result.warnings:
                 logger.warning(f"  - {w}")
 

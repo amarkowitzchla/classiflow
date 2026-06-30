@@ -125,7 +125,4 @@ def get_tracker(
             **kwargs,
         )
 
-    raise ValueError(
-        f"Unknown tracking backend: {backend}. "
-        f"Supported backends: mlflow, wandb"
-    )
+    raise ValueError(f"Unknown tracking backend: {backend}. " f"Supported backends: mlflow, wandb")

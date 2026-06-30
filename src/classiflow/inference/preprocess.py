@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Dict, Any, Tuple
-import pandas as pd
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -92,9 +93,7 @@ class FeatureAligner:
 
             if self.strict:
                 self.errors.append(msg)
-                raise ValueError(
-                    f"Strict mode: {msg}. Set strict=False to fill missing features."
-                )
+                raise ValueError(f"Strict mode: {msg}. Set strict=False to fill missing features.")
             else:
                 self.warnings.append(msg)
                 logger.warning(msg)
@@ -104,7 +103,9 @@ class FeatureAligner:
 
         # Fill missing features
         if not self.strict and missing_features:
-            logger.info(f"Filling {len(missing_features)} missing features using strategy: {self.fill_strategy}")
+            logger.info(
+                f"Filling {len(missing_features)} missing features using strategy: {self.fill_strategy}"
+            )
             for feat in missing_features:
                 if self.fill_strategy == "zero":
                     X[feat] = 0.0
@@ -198,7 +199,9 @@ def validate_input_data(df: pd.DataFrame, id_col: Optional[str] = None) -> List[
     # Check for extreme values (could indicate data issues)
     for col in numeric_cols:
         if df[col].std() > 1e6:
-            warnings.append(f"Column '{col}' has very large standard deviation ({df[col].std():.2e})")
+            warnings.append(
+                f"Column '{col}' has very large standard deviation ({df[col].std():.2e})"
+            )
 
     return warnings
 

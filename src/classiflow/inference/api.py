@@ -3,26 +3,27 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
 from datetime import datetime
-import pandas as pd
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
+
 import numpy as np
+import pandas as pd
 
 from classiflow.inference.config import InferenceConfig
 from classiflow.inference.loader import ArtifactLoader
-from classiflow.inference.preprocess import FeatureAligner, validate_input_data
+from classiflow.inference.metrics import compute_classification_metrics
+from classiflow.inference.plots import generate_all_plots
 from classiflow.inference.predict import (
     BinaryPredictor,
-    MetaPredictor,
     HierarchicalPredictor,
+    MetaPredictor,
     MulticlassPredictor,
     add_binary_prediction_columns,
 )
-from classiflow.inference.metrics import compute_classification_metrics
-from classiflow.metrics.calibration import compute_probability_quality
-from classiflow.inference.plots import generate_all_plots
+from classiflow.inference.preprocess import FeatureAligner, validate_input_data
 from classiflow.inference.reports import InferenceReportWriter
+from classiflow.metrics.calibration import compute_probability_quality
 
 logger = logging.getLogger(__name__)
 

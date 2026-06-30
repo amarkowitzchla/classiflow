@@ -1,15 +1,15 @@
 """Tests for effect size calculations."""
 
-import pytest
 import numpy as np
+import pytest
 
 from classiflow.stats.effects import (
-    cohen_d,
-    hedges_g,
     cliff_delta,
-    rank_biserial,
-    log2_fold_change,
+    cohen_d,
     compute_all_effect_sizes,
+    hedges_g,
+    log2_fold_change,
+    rank_biserial,
 )
 
 

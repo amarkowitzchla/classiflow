@@ -9,17 +9,18 @@ import pytest
 
 from classiflow.lineage.hashing import compute_file_hash
 from classiflow.projects.dataset_registry import register_dataset, verify_manifest_hash
-from classiflow.projects.project_models import ProjectConfig
+from classiflow.projects.project_models import ProjectConfig, ThresholdsConfig
 from classiflow.projects.promotion import evaluate_promotion
-from classiflow.projects.project_models import ThresholdsConfig
 
 
 def _write_manifest(path: Path, include_patient: bool = True) -> None:
-    df = pd.DataFrame({
-        "sample_id": ["s1", "s2", "s3", "s4"],
-        "label": ["A", "B", "A", "B"],
-        "feat1": [1.0, 2.0, 3.0, 4.0],
-    })
+    df = pd.DataFrame(
+        {
+            "sample_id": ["s1", "s2", "s3", "s4"],
+            "label": ["A", "B", "A", "B"],
+            "feat1": [1.0, 2.0, 3.0, 4.0],
+        }
+    )
     if include_patient:
         df["patient_id"] = ["p1", "p2", "p3", "p4"]
     df.to_csv(path, index=False)
@@ -58,7 +59,9 @@ def test_register_dataset_missing_columns_raises(tmp_path: Path) -> None:
         register_dataset(registry_path, config, "train", manifest)
 
 
-def test_verify_manifest_hash_does_not_parse_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_verify_manifest_hash_does_not_parse_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     manifest = tmp_path / "data.csv"
     _write_manifest(manifest)
     expected = compute_file_hash(manifest)

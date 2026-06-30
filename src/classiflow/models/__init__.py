@@ -65,10 +65,12 @@ def __getattr__(name: str) -> Any:
     if name in {"TorchLinearClassifier", "TorchMLPClassifier"}:
         from classiflow.models.torch_multiclass import TorchLinearClassifier, TorchMLPClassifier
 
-        return {"TorchLinearClassifier": TorchLinearClassifier, "TorchMLPClassifier": TorchMLPClassifier}[name]
+        return {
+            "TorchLinearClassifier": TorchLinearClassifier,
+            "TorchMLPClassifier": TorchMLPClassifier,
+        }[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def __dir__() -> list[str]:
     return sorted(__all__)
-

@@ -7,16 +7,16 @@ from pathlib import Path
 from typing import Optional
 
 from classiflow.ui_api.models import (
-    ProjectCard,
-    ProjectDashboard,
-    RunBrief,
-    RunDetail,
     Artifact,
     Comment,
     CommentCreate,
+    ProjectCard,
+    ProjectDashboard,
     Review,
     ReviewCreate,
     ReviewStatus,
+    RunBrief,
+    RunDetail,
 )
 
 

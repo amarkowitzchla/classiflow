@@ -5,10 +5,11 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Optional
+
 import typer
 
-from classiflow.bundles import create_bundle, inspect_bundle, print_bundle_info
 from classiflow import __version__
+from classiflow.bundles import create_bundle, inspect_bundle, print_bundle_info
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +23,13 @@ bundle_app = typer.Typer(
 def create_bundle_cmd(
     run_dir: Path = typer.Option(..., "--run-dir", help="Training run directory"),
     out: Path = typer.Option(..., "--out", help="Output bundle path (will add .zip if missing)"),
-    fold: Optional[int] = typer.Option(None, "--fold", help="Specific fold to include (default: fold 1)"),
+    fold: Optional[int] = typer.Option(
+        None, "--fold", help="Specific fold to include (default: fold 1)"
+    ),
     all_folds: bool = typer.Option(False, "--all-folds", help="Include all folds"),
-    include_metrics: bool = typer.Option(True, "--include-metrics/--no-metrics", help="Include metrics CSVs"),
+    include_metrics: bool = typer.Option(
+        True, "--include-metrics/--no-metrics", help="Include metrics CSVs"
+    ),
     description: Optional[str] = typer.Option(None, "--description", help="Bundle description"),
     verbose: bool = typer.Option(False, "--verbose", help="Verbose output"),
 ):
@@ -74,6 +79,7 @@ def create_bundle_cmd(
         typer.secho(f"\n✗ Bundle creation failed: {e}", fg=typer.colors.RED, err=True)
         if verbose:
             import traceback
+
             traceback.print_exc()
         raise typer.Exit(code=1)
 
@@ -124,7 +130,6 @@ def validate_bundle_cmd(
     """
     try:
         from classiflow.bundles.inspect import validate_bundle_version
-        import classiflow
 
         typer.echo(f"Validating bundle: {bundle}")
 

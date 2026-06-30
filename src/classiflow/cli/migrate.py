@@ -6,6 +6,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Optional
+
 import typer
 
 logger = logging.getLogger(__name__)
@@ -19,8 +20,12 @@ migrate_app = typer.Typer(
 @migrate_app.command("run")
 def migrate_run(
     run_dir: Path = typer.Argument(..., help="Run directory to migrate"),
-    data_csv: Optional[Path] = typer.Option(None, "--data-csv", help="Original training data CSV (for hash computation)"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be done without making changes"),
+    data_csv: Optional[Path] = typer.Option(
+        None, "--data-csv", help="Original training data CSV (for hash computation)"
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show what would be done without making changes"
+    ),
     verbose: bool = typer.Option(False, "--verbose", help="Verbose output"),
 ):
     """
@@ -43,9 +48,9 @@ def migrate_run(
         logging.getLogger("classiflow").setLevel(logging.DEBUG)
 
     try:
-        from classiflow.lineage import create_training_manifest, TrainingRunManifest
+
+        from classiflow.lineage import create_training_manifest
         from classiflow.lineage.hashing import get_file_metadata
-        import uuid
 
         typer.echo(f"Migrating run directory: {run_dir}")
 
@@ -58,13 +63,13 @@ def migrate_run(
             raise typer.Exit(code=1)
 
         if new_manifest.exists() and not dry_run:
-            typer.secho(f"⚠ run.json already exists, will overwrite", fg=typer.colors.YELLOW)
+            typer.secho("⚠ run.json already exists, will overwrite", fg=typer.colors.YELLOW)
 
         # Load legacy manifest
-        with open(legacy_manifest, "r") as f:
+        with open(legacy_manifest) as f:
             legacy_data = json.load(f)
 
-        typer.echo(f"\nLegacy manifest loaded:")
+        typer.echo("\nLegacy manifest loaded:")
         typer.echo(f"  Config: {legacy_data.get('config', {}).keys()}")
 
         # Compute data hash if CSV provided
@@ -104,7 +109,7 @@ def migrate_run(
         elif "feature_cols" in config:
             feature_list = config["feature_cols"] or []
 
-        typer.echo(f"\nDetected:")
+        typer.echo("\nDetected:")
         typer.echo(f"  Task type: {task_type}")
         typer.echo(f"  Features: {len(feature_list) if feature_list else 0}")
 
@@ -129,15 +134,15 @@ def migrate_run(
             typer.echo(f"  Generated new run_id: {new_manifest_obj.run_id}")
 
         if dry_run:
-            typer.echo("\n" + "="*60)
+            typer.echo("\n" + "=" * 60)
             typer.secho("DRY RUN - No changes made", fg=typer.colors.YELLOW)
-            typer.echo("="*60)
+            typer.echo("=" * 60)
             typer.echo("\nWould create run.json with:")
             typer.echo(json.dumps(new_manifest_obj.to_dict(), indent=2))
         else:
             # Save new manifest
             new_manifest_obj.save(new_manifest)
-            typer.secho(f"\n✓ Migration complete!", fg=typer.colors.GREEN)
+            typer.secho("\n✓ Migration complete!", fg=typer.colors.GREEN)
             typer.echo(f"  Created: {new_manifest}")
             typer.echo(f"  Run ID: {new_manifest_obj.run_id}")
 
@@ -145,6 +150,7 @@ def migrate_run(
             backup_path = run_dir / "run_manifest.json.backup"
             if not backup_path.exists():
                 import shutil
+
                 shutil.copy(legacy_manifest, backup_path)
                 typer.echo(f"  Backup: {backup_path}")
 
@@ -152,13 +158,16 @@ def migrate_run(
         typer.secho(f"\n✗ Migration failed: {e}", fg=typer.colors.RED, err=True)
         if verbose:
             import traceback
+
             traceback.print_exc()
         raise typer.Exit(code=1)
 
 
 @migrate_app.command("batch")
 def migrate_batch(
-    parent_dir: Path = typer.Argument(..., help="Parent directory containing multiple run directories"),
+    parent_dir: Path = typer.Argument(
+        ..., help="Parent directory containing multiple run directories"
+    ),
     pattern: str = typer.Option("*", "--pattern", help="Glob pattern for run directories"),
     data_csv: Optional[Path] = typer.Option(None, "--data-csv", help="Training data CSV"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Dry run"),
@@ -186,7 +195,7 @@ def migrate_batch(
         typer.echo(f"  - {rd.name}")
 
     if not dry_run:
-        confirm = typer.confirm(f"\nProceed with migration?")
+        confirm = typer.confirm("\nProceed with migration?")
         if not confirm:
             typer.echo("Cancelled")
             raise typer.Exit(code=0)
@@ -202,6 +211,7 @@ def migrate_batch(
         try:
             # Call migrate_run for each directory
             from typer.testing import CliRunner
+
             runner = CliRunner()
 
             cmd = ["run", str(run_dir)]
@@ -222,7 +232,7 @@ def migrate_batch(
             fail_count += 1
 
     typer.echo(f"\n{'='*60}")
-    typer.echo(f"Batch migration complete:")
+    typer.echo("Batch migration complete:")
     typer.secho(f"  Success: {success_count}", fg=typer.colors.GREEN)
     if fail_count > 0:
         typer.secho(f"  Failed: {fail_count}", fg=typer.colors.RED)

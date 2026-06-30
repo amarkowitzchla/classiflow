@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import List, Optional
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -15,7 +16,9 @@ class DataSchema(BaseModel):
     class_counts: dict = Field(description="Per-class sample counts")
     feature_names: List[str] = Field(description="Feature column names")
     class_names: List[str] = Field(description="Class labels")
-    missing_features: Optional[List[str]] = Field(default=None, description="Features with missing values")
+    missing_features: Optional[List[str]] = Field(
+        default=None, description="Features with missing values"
+    )
 
     @field_validator("class_counts")
     @classmethod
@@ -42,7 +45,6 @@ class DataSchema(BaseModel):
         -------
         DataSchema
         """
-        import pandas as pd
 
         class_counts = y.value_counts().to_dict()
         missing_features = X.columns[X.isna().any()].tolist() or None

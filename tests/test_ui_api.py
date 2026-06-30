@@ -3,20 +3,18 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import tempfile
-from datetime import datetime
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from classiflow.ui_api.app import create_app
-from classiflow.ui_api.config import UIConfig, StorageMode
-from classiflow.ui_api.scanner import LocalFilesystemScanner
-from classiflow.ui_api.repositories.sqlite import SQLiteCommentReviewRepository
+from classiflow.ui_api.config import StorageMode, UIConfig
 from classiflow.ui_api.models import ReviewStatus
+from classiflow.ui_api.repositories.sqlite import SQLiteCommentReviewRepository
+from classiflow.ui_api.scanner import LocalFilesystemScanner
 
 
 @pytest.fixture
@@ -32,7 +30,8 @@ def temp_projects_dir():
 
     # Create project.yaml
     project_yaml = project_dir / "project.yaml"
-    project_yaml.write_text("""
+    project_yaml.write_text(
+        """
 project:
   id: TEST_PROJECT
   name: Test Project
@@ -52,14 +51,16 @@ validation:
     outer_folds: 3
     inner_folds: 5
     seed: 42
-""")
+"""
+    )
 
     # Create registry directory
     registry_dir = project_dir / "registry"
     registry_dir.mkdir()
 
     datasets_yaml = registry_dir / "datasets.yaml"
-    datasets_yaml.write_text("""
+    datasets_yaml.write_text(
+        """
 datasets:
   train:
     dataset_type: train
@@ -77,14 +78,16 @@ datasets:
         B: 50
     dirty: false
 updated_at: '2024-01-15T10:00:00'
-""")
+"""
+    )
 
     # Create promotion directory
     promotion_dir = project_dir / "promotion"
     promotion_dir.mkdir()
 
     decision_yaml = promotion_dir / "decision.yaml"
-    decision_yaml.write_text("""
+    decision_yaml.write_text(
+        """
 decision: PASS
 timestamp: '2024-01-15T12:00:00'
 technical_run: run001
@@ -93,7 +96,8 @@ reasons:
   - All thresholds met
 override:
   enabled: false
-""")
+"""
+    )
 
     # Create runs directory
     runs_dir = project_dir / "runs"
@@ -105,52 +109,64 @@ override:
 
     # Create run.json
     run_json = tech_val_dir / "run.json"
-    run_json.write_text(json.dumps({
-        "run_id": "uuid-001",
-        "timestamp": "2024-01-15T11:00:00",
-        "package_version": "0.1.0",
-        "training_data_path": "/path/to/train.csv",
-        "training_data_hash": "abc123",
-        "training_data_size_bytes": 1000,
-        "training_data_row_count": 100,
-        "config": {
-            "outer_folds": 3,
-            "label_col": "target",
-        },
-        "task_type": "meta",
-        "python_version": "3.11.0",
-        "feature_list": ["feature1", "feature2"],
-    }))
+    run_json.write_text(
+        json.dumps(
+            {
+                "run_id": "uuid-001",
+                "timestamp": "2024-01-15T11:00:00",
+                "package_version": "0.1.0",
+                "training_data_path": "/path/to/train.csv",
+                "training_data_hash": "abc123",
+                "training_data_size_bytes": 1000,
+                "training_data_row_count": 100,
+                "config": {
+                    "outer_folds": 3,
+                    "label_col": "target",
+                },
+                "task_type": "meta",
+                "python_version": "3.11.0",
+                "feature_list": ["feature1", "feature2"],
+            }
+        )
+    )
 
     # Create lineage.json
     lineage_json = tech_val_dir / "lineage.json"
-    lineage_json.write_text(json.dumps({
-        "phase": "TECHNICAL_VALIDATION",
-        "run_id": "run001",
-        "timestamp_local": "2024-01-15T11:00:00",
-        "classiflow_version": "0.1.0",
-        "command": "classiflow project run-technical",
-    }))
+    lineage_json.write_text(
+        json.dumps(
+            {
+                "phase": "TECHNICAL_VALIDATION",
+                "run_id": "run001",
+                "timestamp_local": "2024-01-15T11:00:00",
+                "classiflow_version": "0.1.0",
+                "command": "classiflow project run-technical",
+            }
+        )
+    )
 
     # Create metrics_summary.json
     metrics_json = tech_val_dir / "metrics_summary.json"
-    metrics_json.write_text(json.dumps({
-        "summary": {
-            "balanced_accuracy": 0.85,
-            "f1_macro": 0.82,
-        },
-        "per_fold": {
-            "balanced_accuracy": [0.84, 0.85, 0.86],
-        },
-    }))
+    metrics_json.write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "balanced_accuracy": 0.85,
+                    "f1_macro": 0.82,
+                },
+                "per_fold": {
+                    "balanced_accuracy": [0.84, 0.85, 0.86],
+                },
+            }
+        )
+    )
 
     # Create a test artifact (image)
     test_image = tech_val_dir / "roc_curve.png"
     # Create a minimal valid PNG (1x1 pixel)
     test_image.write_bytes(
-        b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01'
-        b'\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00'
-        b'\x00\x01\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82'
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00"
+        b"\x00\x01\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82"
     )
 
     yield projects_root
@@ -393,9 +409,7 @@ class TestReviewEndpoints:
         review_id = create_response.json()["id"]
 
         # Update it
-        response = test_client.patch(
-            f"/api/reviews/{review_id}?status=approved&notes=Updated"
-        )
+        response = test_client.patch(f"/api/reviews/{review_id}?status=approved&notes=Updated")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "approved"
@@ -473,18 +487,22 @@ class TestSQLiteRepository:
         from classiflow.ui_api.models import CommentCreate
 
         # Create comments
-        comment1 = repo.create_comment(CommentCreate(
-            scope_type="project",
-            scope_id="test_project",
-            author="user1",
-            content="First comment",
-        ))
-        comment2 = repo.create_comment(CommentCreate(
-            scope_type="project",
-            scope_id="test_project",
-            author="user2",
-            content="Second comment",
-        ))
+        repo.create_comment(
+            CommentCreate(
+                scope_type="project",
+                scope_id="test_project",
+                author="user1",
+                content="First comment",
+            )
+        )
+        repo.create_comment(
+            CommentCreate(
+                scope_type="project",
+                scope_id="test_project",
+                author="user2",
+                content="Second comment",
+            )
+        )
 
         # List
         comments, total = repo.list_comments("project", "test_project")
@@ -496,12 +514,14 @@ class TestSQLiteRepository:
 
         from classiflow.ui_api.models import CommentCreate
 
-        comment = repo.create_comment(CommentCreate(
-            scope_type="project",
-            scope_id="test_project",
-            author="user1",
-            content="To delete",
-        ))
+        comment = repo.create_comment(
+            CommentCreate(
+                scope_type="project",
+                scope_id="test_project",
+                author="user1",
+                content="To delete",
+            )
+        )
 
         assert repo.delete_comment(comment.id)
         assert not repo.delete_comment(comment.id)  # Already deleted
@@ -511,12 +531,14 @@ class TestSQLiteRepository:
 
         from classiflow.ui_api.models import ReviewCreate
 
-        review = repo.create_review(ReviewCreate(
-            scope_type="run",
-            scope_id="test_run",
-            reviewer="reviewer1",
-            status=ReviewStatus.pending,
-        ))
+        review = repo.create_review(
+            ReviewCreate(
+                scope_type="run",
+                scope_id="test_run",
+                reviewer="reviewer1",
+                status=ReviewStatus.pending,
+            )
+        )
 
         updated = repo.update_review_status(review.id, ReviewStatus.approved, "Looks good")
         assert updated is not None

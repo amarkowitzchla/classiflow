@@ -6,33 +6,31 @@ import hashlib
 import logging
 import math
 import mimetypes
-import os
+import numbers
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-import numbers
-from typing import Optional
+from typing import Any, Optional
 
 from classiflow.ui_api.adapters.manifest import (
     RunManifestNormalized,
-    parse_run_manifest,
     parse_metrics,
+    parse_run_manifest,
 )
 from classiflow.ui_api.adapters.project import (
-    ProjectConfigNormalized,
-    parse_project_config,
-    parse_datasets_registry,
-    parse_thresholds,
-    parse_decision,
-    get_project_updated_at,
     DatasetInfo,
-    ThresholdsConfig,
     DecisionResult,
+    ProjectConfigNormalized,
+    ThresholdsConfig,
+    get_project_updated_at,
+    parse_datasets_registry,
+    parse_decision,
+    parse_project_config,
+    parse_thresholds,
 )
 from classiflow.ui_api.models import (
     ArtifactKind,
     DecisionBadge,
-    MetricsSummary,
     GateCheck,
     GateResult,
 )
@@ -41,24 +39,44 @@ logger = logging.getLogger(__name__)
 
 # Allowlisted extensions for serving
 ALLOWED_EXTENSIONS = {
-    ".png", ".jpg", ".jpeg", ".svg", ".gif",  # Images
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".svg",
+    ".gif",  # Images
     ".pdf",  # Documents
-    ".html", ".htm",  # Web
-    ".md", ".txt",  # Text
-    ".json", ".yaml", ".yml",  # Config
-    ".csv", ".xlsx", ".xls",  # Data
-    ".joblib", ".pkl", ".pickle",  # Models
+    ".html",
+    ".htm",  # Web
+    ".md",
+    ".txt",  # Text
+    ".json",
+    ".yaml",
+    ".yml",  # Config
+    ".csv",
+    ".xlsx",
+    ".xls",  # Data
+    ".joblib",
+    ".pkl",
+    ".pickle",  # Models
     ".zip",  # Archives
 }
 
 # Extensions that can be viewed inline
 VIEWABLE_EXTENSIONS = {
-    ".png", ".jpg", ".jpeg", ".svg", ".gif",  # Images
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".svg",
+    ".gif",  # Images
     ".pdf",  # Documents
-    ".md", ".txt",  # Text
-    ".json", ".yaml", ".yml",  # Config
+    ".md",
+    ".txt",  # Text
+    ".json",
+    ".yaml",
+    ".yml",  # Config
     ".csv",  # Tabular
-    ".html", ".htm",  # Web (sandboxed)
+    ".html",
+    ".htm",  # Web (sandboxed)
 }
 
 # Map extensions to artifact kinds
@@ -515,9 +533,7 @@ class LocalFilesystemScanner:
             return DecisionBadge.OVERRIDE
         return DecisionBadge.PENDING
 
-    def get_headline_metrics(
-        self, project_id: str, phase: str, run_id: str
-    ) -> dict[str, float]:
+    def get_headline_metrics(self, project_id: str, phase: str, run_id: str) -> dict[str, float]:
         """Get headline metrics for display."""
         run = self.get_run(project_id, phase, run_id)
         if not run:
@@ -595,6 +611,7 @@ class LocalFilesystemScanner:
             if isinstance(section, dict):
                 return section
             return {}
+
         def _numeric_metrics(metrics: dict[str, Any]) -> dict[str, float]:
             filtered: dict[str, float] = {}
             for key, value in metrics.items():
@@ -611,7 +628,11 @@ class LocalFilesystemScanner:
         tech_run_id = decision.technical_run if decision else None
         if not tech_run_id and "technical_validation" in project.phases:
             # Use latest run
-            tech_run_id = project.phases["technical_validation"][0] if project.phases["technical_validation"] else None
+            tech_run_id = (
+                project.phases["technical_validation"][0]
+                if project.phases["technical_validation"]
+                else None
+            )
 
         if tech_run_id:
             tech_run = self.get_run(project_id, "technical_validation", tech_run_id)
@@ -628,20 +649,30 @@ class LocalFilesystemScanner:
                 actual = tech_metrics.get(normalized)
                 passed = actual is not None and actual >= threshold
 
-                checks.append(GateCheck(
-                    metric=metric_name,
-                    threshold=threshold,
-                    actual=actual,
-                    passed=passed,
-                    check_type="required",
-                ))
+                checks.append(
+                    GateCheck(
+                        metric=metric_name,
+                        threshold=threshold,
+                        actual=actual,
+                        passed=passed,
+                        check_type="required",
+                    )
+                )
                 if not passed:
                     all_passed = False
 
             # Calibration metrics
             if cal_config:
-                brier_max = cal_config.get("brier_max") if isinstance(cal_config, dict) else cal_config.brier_max
-                ece_max = cal_config.get("ece_max") if isinstance(cal_config, dict) else cal_config.ece_max
+                brier_max = (
+                    cal_config.get("brier_max")
+                    if isinstance(cal_config, dict)
+                    else cal_config.brier_max
+                )
+                ece_max = (
+                    cal_config.get("ece_max")
+                    if isinstance(cal_config, dict)
+                    else cal_config.ece_max
+                )
                 calibration_checks = []
                 if brier_max is not None:
                     calibration_checks.append(("brier_calibrated", brier_max, "<="))
@@ -650,13 +681,15 @@ class LocalFilesystemScanner:
                 for metric_name, threshold, direction in calibration_checks:
                     actual = tech_metrics.get(metric_name)
                     passed = actual is not None and actual <= threshold
-                    checks.append(GateCheck(
-                        metric=metric_name,
-                        threshold=threshold,
-                        actual=actual,
-                        passed=passed,
-                        check_type=f"calibration_{direction}",
-                    ))
+                    checks.append(
+                        GateCheck(
+                            metric=metric_name,
+                            threshold=threshold,
+                            actual=actual,
+                            passed=passed,
+                            check_type=f"calibration_{direction}",
+                        )
+                    )
                     if not passed:
                         all_passed = False
 
@@ -671,15 +704,18 @@ class LocalFilesystemScanner:
                     fold_values = tech_per_fold.get(normalized, [])
                     if fold_values:
                         import statistics
+
                         std = statistics.stdev(fold_values) if len(fold_values) > 1 else 0.0
                         passed = std <= max_std
-                        checks.append(GateCheck(
-                            metric=f"{metric_name}_std",
-                            threshold=max_std,
-                            actual=std,
-                            passed=passed,
-                            check_type="stability_std",
-                        ))
+                        checks.append(
+                            GateCheck(
+                                metric=f"{metric_name}_std",
+                                threshold=max_std,
+                                actual=std,
+                                passed=passed,
+                                check_type="stability_std",
+                            )
+                        )
                         if not passed:
                             all_passed = False
 
@@ -691,13 +727,15 @@ class LocalFilesystemScanner:
                         pass_count = sum(1 for v in fold_values if v >= threshold)
                         actual_rate = pass_count / len(fold_values)
                         passed = actual_rate >= pass_rate_min
-                        checks.append(GateCheck(
-                            metric=f"{metric_name}_pass_rate",
-                            threshold=pass_rate_min,
-                            actual=actual_rate,
-                            passed=passed,
-                            check_type="stability_pass_rate",
-                        ))
+                        checks.append(
+                            GateCheck(
+                                metric=f"{metric_name}_pass_rate",
+                                threshold=pass_rate_min,
+                                actual=actual_rate,
+                                passed=passed,
+                                check_type="stability_pass_rate",
+                            )
+                        )
                         if not passed:
                             all_passed = False
 
@@ -717,7 +755,11 @@ class LocalFilesystemScanner:
         cal_config = _as_dict(_get_section(promotion_config, "calibration", {}))
         test_run_id = decision.test_run if decision else None
         if not test_run_id and "independent_test" in project.phases:
-            test_run_id = project.phases["independent_test"][0] if project.phases["independent_test"] else None
+            test_run_id = (
+                project.phases["independent_test"][0]
+                if project.phases["independent_test"]
+                else None
+            )
 
         if test_run_id:
             test_run = self.get_run(project_id, "independent_test", test_run_id)
@@ -736,19 +778,29 @@ class LocalFilesystemScanner:
                     actual = test_metrics.get(metric_name)
                 passed = actual is not None and actual >= threshold
 
-                checks.append(GateCheck(
-                    metric=metric_name,
-                    threshold=threshold,
-                    actual=actual,
-                    passed=passed,
-                    check_type="required",
-                ))
+                checks.append(
+                    GateCheck(
+                        metric=metric_name,
+                        threshold=threshold,
+                        actual=actual,
+                        passed=passed,
+                        check_type="required",
+                    )
+                )
                 if not passed:
                     all_passed = False
 
             if cal_config:
-                brier_max = cal_config.get("brier_max") if isinstance(cal_config, dict) else cal_config.brier_max
-                ece_max = cal_config.get("ece_max") if isinstance(cal_config, dict) else cal_config.ece_max
+                brier_max = (
+                    cal_config.get("brier_max")
+                    if isinstance(cal_config, dict)
+                    else cal_config.brier_max
+                )
+                ece_max = (
+                    cal_config.get("ece_max")
+                    if isinstance(cal_config, dict)
+                    else cal_config.ece_max
+                )
                 calibration_checks = []
                 if brier_max is not None:
                     calibration_checks.append(("brier_calibrated", brier_max, "<="))
@@ -757,13 +809,15 @@ class LocalFilesystemScanner:
                 for metric_name, threshold, direction in calibration_checks:
                     actual = test_metrics.get(metric_name)
                     passed = actual is not None and actual <= threshold
-                    checks.append(GateCheck(
-                        metric=metric_name,
-                        threshold=threshold,
-                        actual=actual,
-                        passed=passed,
-                        check_type=f"calibration_{direction}",
-                    ))
+                    checks.append(
+                        GateCheck(
+                            metric=metric_name,
+                            threshold=threshold,
+                            actual=actual,
+                            passed=passed,
+                            check_type=f"calibration_{direction}",
+                        )
+                    )
                     if not passed:
                         all_passed = False
 

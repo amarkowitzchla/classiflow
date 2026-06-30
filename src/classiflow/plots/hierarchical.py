@@ -6,18 +6,17 @@ import logging
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
-from sklearn.preprocessing import label_binarize
+import numpy as np
 from sklearn.metrics import (
-    roc_curve,
+    ConfusionMatrixDisplay,
     auc,
-    precision_recall_curve,
     average_precision_score,
     confusion_matrix,
-    ConfusionMatrixDisplay,
+    precision_recall_curve,
+    roc_curve,
 )
+from sklearn.preprocessing import label_binarize
 
 logger = logging.getLogger(__name__)
 
@@ -165,9 +164,7 @@ def plot_pr_curve(
             plt.plot(rec_i, prec_i, lw=1.5, label=f"{cls} (AP={ap_i:.3f})")
 
         # Micro-average
-        prec_micro, rec_micro, _ = precision_recall_curve(
-            y_bin.ravel(), y_proba.ravel()
-        )
+        prec_micro, rec_micro, _ = precision_recall_curve(y_bin.ravel(), y_proba.ravel())
         ap_micro = average_precision_score(y_bin, y_proba, average="micro")
         plt.plot(
             rec_micro,

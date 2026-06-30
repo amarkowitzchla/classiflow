@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from typing import List, Optional, Tuple
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 
 
 def select_numeric_features(
-    df: pd.DataFrame, label_col: str, whitelist: Optional[List[str]] = None, blacklist: Optional[List[str]] = None
+    df: pd.DataFrame,
+    label_col: str,
+    whitelist: Optional[List[str]] = None,
+    blacklist: Optional[List[str]] = None,
 ) -> List[str]:
     """Select numeric features from dataframe.
 

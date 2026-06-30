@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import sys
 import logging
+import sys
 from pathlib import Path
 from typing import Optional
+
 import click
 
-from classiflow.inference import run_inference, InferenceConfig
+from classiflow.inference import InferenceConfig, run_inference
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +165,6 @@ def infer_command(
         sys.exit(1)
 
     # Handle bundle extraction
-    bundle_loader = None
     if bundle:
         from classiflow.bundles import load_bundle
 
@@ -207,19 +207,19 @@ def infer_command(
         results = run_inference(config)
 
         # Print summary
-        click.echo("\n" + "="*60)
+        click.echo("\n" + "=" * 60)
         click.echo("Inference completed successfully!")
-        click.echo("="*60)
+        click.echo("=" * 60)
         click.echo(f"Samples processed: {len(results['predictions'])}")
         click.echo(f"Output directory: {config.output_dir}")
-        click.echo(f"\nGenerated files:")
+        click.echo("\nGenerated files:")
 
         for name, path in results.get("output_files", {}).items():
             click.echo(f"  - {name}: {path}")
 
         # Show metrics if computed
         if "metrics" in results and "overall" in results["metrics"]:
-            click.echo(f"\nMetrics:")
+            click.echo("\nMetrics:")
             overall = results["metrics"]["overall"]
             click.echo(f"  - Accuracy: {overall.get('accuracy', 'N/A'):.4f}")
             click.echo(f"  - Balanced Accuracy: {overall.get('balanced_accuracy', 'N/A'):.4f}")
@@ -244,5 +244,6 @@ def infer_command(
         click.echo(f"\nError: Inference failed: {e}", err=True)
         if verbose >= 2:
             import traceback
+
             traceback.print_exc()
         sys.exit(1)

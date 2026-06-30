@@ -1,11 +1,11 @@
 """Repository interfaces and implementations for storage abstraction."""
 
 from classiflow.ui_api.repositories.interfaces import (
-    ProjectRepository,
-    RunRepository,
     ArtifactRepository,
     CommentRepository,
+    ProjectRepository,
     ReviewRepository,
+    RunRepository,
 )
 from classiflow.ui_api.repositories.local import (
     LocalFilesystemRepository,

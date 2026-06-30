@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import List, Optional, Dict, Any
-import numpy as np
-import pandas as pd
+from typing import Any, Dict, List, Optional
+
 import matplotlib.pyplot as plt
+import numpy as np
 import seaborn as sns
-from sklearn.metrics import roc_curve, auc, confusion_matrix
+from sklearn.metrics import auc, confusion_matrix, roc_curve
 from sklearn.preprocessing import label_binarize
 
 logger = logging.getLogger(__name__)
@@ -252,7 +252,7 @@ def plot_score_distributions(
         ax = axes[i]
 
         # Get indices for this true class
-        mask = (y_true == cls)
+        mask = y_true == cls
 
         if mask.sum() == 0:
             ax.text(0.5, 0.5, f"No samples for class '{cls}'", ha="center", va="center")
@@ -263,7 +263,9 @@ def plot_score_distributions(
         proba_for_true_class = y_proba[mask, i]
 
         ax.hist(proba_for_true_class, bins=30, alpha=0.7, color="blue", edgecolor="black")
-        ax.axvline(np.mean(proba_for_true_class), color="red", linestyle="--", linewidth=2, label="Mean")
+        ax.axvline(
+            np.mean(proba_for_true_class), color="red", linestyle="--", linewidth=2, label="Mean"
+        )
         ax.set_ylabel(cls, fontsize=10, fontweight="bold")
         ax.grid(alpha=0.3)
         ax.legend(fontsize=8)
@@ -321,7 +323,10 @@ def generate_all_plots(
     # Confusion matrix
     cm_path = output_dir / f"{prefix}_confusion_matrix.png"
     plot_confusion_matrix(
-        y_true, y_pred, class_names, cm_path,
+        y_true,
+        y_pred,
+        class_names,
+        cm_path,
         title="Confusion Matrix (Normalized by True Class)",
         normalize=True,
     )
@@ -331,16 +336,17 @@ def generate_all_plots(
     if y_proba is not None:
         roc_path = output_dir / f"{prefix}_roc_curves.png"
         plot_roc_curves_multiclass(
-            y_true, y_proba, class_names, roc_path,
+            y_true,
+            y_proba,
+            class_names,
+            roc_path,
             max_classes=max_roc_classes,
         )
         plot_paths["roc_curves"] = roc_path
 
         # Score distributions
         dist_path = output_dir / f"{prefix}_score_distributions.png"
-        plot_score_distributions(
-            y_true, y_proba, class_names, dist_path
-        )
+        plot_score_distributions(y_true, y_proba, class_names, dist_path)
         plot_paths["score_distributions"] = dist_path
 
     return plot_paths

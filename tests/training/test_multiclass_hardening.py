@@ -23,7 +23,6 @@ def _make_grouped_multiclass_dataset(
     seed: int = 13,
 ) -> tuple[pd.DataFrame, pd.Series, pd.Series, list[str]]:
     rng = np.random.RandomState(seed)
-    n_patients = n_classes * patients_per_class
     class_means = rng.normal(0, 2.0, size=(n_classes, n_features))
 
     rows = []
@@ -98,7 +97,9 @@ def test_multiclass_metrics_no_label_warnings():
 
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
-        _, _, aligned_proba = _compute_multiclass_metrics(estimator, X, y_true, [0, 1, 2], return_preds=True)
+        _, _, aligned_proba = _compute_multiclass_metrics(
+            estimator, X, y_true, [0, 1, 2], return_preds=True
+        )
 
     assert aligned_proba.shape == (len(y_true), 3)
 

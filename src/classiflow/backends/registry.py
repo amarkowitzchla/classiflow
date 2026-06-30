@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Any, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict
 
 from sklearn.linear_model import LogisticRegression
 
@@ -13,8 +13,8 @@ if TYPE_CHECKING:  # pragma: no cover
     from classiflow.backends.torch.estimators import (  # noqa: F401
         TorchLogisticRegressionClassifier,
         TorchMLPClassifier,
-        TorchSoftmaxRegressionClassifier,
         TorchMLPMulticlassClassifier,
+        TorchSoftmaxRegressionClassifier,
     )
 
 
@@ -100,8 +100,8 @@ def get_model_set(
     from classiflow.backends.torch.estimators import (
         TorchLogisticRegressionClassifier,
         TorchMLPClassifier,
-        TorchSoftmaxRegressionClassifier,
         TorchMLPMulticlassClassifier,
+        TorchSoftmaxRegressionClassifier,
     )
 
     if command == "train-binary":

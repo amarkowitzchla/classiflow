@@ -53,7 +53,9 @@ class MulticlassLinear(nn.Module):
 class MulticlassMLP(nn.Module):
     """MLP for multiclass classification."""
 
-    def __init__(self, input_dim: int, num_classes: int, hidden_dim: int, n_layers: int, dropout: float):
+    def __init__(
+        self, input_dim: int, num_classes: int, hidden_dim: int, n_layers: int, dropout: float
+    ):
         super().__init__()
         layers: List[nn.Module] = []
         in_dim = input_dim
