@@ -99,3 +99,4 @@ manuscript/
 
 # Docs are tracked; this line is intentionally absent.
 # (Older versions of this file had docs/* here — that was wrong.)
+AGENTS.md
