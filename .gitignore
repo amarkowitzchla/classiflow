@@ -1,9 +1,3 @@
-DB_test_classiflow
-DB_test_classiflow/*
-classiflow-ui*
-rebuild_ui.sh
-run_project.sh
-
 # Python
 __pycache__/
 *.py[cod]
@@ -50,8 +44,9 @@ htmlcov/
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb
+!notebooks/*.ipynb
 
-# Data and outputs
+# Data and outputs — only committed example files are exceptions below
 derived/
 data/uploaded/
 *.csv
@@ -60,47 +55,48 @@ data/uploaded/
 *.pkl
 *.h5
 *.hdf5
+*.parquet
 
 # Exceptions (keep example data)
 !data/iris_data.csv
 !data/tasks_auto.json
+!data/tasks.json
 
-# Logs
+# Logs and temp files
 *.log
+*.bak
+tmp/
 
-# Distribution
+# Distribution and packaging
+dist/
 .pypirc
 
-# mypy
+# Type checking
 .mypy_cache/
 .dmypy.json
 dmypy.json
 
-# ruff
+# Linting
 .ruff_cache/
 
 # Streamlit
 .streamlit/
 
-# dev 
+# Application runtime state
+.classiflow/ui.db
 
+# JavaScript / frontend
+classiflow-ui/node_modules/
 
-derived/
+# Experiment tracking
+mlruns/
+mlflow.db
+
+# Legacy / personal dirs
 legacy/
 personal_projects/
-tmp/
 manuscript/
-**/*.parquet
 
-docs/*
-
-mlruns/*
-
-mlflow.db
-.classflow/ui.db
-dist/
+# Docs are tracked; this line is intentionally absent.
+# (Older versions of this file had docs/* here — that was wrong.)
 AGENTS.md
-
-!notebooks/*.ipynb
-.Rproj.user
-.positai
