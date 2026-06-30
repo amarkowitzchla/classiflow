@@ -21,6 +21,178 @@ from sklearn.preprocessing import label_binarize
 logger = logging.getLogger(__name__)
 
 
+class CurveDataUnavailableError(ValueError):
+    """Raised when ROC/PR curves are undefined for the given labels/scores."""
+
+
+def _prepare_binary_curve_inputs(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    context: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Sanitize binary curve inputs before sklearn/manual curve computation."""
+    y_true_arr = np.asarray(y_true).reshape(-1)
+    y_score_arr = np.asarray(y_score, dtype=np.float64).reshape(-1)
+
+    if y_true_arr.size != y_score_arr.size:
+        size = min(y_true_arr.size, y_score_arr.size)
+        logger.warning(
+            "Trimming mismatched curve inputs for %s: y_true=%s y_score=%s -> %s",
+            context,
+            y_true_arr.size,
+            y_score_arr.size,
+            size,
+        )
+        y_true_arr = y_true_arr[:size]
+        y_score_arr = y_score_arr[:size]
+
+    finite_mask = np.isfinite(y_score_arr)
+    if not np.all(finite_mask):
+        dropped = int((~finite_mask).sum())
+        logger.warning(
+            "Dropping %s non-finite score values for %s before curve computation.",
+            dropped,
+            context,
+        )
+        y_true_arr = y_true_arr[finite_mask]
+        y_score_arr = y_score_arr[finite_mask]
+
+    if y_true_arr.size == 0:
+        raise CurveDataUnavailableError(f"No valid samples available for {context}")
+
+    y_true_bin = np.asarray(y_true_arr).astype(np.int8, copy=False)
+    unique = np.unique(y_true_bin)
+    if unique.size < 2:
+        raise CurveDataUnavailableError(
+            f"{context} requires both positive and negative classes; observed {unique.tolist()}"
+        )
+
+    return y_true_bin, y_score_arr
+
+
+def _manual_binary_clf_curve(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    context: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute binary cumulative FP/TP counts without sklearn internals."""
+    y_true_bin, y_score_arr = _prepare_binary_curve_inputs(y_true, y_score, context)
+    sort_idx = np.argsort(y_score_arr, kind="mergesort")[::-1]
+    y_true_sorted = y_true_bin[sort_idx]
+    y_score_sorted = y_score_arr[sort_idx]
+
+    tps = np.cumsum(y_true_sorted, dtype=np.float64)
+    fps = np.cumsum(1 - y_true_sorted, dtype=np.float64)
+
+    distinct_value_indices = np.where(np.diff(y_score_sorted))[0]
+    threshold_indices = np.r_[distinct_value_indices, y_true_sorted.size - 1]
+    return fps[threshold_indices], tps[threshold_indices], y_score_sorted[threshold_indices]
+
+
+def safe_roc_curve(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    context: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Compute ROC curve with fallback for sklearn edge-case IndexError.
+
+    A small number of sklearn/numpy combinations can raise IndexError inside
+    roc_curve for valid 1D arrays; this helper retries via a manual path.
+    """
+    y_true_bin, y_score_arr = _prepare_binary_curve_inputs(y_true, y_score, context)
+    try:
+        return roc_curve(y_true_bin, y_score_arr)
+    except IndexError as exc:
+        logger.warning(
+            "Falling back to manual ROC computation for %s due to sklearn IndexError: %s",
+            context,
+            exc,
+        )
+        fps, tps, thresholds = _manual_binary_clf_curve(y_true_bin, y_score_arr, context)
+        fps = np.r_[0.0, fps]
+        tps = np.r_[0.0, tps]
+        thresholds = np.r_[np.inf, thresholds]
+
+        negatives = fps[-1]
+        positives = tps[-1]
+        if negatives <= 0 or positives <= 0:
+            raise ValueError(f"Cannot compute ROC for {context}: positives={positives}, negatives={negatives}")
+        return fps / negatives, tps / positives, thresholds
+
+
+def safe_precision_recall_curve(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    context: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Compute PR curve with fallback for sklearn edge-case IndexError.
+    """
+    y_true_bin, y_score_arr = _prepare_binary_curve_inputs(y_true, y_score, context)
+    try:
+        return precision_recall_curve(y_true_bin, y_score_arr)
+    except IndexError as exc:
+        logger.warning(
+            "Falling back to manual PR computation for %s due to sklearn IndexError: %s",
+            context,
+            exc,
+        )
+        fps, tps, thresholds = _manual_binary_clf_curve(y_true_bin, y_score_arr, context)
+        positives = tps[-1]
+        precision = np.divide(
+            tps,
+            tps + fps,
+            out=np.ones_like(tps, dtype=np.float64),
+            where=(tps + fps) != 0,
+        )
+        recall = tps / positives
+
+        sl = slice(None, None, -1)
+        precision = np.r_[precision[sl], 1.0]
+        recall = np.r_[recall[sl], 0.0]
+        thresholds = thresholds[sl]
+        return precision, recall, thresholds
+
+
+def safe_average_precision_score(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    context: str,
+) -> float:
+    """
+    Compute AP with fallback when sklearn average_precision_score fails.
+    """
+    y_true_bin, y_score_arr = _prepare_binary_curve_inputs(y_true, y_score, context)
+    try:
+        return float(average_precision_score(y_true_bin, y_score_arr))
+    except IndexError as exc:
+        logger.warning(
+            "Falling back to manual AP computation for %s due to sklearn IndexError: %s",
+            context,
+            exc,
+        )
+        precision, recall, _ = safe_precision_recall_curve(y_true_bin, y_score_arr, context)
+        recall_inc = recall[::-1]
+        precision_inc = precision[::-1]
+        deltas = np.clip(np.diff(recall_inc), 0.0, None)
+        return float(np.sum(deltas * precision_inc[1:]))
+
+
+def _annotate_unavailable_curve(message: str) -> None:
+    """Render a short in-plot annotation when no valid curve could be computed."""
+    plt.text(
+        0.5,
+        0.5,
+        message,
+        ha="center",
+        va="center",
+        fontsize=10,
+        color="dimgray",
+        transform=plt.gca().transAxes,
+    )
+
+
 def plot_roc_curve(
     y_true: np.ndarray,
     y_proba: np.ndarray,
@@ -52,6 +224,7 @@ def plot_roc_curve(
     >>> plot_roc_curve(y_val, y_proba, ["Class0", "Class1"], "ROC Curve", Path("roc.png"))
     """
     n_classes = len(classes)
+    has_curve = False
 
     plt.figure(figsize=figsize)
 
@@ -61,10 +234,13 @@ def plot_roc_curve(
         scores = y_proba[:, pos_idx]
         y_bin = (y_true == pos_idx).astype(int)
 
-        fpr, tpr, _ = roc_curve(y_bin, scores)
-        roc_auc = auc(fpr, tpr)
-
-        plt.plot(fpr, tpr, lw=2, label=f"{classes[pos_idx]} (AUC={roc_auc:.3f})")
+        try:
+            fpr, tpr, _ = safe_roc_curve(y_bin, scores, context=f"{title} binary ROC")
+            roc_auc = auc(fpr, tpr)
+            plt.plot(fpr, tpr, lw=2, label=f"{classes[pos_idx]} (AUC={roc_auc:.3f})")
+            has_curve = True
+        except CurveDataUnavailableError as exc:
+            logger.warning("ROC curve unavailable for %s: %s", title, exc)
 
     else:
         # Multiclass - plot per-class and micro-average
@@ -76,26 +252,41 @@ def plot_roc_curve(
         for i, cls in enumerate(classes):
             if np.unique(y_bin[:, i]).size < 2:
                 continue
-            fpr_i, tpr_i, _ = roc_curve(y_bin[:, i], y_proba[:, i])
-            roc_auc_i = auc(fpr_i, tpr_i)
-            plt.plot(fpr_i, tpr_i, lw=1.5, label=f"{cls} (AUC={roc_auc_i:.3f})")
+            try:
+                fpr_i, tpr_i, _ = safe_roc_curve(
+                    y_bin[:, i], y_proba[:, i], context=f"{title} ROC class={cls}"
+                )
+                roc_auc_i = auc(fpr_i, tpr_i)
+                plt.plot(fpr_i, tpr_i, lw=1.5, label=f"{cls} (AUC={roc_auc_i:.3f})")
+                has_curve = True
+            except CurveDataUnavailableError as exc:
+                logger.warning("ROC curve unavailable for %s class %s: %s", title, cls, exc)
 
         # Micro-average
-        fpr_micro, tpr_micro, _ = roc_curve(y_bin.ravel(), y_proba.ravel())
-        roc_auc_micro = auc(fpr_micro, tpr_micro)
-        plt.plot(
-            fpr_micro,
-            tpr_micro,
-            lw=2,
-            linestyle="--",
-            label=f"micro-avg (AUC={roc_auc_micro:.3f})",
-        )
+        try:
+            fpr_micro, tpr_micro, _ = safe_roc_curve(
+                y_bin.ravel(), y_proba.ravel(), context=f"{title} ROC micro-average"
+            )
+            roc_auc_micro = auc(fpr_micro, tpr_micro)
+            plt.plot(
+                fpr_micro,
+                tpr_micro,
+                lw=2,
+                linestyle="--",
+                label=f"micro-avg (AUC={roc_auc_micro:.3f})",
+            )
+            has_curve = True
+        except CurveDataUnavailableError as exc:
+            logger.warning("ROC micro-average unavailable for %s: %s", title, exc)
 
     plt.plot([0, 1], [0, 1], "k--", lw=1, alpha=0.5)
+    if not has_curve:
+        _annotate_unavailable_curve("ROC unavailable:\ninsufficient class diversity")
     plt.xlabel("False Positive Rate", fontsize=12)
     plt.ylabel("True Positive Rate", fontsize=12)
     plt.title(title, fontsize=14)
-    plt.legend(loc="lower right", fontsize=9)
+    if has_curve:
+        plt.legend(loc="lower right", fontsize=9)
     plt.grid(alpha=0.3)
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches="tight")
@@ -135,6 +326,7 @@ def plot_pr_curve(
     >>> plot_pr_curve(y_val, y_proba, ["Class0", "Class1"], "PR Curve", Path("pr.png"))
     """
     n_classes = len(classes)
+    has_curve = False
 
     plt.figure(figsize=figsize)
 
@@ -144,10 +336,15 @@ def plot_pr_curve(
         scores = y_proba[:, pos_idx]
         y_bin = (y_true == pos_idx).astype(int)
 
-        prec, rec, _ = precision_recall_curve(y_bin, scores)
-        ap = average_precision_score(y_bin, scores)
-
-        plt.plot(rec, prec, lw=2, label=f"{classes[pos_idx]} (AP={ap:.3f})")
+        try:
+            prec, rec, _ = safe_precision_recall_curve(
+                y_bin, scores, context=f"{title} binary PR"
+            )
+            ap = safe_average_precision_score(y_bin, scores, context=f"{title} binary PR")
+            plt.plot(rec, prec, lw=2, label=f"{classes[pos_idx]} (AP={ap:.3f})")
+            has_curve = True
+        except CurveDataUnavailableError as exc:
+            logger.warning("PR curve unavailable for %s: %s", title, exc)
 
     else:
         # Multiclass - plot per-class and micro-average
@@ -159,11 +356,20 @@ def plot_pr_curve(
         for i, cls in enumerate(classes):
             if np.unique(y_bin[:, i]).size < 2:
                 continue
-            prec_i, rec_i, _ = precision_recall_curve(y_bin[:, i], y_proba[:, i])
-            ap_i = average_precision_score(y_bin[:, i], y_proba[:, i])
-            plt.plot(rec_i, prec_i, lw=1.5, label=f"{cls} (AP={ap_i:.3f})")
+            try:
+                prec_i, rec_i, _ = safe_precision_recall_curve(
+                    y_bin[:, i], y_proba[:, i], context=f"{title} PR class={cls}"
+                )
+                ap_i = safe_average_precision_score(
+                    y_bin[:, i], y_proba[:, i], context=f"{title} PR class={cls}"
+                )
+                plt.plot(rec_i, prec_i, lw=1.5, label=f"{cls} (AP={ap_i:.3f})")
+                has_curve = True
+            except CurveDataUnavailableError as exc:
+                logger.warning("PR curve unavailable for %s class %s: %s", title, cls, exc)
 
         # Micro-average
+<<<<<<< HEAD
         prec_micro, rec_micro, _ = precision_recall_curve(y_bin.ravel(), y_proba.ravel())
         ap_micro = average_precision_score(y_bin, y_proba, average="micro")
         plt.plot(
@@ -173,11 +379,33 @@ def plot_pr_curve(
             linestyle="--",
             label=f"micro-avg (AP={ap_micro:.3f})",
         )
+=======
+        try:
+            prec_micro, rec_micro, _ = safe_precision_recall_curve(
+                y_bin.ravel(), y_proba.ravel(), context=f"{title} PR micro-average"
+            )
+            ap_micro = safe_average_precision_score(
+                y_bin.ravel(), y_proba.ravel(), context=f"{title} PR micro-average"
+            )
+            plt.plot(
+                rec_micro,
+                prec_micro,
+                lw=2,
+                linestyle="--",
+                label=f"micro-avg (AP={ap_micro:.3f})",
+            )
+            has_curve = True
+        except CurveDataUnavailableError as exc:
+            logger.warning("PR micro-average unavailable for %s: %s", title, exc)
+>>>>>>> origin/main
 
     plt.xlabel("Recall", fontsize=12)
     plt.ylabel("Precision", fontsize=12)
+    if not has_curve:
+        _annotate_unavailable_curve("PR unavailable:\ninsufficient class diversity")
     plt.title(title, fontsize=14)
-    plt.legend(loc="lower left", fontsize=9)
+    if has_curve:
+        plt.legend(loc="lower left", fontsize=9)
     plt.grid(alpha=0.3)
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches="tight")

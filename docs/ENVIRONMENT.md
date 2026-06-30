@@ -47,6 +47,9 @@ mamba create -n classiflow-env python=3.11 -y
 # Activate environment
 mamba activate classiflow-env
 
+# Blackwell GPU systems: install a CUDA 12.8+ torch wheel first
+pip install --upgrade "torch>=2.7,<3.0" --index-url https://download.pytorch.org/whl/cu128
+
 # Install package with all dependencies
 pip install -e ".[all]"
 ```
@@ -80,6 +83,9 @@ source .venv/bin/activate
 # Upgrade pip
 pip install --upgrade pip setuptools wheel
 
+# Blackwell GPU systems: install a CUDA 12.8+ torch wheel first
+pip install --upgrade "torch>=2.7,<3.0" --index-url https://download.pytorch.org/whl/cu128
+
 # Install package
 pip install -e ".[all]"
 ```
@@ -110,6 +116,17 @@ pip install scikit-learn==1.5.2 imbalanced-learn==0.12.4
 # Reinstall package
 pip install -e ".[all]"
 ```
+
+### RuntimeError: CUDA error: no kernel image is available for execution on the device
+
+**Cause:** Your installed PyTorch wheel does not support the GPU architecture in the machine. This is common on NVIDIA Blackwell GPUs if torch was installed with an older CUDA wheel such as `2.5.1+cu124`.
+
+**Solution:**
+```bash
+pip install --upgrade "torch>=2.7,<3.0" --index-url https://download.pytorch.org/whl/cu128
+```
+
+If you need to proceed immediately without changing torch, run Classiflow on CPU instead.
 
 ### ModuleNotFoundError: No module named 'classiflow'
 

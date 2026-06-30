@@ -58,6 +58,7 @@ class InferenceConfig:
     # Optional data handling
     id_col: Optional[str] = None
     label_col: Optional[str] = None
+    label_col_secondary: Optional[str] = None
 
     # Feature alignment
     strict_features: bool = True
@@ -123,6 +124,7 @@ class InferenceConfig:
             "output_dir": str(self.output_dir),
             "id_col": self.id_col,
             "label_col": self.label_col,
+            "label_col_secondary": self.label_col_secondary,
             "strict_features": self.strict_features,
             "lenient_fill_strategy": self.lenient_fill_strategy,
             "max_roc_curves": self.max_roc_curves,

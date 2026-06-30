@@ -153,6 +153,7 @@ def create_bundle(
             "class_order.json",
             "feature_schema.json",
             "final_train_config.json",
+            "final_model_summary.json",
             "training_stats.json",
         ]
         for filename in extra_files:

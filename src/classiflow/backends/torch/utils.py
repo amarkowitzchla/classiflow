@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 import numpy as np
@@ -10,6 +11,18 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _SeedWorker:
+    """Picklable DataLoader worker seeding callback."""
+
+    seed: int
+
+    def __call__(self, worker_id: int) -> None:
+        seed = self.seed + worker_id
+        np.random.seed(seed)
+        torch.manual_seed(seed)
 
 
 def resolve_device(name: str) -> str:
@@ -56,11 +69,14 @@ def make_dataloader(
     shuffle: bool,
     num_workers: int,
     worker_seed: Optional[int] = None,
+    pin_memory: bool = False,
+    persistent_workers: bool = False,
 ) -> DataLoader:
     """Create a DataLoader from numpy arrays."""
     dataset = TensorDataset(torch.from_numpy(X), torch.from_numpy(y))
     worker_init_fn: Optional[Callable[[int], None]] = None
     if worker_seed is not None and num_workers > 0:
+<<<<<<< HEAD
 
         def _seed_worker(worker_id: int) -> None:
             seed = worker_seed + worker_id
@@ -68,6 +84,9 @@ def make_dataloader(
             torch.manual_seed(seed)
 
         worker_init_fn = _seed_worker
+=======
+        worker_init_fn = _SeedWorker(worker_seed)
+>>>>>>> origin/main
     return DataLoader(
         dataset,
         batch_size=batch_size,
@@ -75,4 +94,6 @@ def make_dataloader(
         drop_last=False,
         num_workers=num_workers,
         worker_init_fn=worker_init_fn,
+        pin_memory=pin_memory,
+        persistent_workers=bool(persistent_workers and num_workers > 0),
     )

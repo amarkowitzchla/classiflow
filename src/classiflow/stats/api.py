@@ -107,8 +107,10 @@ def run_stats_from_config(
           otherwise Mann–Whitney U with per-feature p-value adjustment.
         - Multiclass (3+): ANOVA/Tukey or Kruskal–Wallis/Dunn as configured.
     """
+    from classiflow.data import load_table
+
     print(f"Loading data from {config.data_csv}...")
-    df = pd.read_csv(config.data_csv)
+    df = load_table(config.data_csv)
 
     # Prepare data
     print("Preparing data...")
@@ -406,8 +408,10 @@ def run_visualizations_from_config(config: VizConfig) -> Dict[str, Any]:
         plot_volcano_all_pairs,
     )
 
+    from classiflow.data import load_table
+
     print(f"Loading data from {config.data_csv}...")
-    df = pd.read_csv(config.data_csv)
+    df = load_table(config.data_csv)
 
     from classiflow.stats.preprocess import prepare_data
 

@@ -35,6 +35,20 @@ def _log_torch_status(requested_device: str) -> None:
     logger.info("Requested device: %s", requested_device)
 
 
+def _torch_temperature_scaling_enabled(config: TrainConfig, backend: str) -> bool:
+    enabled = str(getattr(config, "calibration_enabled", "auto")).strip().lower()
+    method = str(getattr(config, "calibration_method", "sigmoid")).strip().lower()
+
+    if method != "temperature":
+        return False
+    if backend != "torch":
+        logger.info("Ignoring calibration_method=temperature for non-torch backend.")
+        return False
+    if enabled == "false":
+        return False
+    return True
+
+
 def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
     """
     Train a binary classification task with nested cross-validation.
@@ -136,6 +150,7 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
     logger.info(f"Saved training manifest: run_id={manifest.run_id}")
 
     backend = get_backend(config.backend)
+    torch_temperature_scaling = _torch_temperature_scaling_enabled(config, backend)
     if backend == "sklearn" and config.device != "auto":
         logger.info("  Device setting is ignored for sklearn backend.")
     if backend == "torch":
@@ -163,6 +178,14 @@ def train_binary_task(config: TrainConfig) -> Dict[str, Any]:
         device=config.device,
         torch_dtype=config.torch_dtype,
         torch_num_workers=config.torch_num_workers,
+        torch_temperature_scaling=torch_temperature_scaling,
+        expanded_mlp_tuning_grid=config.expanded_mlp_tuning_grid,
+        final_estimator_strategy=config.final_estimator_strategy,
+        bagging_n_estimators=config.bagging_n_estimators,
+        bagging_max_samples=config.bagging_max_samples,
+        bagging_max_features=config.bagging_max_features,
+        bagging_bootstrap=config.bagging_bootstrap,
+        bagging_bootstrap_features=config.bagging_bootstrap_features,
     )
     logger.info("Enabled estimators: %s", ", ".join(model_spec["estimators"].keys()))
 

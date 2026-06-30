@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -10,6 +11,7 @@ from typing import Optional
 from classiflow.ui_api.models import (
     Artifact,
     ArtifactKind,
+    BaggingDetail,
     DecisionBadge,
     GateStatus,
     MetricsSummary,
@@ -20,6 +22,8 @@ from classiflow.ui_api.models import (
     RegistrySummary,
     RunBrief,
     RunDetail,
+    SelectedFinalModelSummary,
+    SelectedModelConfig,
 )
 from classiflow.ui_api.repositories.interfaces import (
     ArtifactRepository,
@@ -206,12 +210,15 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
                 "row_count": ds.row_count,
             }
         if project.thresholds:
-            registry.thresholds = {
-                "technical_validation": project.thresholds.technical_validation,
-                "independent_test": project.thresholds.independent_test,
-                "promotion_logic": project.thresholds.promotion_logic,
-                "promotion": project.thresholds.promotion,
-            }
+            if hasattr(project.thresholds, "model_dump"):
+                registry.thresholds = project.thresholds.model_dump(mode="python")
+            else:
+                registry.thresholds = {
+                    "technical_validation": project.thresholds.technical_validation,
+                    "independent_test": project.thresholds.independent_test,
+                    "promotion_logic": project.thresholds.promotion_logic,
+                    "promotion": project.thresholds.promotion,
+                }
 
         # Build promotion summary with detailed gate results
         promotion = PromotionSummary()
@@ -256,6 +263,11 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
             if runs:
                 phases[phase] = runs
 
+        selected_final_model = None
+        final_runs = project.phases.get("final_model", [])
+        if final_runs:
+            selected_final_model = self._load_selected_final_model(project.id, final_runs[0])
+
         # Artifact highlights (latest plots/reports)
         highlights = []
         for phase in ["independent_test", "technical_validation"]:
@@ -283,6 +295,21 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
             updated_at=project.updated_at,
             registry=registry,
             promotion=promotion,
+            model_settings={
+                "engine": project.config.execution_engine,
+                "device": project.config.execution_device,
+                "model_set": project.config.model_set,
+                "candidates": project.config.candidates,
+                "expanded_mlp_tuning_grid": project.config.expanded_mlp_tuning_grid,
+                "final_estimator_strategy": project.config.final_estimator_strategy,
+                "technical_final_estimator_strategy": project.config.technical_final_estimator_strategy,
+                "bagging_n_estimators": project.config.bagging_n_estimators,
+                "bagging_max_samples": project.config.bagging_max_samples,
+                "bagging_max_features": project.config.bagging_max_features,
+                "bagging_bootstrap": project.config.bagging_bootstrap,
+                "bagging_bootstrap_features": project.config.bagging_bootstrap_features,
+            },
+            selected_final_model=selected_final_model,
             phases=phases,
             artifact_highlights=highlights,
         )
@@ -336,12 +363,15 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
             per_class=metrics.get("per_class", []),
             confusion_matrix=metrics.get("confusion_matrix"),
             roc_auc=metrics.get("roc_auc"),
+            hierarchical=metrics.get("hierarchical", {}),
         )
 
         # Get artifacts
         parts = run_key.split(":")
         artifacts = []
         plot_manifest = None
+        bagging = None
+        selected_final_model = None
         if len(parts) == 3:
             project_id, phase, run_id = parts
             scanned_arts = self.scanner.get_artifacts(project_id, phase, run_id)
@@ -349,6 +379,9 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
 
             # Load plot manifest if available
             plot_manifest = self._load_plot_manifest(project_id, phase, run_id)
+            bagging = self._load_bagging_detail(project_id, phase, run_id)
+            if phase == "final_model":
+                selected_final_model = self._load_selected_final_model(project_id, run_id)
 
         return RunDetail(
             run_key=m.run_key,
@@ -364,6 +397,8 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
             lineage=m.lineage if m.lineage else None,
             artifact_count=scanned.artifact_count,
             artifacts=artifacts,
+            bagging=bagging,
+            selected_final_model=selected_final_model,
             plot_manifest=plot_manifest,
         )
 
@@ -392,6 +427,196 @@ class LocalFilesystemRepository(ProjectRepository, RunRepository, ArtifactReposi
                 if data.get("generated_at")
                 else None,
                 classiflow_version=data.get("classiflow_version"),
+            )
+        except Exception:
+            return None
+
+    def _load_bagging_detail(
+        self,
+        project_id: str,
+        phase: str,
+        run_id: str,
+    ) -> Optional[BaggingDetail]:
+        """Load bag-member summary for a run if available."""
+        summary_path = self.scanner.resolve_artifact_path(
+            project_id, phase, run_id, "bagging_summary.json"
+        )
+        if summary_path is None:
+            return None
+
+        try:
+            payload = json.loads(summary_path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                return None
+            return BaggingDetail.model_validate(payload)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _sanitize_json_value(value):
+        """Return a JSON/API-safe copy with non-finite floats removed."""
+        if isinstance(value, dict):
+            return {k: LocalFilesystemRepository._sanitize_json_value(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [LocalFilesystemRepository._sanitize_json_value(v) for v in value]
+        if isinstance(value, float) and not math.isfinite(value):
+            return None
+        return value
+
+    @staticmethod
+    def _selected_model_from_payload(
+        task_name: str,
+        payload: dict,
+    ) -> Optional[SelectedModelConfig]:
+        """Normalize selected-model registry payloads for UI responses."""
+        if not isinstance(payload, dict):
+            return None
+        model_name = payload.get("model_name")
+        if not model_name:
+            return None
+        mean_score = payload.get("mean_score")
+        try:
+            mean_score = float(mean_score) if mean_score is not None else None
+            if mean_score is not None and not math.isfinite(mean_score):
+                mean_score = None
+        except (TypeError, ValueError):
+            mean_score = None
+        return SelectedModelConfig(
+            task_name=str(payload.get("task_name") or task_name),
+            model_name=str(model_name),
+            sampler=payload.get("sampler"),
+            mean_score=mean_score,
+            params=LocalFilesystemRepository._sanitize_json_value(payload.get("params", {})) or {},
+        )
+
+    def _load_json_artifact(
+        self,
+        project_id: str,
+        phase: str,
+        run_id: str,
+        relative_path: str,
+    ) -> Optional[dict]:
+        path = self.scanner.resolve_artifact_path(project_id, phase, run_id, relative_path)
+        if path is None:
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else None
+        except Exception:
+            return None
+
+    def _load_selected_final_model(
+        self,
+        project_id: str,
+        run_id: str,
+    ) -> Optional[SelectedFinalModelSummary]:
+        """Load or synthesize the selected final-bundle model summary."""
+        explicit = self._load_json_artifact(
+            project_id, "final_model", run_id, "final_model_summary.json"
+        )
+        if explicit:
+            try:
+                return SelectedFinalModelSummary.model_validate(
+                    self._sanitize_json_value(explicit)
+                )
+            except Exception:
+                pass
+
+        run_payload = self._load_json_artifact(project_id, "final_model", run_id, "run.json")
+        if not run_payload:
+            return None
+
+        run_key = f"{project_id}:final_model:{run_id}"
+        config = run_payload.get("config", {})
+        config = config if isinstance(config, dict) else {}
+        final_model = config.get("final_model", {})
+        final_model = final_model if isinstance(final_model, dict) else {}
+        models = config.get("models", {})
+        models = models if isinstance(models, dict) else {}
+        execution = config.get("execution", {})
+        execution = execution if isinstance(execution, dict) else {}
+
+        selected_models: list[SelectedModelConfig] = []
+        selected_binary = self._load_json_artifact(
+            project_id, "final_model", run_id, "registry/selected_binary_configs.json"
+        )
+        if selected_binary:
+            for task_name, payload in selected_binary.items():
+                model = self._selected_model_from_payload(str(task_name), payload)
+                if model is not None:
+                    selected_models.append(model)
+
+        if not selected_models:
+            best_models = run_payload.get("best_models", {})
+            if isinstance(best_models, dict):
+                for task_name, model_name in best_models.items():
+                    if model_name:
+                        selected_models.append(
+                            SelectedModelConfig(
+                                task_name=str(task_name),
+                                model_name=str(model_name),
+                            )
+                        )
+
+        if not selected_models:
+            model_name_path = self.scanner.resolve_artifact_path(
+                project_id,
+                "final_model",
+                run_id,
+                "fold1/multiclass_none/multiclass_model_name.txt",
+            ) or self.scanner.resolve_artifact_path(
+                project_id,
+                "final_model",
+                run_id,
+                "fold1/multiclass_smote/multiclass_model_name.txt",
+            )
+            if model_name_path is not None:
+                selected_models.append(
+                    SelectedModelConfig(
+                        task_name="multiclass",
+                        model_name=model_name_path.read_text(encoding="utf-8").strip(),
+                        sampler=final_model.get("sampler"),
+                    )
+                )
+
+        meta_model = None
+        selected_meta = self._load_json_artifact(
+            project_id, "final_model", run_id, "registry/selected_meta_config.json"
+        )
+        if selected_meta:
+            meta_model = self._selected_model_from_payload("meta", selected_meta)
+
+        bundle_path = None
+        if self.scanner.resolve_artifact_path(
+            project_id, "final_model", run_id, "model_bundle.zip"
+        ):
+            bundle_path = "model_bundle.zip"
+
+        strategy = {
+            "final_estimator_strategy": models.get("final_estimator_strategy"),
+            "bagging_n_estimators": models.get("bagging_n_estimators"),
+            "bagging_max_samples": models.get("bagging_max_samples"),
+            "bagging_max_features": models.get("bagging_max_features"),
+            "bagging_bootstrap": models.get("bagging_bootstrap"),
+            "bagging_bootstrap_features": models.get("bagging_bootstrap_features"),
+        }
+        strategy = {k: v for k, v in strategy.items() if v is not None}
+
+        try:
+            return SelectedFinalModelSummary(
+                run_id=run_id,
+                run_key=run_key,
+                task_type=run_payload.get("task_type"),
+                bundle_path=bundle_path,
+                technical_run=final_model.get("technical_run"),
+                sampler=final_model.get("sampler"),
+                train_from_scratch=bool(final_model.get("train_from_scratch", True)),
+                selection_metric=models.get("selection_metric"),
+                selection_direction=models.get("selection_direction"),
+                execution=self._sanitize_json_value(execution) or {},
+                strategy=self._sanitize_json_value(strategy) or {},
+                selected_models=selected_models,
+                meta_model=meta_model,
             )
         except Exception:
             return None

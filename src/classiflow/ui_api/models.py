@@ -77,6 +77,10 @@ class MetricsSummary(BaseModel):
         default=None, description="Confusion matrix data"
     )
     roc_auc: Optional[dict[str, Any]] = Field(default=None, description="ROC AUC data")
+    hierarchical: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Hierarchical metrics grouped by level (e.g., L1/L2)",
+    )
 
 
 class RunBrief(BaseModel):
@@ -111,6 +115,76 @@ class PlotManifestResponse(BaseModel):
     )
 
 
+class BagMemberMetrics(BaseModel):
+    """Metrics for a single bag member."""
+
+    member_index: int = Field(..., description="1-based bag member index")
+    estimator_type: Optional[str] = Field(default=None, description="Concrete estimator class")
+    n_samples: Optional[int] = Field(default=None, description="Evaluated sample count")
+    accuracy: Optional[float] = Field(default=None, description="Accuracy for this member")
+    balanced_accuracy: Optional[float] = Field(default=None, description="Balanced accuracy for this member")
+    f1_macro: Optional[float] = Field(default=None, description="Macro F1 for this member")
+    mcc: Optional[float] = Field(default=None, description="Matthews correlation coefficient")
+    log_loss: Optional[float] = Field(default=None, description="Log loss for this member")
+    roc_auc_macro: Optional[float] = Field(default=None, description="Macro ROC AUC")
+    roc_auc_micro: Optional[float] = Field(default=None, description="Micro ROC AUC")
+    agreement_with_ensemble: Optional[float] = Field(
+        default=None, description="Fraction of predictions matching the ensemble output"
+    )
+
+
+class BaggingDetail(BaseModel):
+    """Bagged-estimator member details for a run."""
+
+    strategy: str = Field(default="bagged", description="Estimator strategy")
+    member_count: int = Field(default=0, description="Number of fitted bag members")
+    estimator_type: Optional[str] = Field(default=None, description="Base estimator class")
+    task_name: Optional[str] = Field(default=None, description="Binary task name when applicable")
+    evaluation_available: bool = Field(
+        default=False, description="Whether member-level evaluation metrics are available"
+    )
+    metrics_csv_path: Optional[str] = Field(
+        default=None, description="Relative path to exported bag member metrics CSV"
+    )
+    members: list[BagMemberMetrics] = Field(
+        default_factory=list, description="Per-member metrics rows"
+    )
+
+
+class SelectedModelConfig(BaseModel):
+    """Selected model/configuration used in a final model bundle."""
+
+    task_name: str = Field(..., description="Task or model role")
+    model_name: str = Field(..., description="Selected estimator key")
+    sampler: Optional[str] = Field(default=None, description="Sampler variant used")
+    mean_score: Optional[float] = Field(default=None, description="Selection score from validation")
+    params: dict[str, Any] = Field(default_factory=dict, description="Selected hyperparameters")
+
+
+class SelectedFinalModelSummary(BaseModel):
+    """Summary of the selected final-bundle model configuration."""
+
+    run_id: str = Field(..., description="Final model run id")
+    run_key: str = Field(..., description="Final model run key")
+    task_type: Optional[str] = Field(default=None, description="Task mode for the final bundle")
+    bundle_path: Optional[str] = Field(default=None, description="Relative path to model bundle")
+    technical_run: Optional[str] = Field(default=None, description="Technical validation run source")
+    sampler: Optional[str] = Field(default=None, description="Final training sampler variant")
+    train_from_scratch: bool = Field(default=True, description="Whether final model was retrained")
+    selection_metric: Optional[str] = Field(default=None, description="Metric used to choose configs")
+    selection_direction: Optional[str] = Field(default=None, description="Selection direction")
+    execution: dict[str, Any] = Field(default_factory=dict, description="Execution settings")
+    strategy: dict[str, Any] = Field(default_factory=dict, description="Final estimator strategy settings")
+    selected_models: list[SelectedModelConfig] = Field(
+        default_factory=list,
+        description="Selected per-task/base model configurations",
+    )
+    meta_model: Optional[SelectedModelConfig] = Field(
+        default=None,
+        description="Selected meta-classifier configuration when applicable",
+    )
+
+
 class RunDetail(BaseModel):
     """Full run details."""
 
@@ -127,6 +201,13 @@ class RunDetail(BaseModel):
     lineage: Optional[dict[str, Any]] = Field(default=None, description="Lineage metadata")
     artifact_count: int = Field(default=0, description="Number of artifacts")
     artifacts: list[Artifact] = Field(default_factory=list, description="Run artifacts")
+    bagging: Optional[BaggingDetail] = Field(
+        default=None, description="Bagged-estimator member metrics when available"
+    )
+    selected_final_model: Optional[SelectedFinalModelSummary] = Field(
+        default=None,
+        description="Selected final-bundle model/configuration summary when available",
+    )
     plot_manifest: Optional[PlotManifestResponse] = Field(
         default=None, description="Plot data manifest for interactive charts"
     )
@@ -250,6 +331,14 @@ class ProjectDashboard(BaseModel):
     )
     promotion: PromotionSummary = Field(
         default_factory=PromotionSummary, description="Promotion summary"
+    )
+    model_settings: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Configured execution/model strategy settings from project.yaml",
+    )
+    selected_final_model: Optional[SelectedFinalModelSummary] = Field(
+        default=None,
+        description="Latest final-bundle selected model/configuration summary",
     )
     phases: dict[str, list[RunBrief]] = Field(
         default_factory=dict, description="Runs grouped by phase"

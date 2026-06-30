@@ -7,8 +7,10 @@ torch = pytest.importorskip("torch")
 
 from classiflow.backends.torch.estimators import (
     TorchLogisticRegressionClassifier,
+    TorchMLPClassifier,
     TorchSoftmaxRegressionClassifier,
 )
+from classiflow.config import default_torch_num_workers
 
 
 def _make_binary_data(seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
@@ -79,4 +81,64 @@ def test_torch_multiclass_predict_proba_shape() -> None:
     clf.fit(X, y)
     proba = clf.predict_proba(X)
     assert proba.shape == (X.shape[0], 3)
+    assert np.allclose(proba.sum(axis=1), 1.0, atol=1e-5)
+
+
+def test_torch_estimators_default_num_workers() -> None:
+    clf = TorchLogisticRegressionClassifier(device="cpu")
+    assert clf.num_workers == default_torch_num_workers()
+
+
+def test_torch_binary_temperature_scaling_optional() -> None:
+    X, y = _make_binary_data()
+    clf = TorchLogisticRegressionClassifier(
+        epochs=3,
+        patience=0,
+        val_fraction=0.0,
+        temperature_scaling=True,
+        temperature_val_fraction=0.2,
+        device="cpu",
+        num_workers=0,
+        seed=9,
+    )
+    clf.fit(X, y)
+    assert clf.temperature_fitted_
+    assert clf.temperature_ > 0.0
+
+
+def test_torch_multiclass_temperature_scaling_optional() -> None:
+    X, y = _make_multiclass_data()
+    clf = TorchSoftmaxRegressionClassifier(
+        epochs=3,
+        patience=0,
+        val_fraction=0.0,
+        temperature_scaling=True,
+        temperature_val_fraction=0.2,
+        device="cpu",
+        num_workers=0,
+        seed=10,
+    )
+    clf.fit(X, y)
+    assert clf.temperature_fitted_
+    assert clf.temperature_ > 0.0
+
+
+def test_torch_binary_mlp_accepts_elu_and_batchnorm() -> None:
+    X, y = _make_binary_data()
+    clf = TorchMLPClassifier(
+        epochs=3,
+        patience=0,
+        val_fraction=0.0,
+        hidden_dim=32,
+        n_layers=2,
+        dropout=0.2,
+        activation="elu",
+        use_batchnorm=True,
+        device="cpu",
+        num_workers=0,
+        seed=13,
+    )
+    clf.fit(X, y)
+    proba = clf.predict_proba(X)
+    assert proba.shape == (X.shape[0], 2)
     assert np.allclose(proba.sum(axis=1), 1.0, atol=1e-5)

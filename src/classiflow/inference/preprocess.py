@@ -52,7 +52,11 @@ class FeatureAligner:
         self.errors: List[str] = []
 
     def align(
-        self, df: pd.DataFrame, id_col: Optional[str] = None, label_col: Optional[str] = None
+        self,
+        df: pd.DataFrame,
+        id_col: Optional[str] = None,
+        label_col: Optional[str] = None,
+        label_col_secondary: Optional[str] = None,
     ) -> Tuple[pd.DataFrame, pd.DataFrame, List[str]]:
         """
         Align input dataframe to required features.
@@ -65,6 +69,8 @@ class FeatureAligner:
             ID column to preserve (won't be used as feature)
         label_col : Optional[str]
             Label column to preserve (won't be used as feature)
+        label_col_secondary : Optional[str]
+            Secondary hierarchical label column to preserve (won't be used as feature)
 
         Returns
         -------
@@ -79,7 +85,11 @@ class FeatureAligner:
         self.errors = []
 
         # Preserve metadata columns
-        metadata_cols = [c for c in [id_col, label_col] if c is not None and c in df.columns]
+        metadata_cols = [
+            c
+            for c in [id_col, label_col, label_col_secondary]
+            if c is not None and c in df.columns
+        ]
         metadata = df[metadata_cols].copy() if metadata_cols else pd.DataFrame(index=df.index)
 
         # Check for missing features

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,10 @@ import numpy as np
 import pandas as pd
 
 from classiflow.inference.config import InferenceConfig
+from classiflow.inference.bagging import (
+    get_bagging_member_count,
+    iter_single_member_models,
+)
 from classiflow.inference.loader import ArtifactLoader
 from classiflow.inference.metrics import compute_classification_metrics
 from classiflow.inference.plots import generate_all_plots
@@ -26,6 +31,150 @@ from classiflow.inference.reports import InferenceReportWriter
 from classiflow.metrics.calibration import compute_probability_quality
 
 logger = logging.getLogger(__name__)
+
+
+def _infer_hierarchical_secondary_label_col(loader: ArtifactLoader) -> Optional[str]:
+    """Infer the hierarchical secondary label column from training artifacts."""
+    training_config = {}
+    if loader.manifest and isinstance(loader.manifest.training_config, dict):
+        training_config = loader.manifest.training_config
+
+    task_config = training_config.get("task")
+    if isinstance(task_config, dict):
+        hierarchy_path = task_config.get("hierarchy_path")
+        if hierarchy_path:
+            return str(hierarchy_path)
+
+    label_l2 = training_config.get("label_l2")
+    if label_l2:
+        return str(label_l2)
+
+    for config_path in [loader.base_dir / "training_config.json", loader.fold_dir / "training_config.json"]:
+        if not config_path.exists():
+            continue
+        try:
+            config_data = json.loads(config_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        task_config = config_data.get("task")
+        if isinstance(task_config, dict):
+            hierarchy_path = task_config.get("hierarchy_path")
+            if hierarchy_path:
+                return str(hierarchy_path)
+        label_l2 = config_data.get("label_l2")
+        if label_l2:
+            return str(label_l2)
+
+    return None
+
+
+def _build_true_labels(
+    metadata: pd.DataFrame,
+    run_type: str,
+    label_col: Optional[str],
+    label_col_secondary: Optional[str] = None,
+) -> np.ndarray:
+    """Build the evaluation truth labels, combining hierarchical levels when needed."""
+    if not label_col or label_col not in metadata.columns:
+        return np.full(len(metadata), np.nan, dtype=object)
+
+    primary = metadata[label_col]
+    if run_type != "hierarchical":
+        return primary.to_numpy()
+
+    primary_non_null = primary.dropna().astype(str)
+    if not primary_non_null.empty and primary_non_null.str.contains("::", regex=False).any():
+        return primary.to_numpy()
+
+    if not label_col_secondary or label_col_secondary not in metadata.columns:
+        return primary.to_numpy()
+
+    secondary = metadata[label_col_secondary]
+    combined = primary.astype(object).copy()
+    valid_mask = ~(pd.isna(primary) | pd.isna(secondary))
+    combined.loc[valid_mask] = (
+        primary.loc[valid_mask].astype(str)
+        + "::"
+        + secondary.loc[valid_mask].astype(str)
+    )
+    return combined.to_numpy()
+
+
+def _truth_values(predictions: pd.DataFrame, label_col: str) -> np.ndarray:
+    """Return the normalized truth vector for metric and plot generation."""
+    if "y_true" in predictions.columns:
+        return predictions["y_true"].to_numpy()
+    if label_col in predictions.columns:
+        return predictions[label_col].to_numpy()
+    return np.full(len(predictions), np.nan, dtype=object)
+
+
+def _hierarchical_level_values(labels: np.ndarray, level_index: int) -> np.ndarray:
+    """Extract one hierarchy level (0-based) from combined labels like 'L1::L2'."""
+    values: list[object] = []
+    for value in labels:
+        if pd.isna(value):
+            values.append(np.nan)
+            continue
+        parts = str(value).split("::")
+        if level_index >= len(parts):
+            values.append(np.nan)
+            continue
+        level_value = parts[level_index].strip()
+        values.append(level_value if level_value else np.nan)
+    return np.asarray(values, dtype=object)
+
+
+def _hierarchical_level_payload(level_metrics: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize level metrics into a UI-friendly shape."""
+    if not isinstance(level_metrics, dict):
+        return {}
+
+    summary: Dict[str, float] = {}
+    for key, value in level_metrics.items():
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float, np.floating, np.integer)):
+            numeric = float(value)
+            if np.isfinite(numeric):
+                summary[key] = numeric
+
+    payload: Dict[str, Any] = {}
+    if summary:
+        payload["summary"] = summary
+
+    for key in ("per_class", "confusion_matrix", "roc_auc", "warnings"):
+        if key in level_metrics:
+            payload[key] = level_metrics[key]
+
+    if "error" in level_metrics and not payload:
+        payload["error"] = level_metrics["error"]
+
+    return payload
+
+
+def _prediction_probability_columns(predictions: pd.DataFrame) -> list[str]:
+    """Return direct prediction probability columns, excluding hierarchical helper outputs."""
+    return [
+        col
+        for col in predictions.columns
+        if col.startswith("predicted_proba_")
+        and col != "predicted_proba"
+        and not col.startswith("predicted_proba_L1_")
+        and not col.startswith("predicted_proba_L2_")
+        and not col.startswith("predicted_proba_L3_")
+    ]
+
+
+def _observed_classes(*label_arrays: np.ndarray) -> list[str]:
+    """Return sorted class labels excluding missing values."""
+    values = set()
+    for labels in label_arrays:
+        for value in labels:
+            if pd.isna(value):
+                continue
+            values.add(str(value))
+    return sorted(values)
 
 
 def run_inference(config: InferenceConfig) -> Dict[str, Any]:
@@ -93,6 +242,13 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
 
     logger.info(f"  Detected run type: {run_type}")
 
+    secondary_label_col = config.label_col_secondary
+    if run_type == "hierarchical" and not secondary_label_col:
+        secondary_label_col = _infer_hierarchical_secondary_label_col(loader)
+        if secondary_label_col:
+            config.label_col_secondary = secondary_label_col
+            results["config"] = config.to_dict()
+
     positive_class = None
     if loader.manifest and loader.manifest.task_definitions:
         task_def = loader.manifest.task_definitions.get("binary_task")
@@ -130,6 +286,8 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
             required_features.remove(config.id_col)
         if config.label_col and config.label_col in required_features:
             required_features.remove(config.label_col)
+        if secondary_label_col and secondary_label_col in required_features:
+            required_features.remove(secondary_label_col)
 
     logger.info(f"  Required features: {len(required_features)}")
 
@@ -144,6 +302,7 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
         df_raw,
         id_col=config.id_col,
         label_col=config.label_col,
+        label_col_secondary=secondary_label_col,
     )
 
     if align_warnings:
@@ -155,7 +314,7 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
 
     # Run predictions
     logger.info("\n[3/7] Running predictions...")
-    predictions = _run_predictions(loader, X, metadata, config)
+    predictions, prediction_context = _run_predictions(loader, X, metadata, config)
     if run_type == "binary" and "predicted_label" not in predictions.columns:
         label_series = None
         if config.label_col and config.label_col in metadata.columns:
@@ -167,24 +326,46 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
         )
 
     # Add metadata columns (ID, true label)
-    final_predictions = pd.concat([metadata, predictions], axis=1)
-
-    if config.label_col in final_predictions.columns:
-        final_predictions["y_true"] = final_predictions[config.label_col]
-    else:
-        final_predictions["y_true"] = np.nan
-
-    if config.id_col and config.id_col in final_predictions.columns:
-        final_predictions["sample_id"] = final_predictions[config.id_col]
-    else:
-        final_predictions["sample_id"] = final_predictions.index.astype(str)
-
-    final_predictions["split"] = "independent_test"
-    final_predictions["fold_id"] = loader.fold
+    y_true_values = _build_true_labels(
+        metadata,
+        run_type=run_type,
+        label_col=config.label_col,
+        label_col_secondary=secondary_label_col,
+    )
+    sample_id_values = (
+        metadata[config.id_col].to_numpy()
+        if config.id_col and config.id_col in metadata.columns
+        else metadata.index.astype(str).to_numpy()
+    )
+    derived_cols = ["y_true", "sample_id", "split", "fold_id"]
+    metadata_out = metadata.drop(
+        columns=[c for c in derived_cols if c in metadata.columns],
+        errors="ignore",
+    )
+    predictions_out = predictions.drop(
+        columns=[c for c in derived_cols if c in predictions.columns],
+        errors="ignore",
+    )
+    final_predictions = pd.concat([metadata_out, predictions_out], axis=1).copy()
+    final_predictions.loc[:, "y_true"] = y_true_values
+    final_predictions.loc[:, "sample_id"] = sample_id_values
+    final_predictions.loc[:, "split"] = "independent_test"
+    final_predictions.loc[:, "fold_id"] = loader.fold
 
     logger.info(f"  Predictions shape: {final_predictions.shape}")
 
     results["predictions"] = final_predictions
+
+    bagging = _compute_bagging_details(
+        prediction_context=prediction_context,
+        X=X,
+        predictions=final_predictions,
+        label_col=config.label_col,
+        positive_class=positive_class,
+    )
+    if bagging:
+        results["bagging"] = bagging
+        logger.info(f"  Bag members available: {bagging.get('member_count', 0)}")
 
     # Compute metrics (if labels provided)
     metrics = None
@@ -234,6 +415,15 @@ def run_inference(config: InferenceConfig) -> Dict[str, Any]:
     # Predictions CSV
     pred_path = writer.write_predictions(final_predictions, "predictions.csv")
     output_files["predictions_csv"] = pred_path
+
+    if bagging:
+        bagging_files = writer.write_bagging_summary(bagging)
+        output_files.update(bagging_files)
+        bag_member_csv = bagging_files.get("bag_member_metrics_csv")
+        if bag_member_csv is not None:
+            results["bagging"]["metrics_csv_path"] = str(
+                bag_member_csv.relative_to(config.output_dir)
+            )
 
     if calibration_curves:
         written_curves = writer.write_calibration_curves(calibration_curves)
@@ -295,9 +485,10 @@ def _run_predictions(
     X: pd.DataFrame,
     metadata: pd.DataFrame,
     config: InferenceConfig,
-) -> pd.DataFrame:
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Run predictions based on run type."""
     run_type = loader.run_type
+    context: Dict[str, Any] = {"run_type": run_type}
 
     if run_type == "hierarchical":
         # Hierarchical predictions
@@ -342,6 +533,7 @@ def _run_predictions(
 
         # Combine
         predictions = pd.concat([binary_predictions, meta_predictions], axis=1)
+        context.update({"pipes": pipes, "best_models": best_models})
 
     elif run_type == "multiclass":
         try:
@@ -351,6 +543,7 @@ def _run_predictions(
 
         predictor = MulticlassPredictor(model, classes)
         predictions = predictor.predict(X)
+        context.update({"model": model, "classes": classes})
 
     elif run_type in ("binary", "legacy"):
         # Binary task predictions only (or legacy format)
@@ -392,10 +585,188 @@ def _run_predictions(
             # No meta-classifier, binary predictions only
             pass
 
+        context.update({"pipes": pipes, "best_models": best_models})
+
     else:
         raise ValueError(f"Unsupported run type: {run_type}")
 
-    return predictions
+    return predictions, context
+
+
+def _compute_bagging_details(
+    prediction_context: Dict[str, Any],
+    X: pd.DataFrame,
+    predictions: pd.DataFrame,
+    label_col: Optional[str],
+    positive_class: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Build bag-member metrics for bagged direct estimators."""
+    run_type = prediction_context.get("run_type")
+    label_series = (
+        predictions[label_col]
+        if label_col and label_col in predictions.columns
+        else None
+    )
+
+    if run_type == "multiclass":
+        model = prediction_context.get("model")
+        classes = prediction_context.get("classes") or []
+        member_count = get_bagging_member_count(model)
+        if not member_count:
+            return None
+
+        members = []
+        for member_index, member_model, estimator_type in iter_single_member_models(model):
+            member_predictions = MulticlassPredictor(member_model, classes).predict(X)
+            members.append(
+                _summarize_bag_member(
+                    member_index=member_index,
+                    estimator_type=estimator_type,
+                    member_predictions=member_predictions,
+                    ensemble_predictions=predictions,
+                    label_series=label_series,
+                )
+            )
+
+        return {
+            "strategy": "bagged",
+            "member_count": member_count,
+            "estimator_type": members[0]["estimator_type"] if members else None,
+            "evaluation_available": label_series is not None,
+            "members": members,
+        }
+
+    if run_type == "binary":
+        pipes = prediction_context.get("pipes") or {}
+        best_models = prediction_context.get("best_models") or {}
+        if len(best_models) != 1:
+            return None
+
+        task_name, model_name = next(iter(best_models.items()))
+        pipe_key = f"{task_name}__{model_name}"
+        model = pipes.get(pipe_key)
+        member_count = get_bagging_member_count(model)
+        if not member_count:
+            return None
+
+        if label_series is None:
+            return {
+                "strategy": "bagged",
+                "member_count": member_count,
+                "task_name": task_name,
+                "evaluation_available": False,
+                "members": [],
+            }
+
+        members = []
+        for member_index, member_model, estimator_type in iter_single_member_models(model):
+            member_predictions = BinaryPredictor(
+                {pipe_key: member_model},
+                {task_name: model_name},
+                [task_name],
+            ).predict(X)
+            member_predictions = add_binary_prediction_columns(
+                member_predictions,
+                labels=label_series,
+                positive_class=positive_class,
+            )
+            members.append(
+                _summarize_bag_member(
+                    member_index=member_index,
+                    estimator_type=estimator_type,
+                    member_predictions=member_predictions,
+                    ensemble_predictions=predictions,
+                    label_series=label_series,
+                )
+            )
+
+        return {
+            "strategy": "bagged",
+            "member_count": member_count,
+            "task_name": task_name,
+            "estimator_type": members[0]["estimator_type"] if members else None,
+            "evaluation_available": True,
+            "members": members,
+        }
+
+    return None
+
+
+def _summarize_bag_member(
+    member_index: int,
+    estimator_type: str,
+    member_predictions: pd.DataFrame,
+    ensemble_predictions: pd.DataFrame,
+    label_series: Optional[pd.Series],
+) -> Dict[str, Any]:
+    """Summarize one bag member for UI display."""
+    row: Dict[str, Any] = {
+        "member_index": member_index,
+        "estimator_type": estimator_type,
+    }
+
+    if "predicted_label" in member_predictions.columns and "predicted_label" in ensemble_predictions.columns:
+        member_labels = member_predictions["predicted_label"].astype(str).to_numpy()
+        ensemble_labels = ensemble_predictions["predicted_label"].astype(str).to_numpy()
+        if len(member_labels) and len(member_labels) == len(ensemble_labels):
+            row["agreement_with_ensemble"] = float(np.mean(member_labels == ensemble_labels))
+
+    if label_series is None or "predicted_label" not in member_predictions.columns:
+        return row
+
+    proba_cols = [
+        c
+        for c in member_predictions.columns
+        if c.startswith("predicted_proba_") and c != "predicted_proba"
+    ]
+    class_names = [c.replace("predicted_proba_", "") for c in proba_cols]
+    y_proba = member_predictions[proba_cols].to_numpy() if proba_cols else None
+    overall = compute_classification_metrics(
+        label_series.to_numpy(),
+        member_predictions["predicted_label"].to_numpy(),
+        y_proba,
+        class_names if class_names else None,
+    )
+    row.update(_flatten_bag_member_metrics(overall))
+    return row
+
+
+def _flatten_bag_member_metrics(metrics: Dict[str, Any]) -> Dict[str, Any]:
+    """Flatten nested metrics into a compact row for CSV/UI rendering."""
+    roc_auc = metrics.get("roc_auc") if isinstance(metrics.get("roc_auc"), dict) else {}
+    return {
+        "n_samples": _int_or_none(metrics.get("n_samples")),
+        "accuracy": _float_or_none(metrics.get("accuracy")),
+        "balanced_accuracy": _float_or_none(metrics.get("balanced_accuracy")),
+        "f1_macro": _float_or_none(metrics.get("f1_macro")),
+        "mcc": _float_or_none(metrics.get("mcc")),
+        "log_loss": _float_or_none(metrics.get("log_loss")),
+        "roc_auc_macro": _float_or_none(roc_auc.get("macro")),
+        "roc_auc_micro": _float_or_none(roc_auc.get("micro")),
+    }
+
+
+def _float_or_none(value: Any) -> Optional[float]:
+    """Convert numeric values to finite floats."""
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if np.isnan(numeric) or np.isinf(numeric):
+        return None
+    return numeric
+
+
+def _int_or_none(value: Any) -> Optional[int]:
+    """Convert numeric values to ints when possible."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _compute_metrics(
@@ -408,24 +779,20 @@ def _compute_metrics(
     metrics: Dict[str, Any] = {}
     calibration_curves: Dict[str, pd.DataFrame] = {}
 
-    y_true = predictions[label_col].values
+    y_true = _truth_values(predictions, label_col)
 
     # Overall multiclass metrics (if predicted_label exists)
     if "predicted_label" in predictions.columns:
         y_pred = predictions["predicted_label"].values
 
         # Get probability columns
-        proba_cols = [
-            c
-            for c in predictions.columns
-            if c.startswith("predicted_proba_") and c != "predicted_proba"
-        ]
+        proba_cols = _prediction_probability_columns(predictions)
 
         if proba_cols:
             class_names = [c.replace("predicted_proba_", "") for c in proba_cols]
             y_proba = predictions[proba_cols].values
         else:
-            class_names = sorted(list(set(y_true) | set(y_pred)))
+            class_names = _observed_classes(y_true, y_pred)
             y_proba = None
 
         overall_metrics = compute_classification_metrics(y_true, y_pred, y_proba, class_names)
@@ -554,6 +921,7 @@ def _compute_metrics(
 
         # L1 metrics
         if "predicted_label_L1" in predictions.columns:
+            y_true_l1 = _hierarchical_level_values(y_true, level_index=0)
             y_pred_l1 = predictions["predicted_label_L1"].values
             l1_proba_cols = [c for c in predictions.columns if c.startswith("predicted_proba_L1_")]
 
@@ -561,15 +929,44 @@ def _compute_metrics(
                 l1_classes = [c.replace("predicted_proba_L1_", "") for c in l1_proba_cols]
                 y_proba_l1 = predictions[l1_proba_cols].values
             else:
-                l1_classes = sorted(list(set(y_true) | set(y_pred_l1)))
+                y_true_l1_classes = pd.Series(y_true_l1).dropna().astype(str).unique().tolist()
+                y_pred_l1_classes = pd.Series(y_pred_l1).dropna().astype(str).unique().tolist()
+                l1_classes = sorted(set(y_true_l1_classes) | set(y_pred_l1_classes))
                 y_proba_l1 = None
 
-            hier_metrics["L1"] = compute_classification_metrics(
-                y_true, y_pred_l1, y_proba_l1, l1_classes
+            l1_metrics = compute_classification_metrics(
+                y_true_l1, y_pred_l1, y_proba_l1, l1_classes
             )
+            l1_payload = _hierarchical_level_payload(l1_metrics)
+            if l1_payload:
+                hier_metrics["L1"] = l1_payload
 
-        # L2 metrics (if applicable)
-        # ... (would require L2 ground truth)
+        # L2 metrics
+        if "predicted_label_L2" in predictions.columns:
+            y_true_l2 = _hierarchical_level_values(y_true, level_index=1)
+            y_pred_l2 = predictions["predicted_label_L2"].values
+            l2_proba_cols = [c for c in predictions.columns if c.startswith("predicted_proba_L2_")]
+
+            if l2_proba_cols:
+                l2_classes = [c.replace("predicted_proba_L2_", "") for c in l2_proba_cols]
+                y_proba_l2 = predictions[l2_proba_cols].values
+            else:
+                y_true_l2_classes = pd.Series(y_true_l2).dropna().astype(str).unique().tolist()
+                y_pred_l2_classes = pd.Series(y_pred_l2).dropna().astype(str).unique().tolist()
+                l2_classes = sorted(set(y_true_l2_classes) | set(y_pred_l2_classes))
+                y_proba_l2 = None
+
+            l2_metrics = compute_classification_metrics(
+                y_true_l2, y_pred_l2, y_proba_l2, l2_classes
+            )
+            l2_payload = _hierarchical_level_payload(l2_metrics)
+            if l2_payload:
+                hier_metrics["L2"] = l2_payload
+
+        if "overall" in metrics:
+            pipeline_payload = _hierarchical_level_payload(metrics["overall"])
+            if pipeline_payload:
+                hier_metrics["pipeline"] = pipeline_payload
 
         if hier_metrics:
             metrics["hierarchical"] = hier_metrics
@@ -584,24 +981,20 @@ def _generate_plots(
     max_roc_classes: int = 10,
 ) -> Dict[str, Path]:
     """Generate plots for predictions."""
-    y_true = predictions[label_col].values
+    y_true = _truth_values(predictions, label_col)
 
     # Use predicted_label if available
     if "predicted_label" in predictions.columns:
         y_pred = predictions["predicted_label"].values
 
         # Get probabilities
-        proba_cols = [
-            c
-            for c in predictions.columns
-            if c.startswith("predicted_proba_") and c != "predicted_proba"
-        ]
+        proba_cols = _prediction_probability_columns(predictions)
 
         if proba_cols:
             class_names = [c.replace("predicted_proba_", "") for c in proba_cols]
             y_proba = predictions[proba_cols].values
         else:
-            class_names = sorted(list(set(y_true) | set(y_pred)))
+            class_names = _observed_classes(y_true, y_pred)
             y_proba = None
 
         plot_paths = generate_all_plots(

@@ -13,6 +13,12 @@ from typing import Any, Dict, List, Literal, Optional
 logger = logging.getLogger(__name__)
 
 
+def default_torch_num_workers() -> int:
+    """Compute default torch DataLoader workers: CPU count minus two, min one."""
+    cpu_total = os.cpu_count() or 1
+    return max(cpu_total - 2, 1)
+
+
 def _resolve_data_path(
     data: Optional[Path] = None,
     data_csv: Optional[Path] = None,
@@ -74,6 +80,8 @@ class TrainConfig:
     # SMOTE
     smote_mode: Literal["off", "on", "both"] = "off"
     smote_k_neighbors: int = 5
+    calibration_enabled: Literal["false", "true", "auto"] = "auto"
+    calibration_method: Literal["sigmoid", "isotonic", "temperature"] = "sigmoid"
     calibration_bins: int = 10
     calibration_binning: Literal["uniform", "quantile"] = "quantile"
 
@@ -82,9 +90,16 @@ class TrainConfig:
     backend: Literal["sklearn", "torch"] = "sklearn"
     device: Literal["auto", "cpu", "cuda", "mps"] = "auto"
     model_set: Optional[str] = None
-    torch_num_workers: int = 0
+    torch_num_workers: int = field(default_factory=default_torch_num_workers)
     torch_dtype: Literal["float32", "float16"] = "float32"
     require_torch_device: bool = False
+    expanded_mlp_tuning_grid: bool = False
+    final_estimator_strategy: Literal["single", "bagged"] = "single"
+    bagging_n_estimators: int = 10
+    bagging_max_samples: float = 1.0
+    bagging_max_features: float = 1.0
+    bagging_bootstrap: bool = True
+    bagging_bootstrap_features: bool = False
 
     # Experiment tracking (optional)
     tracker: Optional[Literal["mlflow", "wandb"]] = None
@@ -144,7 +159,7 @@ class MetaConfig(TrainConfig):
     meta_C_grid: List[float] = field(default_factory=lambda: [0.01, 0.1, 1, 10])
     calibrate_meta: bool = True  # Legacy toggle; mapped to calibration_enabled when used.
     calibration_enabled: Literal["false", "true", "auto"] = "auto"
-    calibration_method: Literal["sigmoid", "isotonic"] = "sigmoid"
+    calibration_method: Literal["sigmoid", "isotonic", "temperature"] = "sigmoid"
     calibration_cv: int = 3
     calibration_bins: int = 10
     calibration_binning: Literal["uniform", "quantile"] = "quantile"

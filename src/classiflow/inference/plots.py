@@ -15,6 +15,38 @@ from sklearn.preprocessing import label_binarize
 logger = logging.getLogger(__name__)
 
 
+def _ordered_union(*label_groups: List[str]) -> List[str]:
+    """Return labels in first-seen order without duplicates."""
+    labels: List[str] = []
+    seen = set()
+    for group in label_groups:
+        for label in group:
+            label = str(label)
+            if label not in seen:
+                labels.append(label)
+                seen.add(label)
+    return labels
+
+
+def _safe_plot(plot_name: str, plot_func, *args, **kwargs) -> bool:
+    """Run an inference plot writer without aborting inference."""
+    try:
+        plot_func(*args, **kwargs)
+        return True
+    except Exception as exc:
+        logger.warning(
+            "Skipping %s plot because artifact generation failed: %s",
+            plot_name,
+            exc,
+            exc_info=True,
+        )
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+        return False
+
+
 def plot_roc_curves_multiclass(
     y_true: np.ndarray,
     y_proba: np.ndarray,
@@ -179,8 +211,13 @@ def plot_confusion_matrix(
 
     if normalize:
         # Normalize by row (true class)
-        cm_norm = cm.astype("float") / cm.sum(axis=1, keepdims=True)
-        cm_norm = np.nan_to_num(cm_norm)  # Handle division by zero
+        row_sums = cm.sum(axis=1, keepdims=True)
+        cm_norm = np.divide(
+            cm.astype("float"),
+            row_sums,
+            out=np.zeros_like(cm, dtype=float),
+            where=row_sums != 0,
+        )
     else:
         cm_norm = cm
 
@@ -319,34 +356,93 @@ def generate_all_plots(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     plot_paths = {}
+    y_true_str = np.array([str(v) for v in y_true], dtype=object)
+    y_pred_str = np.array([str(v) for v in y_pred], dtype=object)
+    class_names = [str(c) for c in class_names]
+    observed_classes = sorted(list(set(y_true_str) | set(y_pred_str)))
+    confusion_classes = _ordered_union(class_names, observed_classes)
 
     # Confusion matrix
     cm_path = output_dir / f"{prefix}_confusion_matrix.png"
+<<<<<<< HEAD
     plot_confusion_matrix(
         y_true,
         y_pred,
         class_names,
+=======
+    if _safe_plot(
+        "confusion matrix",
+        plot_confusion_matrix,
+        y_true_str,
+        y_pred_str,
+        confusion_classes,
+>>>>>>> origin/main
         cm_path,
         title="Confusion Matrix (Normalized by True Class)",
         normalize=True,
-    )
-    plot_paths["confusion_matrix"] = cm_path
+    ):
+        plot_paths["confusion_matrix"] = cm_path
 
     # ROC curves (if probabilities available)
     if y_proba is not None:
+        if y_proba.shape[1] != len(class_names):
+            logger.warning(
+                "Skipping probability plots because probability columns do not match "
+                "class names: y_proba_columns=%s class_names=%s",
+                y_proba.shape[1],
+                len(class_names),
+            )
+            return plot_paths
+        if not set(y_true_str).intersection(set(class_names)):
+            logger.warning(
+                "Skipping probability plots because no observed test labels are present "
+                "in the model class list: class_names=%s",
+                class_names,
+            )
+            return plot_paths
+        proba_plot_mask = np.isin(y_true_str, class_names)
+        if not proba_plot_mask.all():
+            logger.warning(
+                "Excluding samples with labels absent from the model class list "
+                "from probability plots: n_excluded=%s",
+                int((~proba_plot_mask).sum()),
+            )
+        y_true_proba = y_true_str[proba_plot_mask]
+        y_proba_plot = y_proba[proba_plot_mask]
+
         roc_path = output_dir / f"{prefix}_roc_curves.png"
+<<<<<<< HEAD
         plot_roc_curves_multiclass(
             y_true,
             y_proba,
+=======
+        if _safe_plot(
+            "ROC curves",
+            plot_roc_curves_multiclass,
+            y_true_proba,
+            y_proba_plot,
+>>>>>>> origin/main
             class_names,
             roc_path,
             max_classes=max_roc_classes,
-        )
-        plot_paths["roc_curves"] = roc_path
+        ):
+            plot_paths["roc_curves"] = roc_path
 
         # Score distributions
         dist_path = output_dir / f"{prefix}_score_distributions.png"
+<<<<<<< HEAD
         plot_score_distributions(y_true, y_proba, class_names, dist_path)
         plot_paths["score_distributions"] = dist_path
+=======
+        if _safe_plot(
+            "score distributions",
+            plot_score_distributions,
+            y_true_proba,
+            y_proba_plot,
+            class_names,
+            dist_path,
+        ):
+            plot_paths["score_distributions"] = dist_path
+>>>>>>> origin/main
 
     return plot_paths

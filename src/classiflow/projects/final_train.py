@@ -17,7 +17,11 @@ from __future__ import annotations
 
 import json
 import logging
+<<<<<<< HEAD
 from dataclasses import asdict, dataclass, field
+=======
+from dataclasses import dataclass, field, asdict, replace
+>>>>>>> origin/main
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -33,6 +37,11 @@ from sklearn.preprocessing import StandardScaler
 from classiflow.backends.registry import get_backend, get_model_set
 from classiflow.io import load_data
 from classiflow.models import AdaptiveSMOTE
+<<<<<<< HEAD
+=======
+from classiflow.backends.registry import get_backend, get_model_set
+from classiflow.config import default_torch_num_workers
+>>>>>>> origin/main
 from classiflow.tasks import TaskBuilder
 
 logger = logging.getLogger(__name__)
@@ -90,6 +99,11 @@ class FinalTrainConfig:
     # Task configuration
     mode: str  # "meta", "binary", "multiclass", "hierarchical"
     classes: Optional[List[str]] = None
+    feature_cols: Optional[List[str]] = None
+    sample_id_col: Optional[str] = None
+    patient_id_col: Optional[str] = None
+    slide_id_col: Optional[str] = None
+    specimen_id_col: Optional[str] = None
 
     # Selected configurations from technical validation
     selected_binary_configs: Dict[str, SelectedBinaryConfig] = field(default_factory=dict)
@@ -110,7 +124,8 @@ class FinalTrainConfig:
     model_set: Optional[str] = None
     device: str = "auto"
     torch_dtype: str = "float32"
-    torch_num_workers: int = 0
+    torch_num_workers: int = field(default_factory=default_torch_num_workers)
+    expanded_mlp_tuning_grid: bool = False
 
     # Random state
     random_state: int = 42
@@ -127,6 +142,11 @@ class FinalTrainConfig:
         data = {
             "train_manifest": str(self.train_manifest),
             "label_col": self.label_col,
+            "feature_cols": self.feature_cols,
+            "sample_id_col": self.sample_id_col,
+            "patient_id_col": self.patient_id_col,
+            "slide_id_col": self.slide_id_col,
+            "specimen_id_col": self.specimen_id_col,
             "mode": self.mode,
             "classes": self.classes,
             "sampler": self.sampler,
@@ -138,6 +158,9 @@ class FinalTrainConfig:
             "backend": self.backend,
             "model_set": self.model_set,
             "device": self.device,
+            "torch_dtype": self.torch_dtype,
+            "torch_num_workers": self.torch_num_workers,
+            "expanded_mlp_tuning_grid": self.expanded_mlp_tuning_grid,
             "random_state": self.random_state,
             "max_iter": self.max_iter,
             "sanity_min_std": self.sanity_min_std,
@@ -405,21 +428,28 @@ def _filter_model_params(estimator, params: Dict[str, Any]) -> Dict[str, Any]:
     for key, value in params.items():
         # Remove clf__ prefix if present
         clean_key = key.replace("clf__", "")
-        if clean_key not in valid:
-            continue
+        candidate_key = clean_key
+        if candidate_key not in valid:
+            if candidate_key.startswith("estimator__") and candidate_key[len("estimator__"):] in valid:
+                candidate_key = candidate_key[len("estimator__"):]
+            elif f"estimator__{candidate_key}" in valid:
+                candidate_key = f"estimator__{candidate_key}"
+            else:
+                continue
         if value != value:  # NaN check
             continue
 
-        default = defaults.get(clean_key)
+        default = defaults.get(candidate_key)
+        leaf_key = candidate_key.split("__")[-1]
 
         # Type coercion
         if isinstance(value, float) and value.is_integer():
-            if isinstance(default, int) or clean_key in int_param_hints:
+            if isinstance(default, int) or leaf_key in int_param_hints:
                 value = int(value)
         if isinstance(default, bool) and isinstance(value, (int, float)):
             value = bool(value)
 
-        cleaned[clean_key] = value
+        cleaned[candidate_key] = value
 
     return cleaned
 
@@ -666,7 +696,10 @@ def build_meta_features_for_final(
 # -----------------------------------------------------------------------------
 
 
-def train_final_meta_model(config: FinalTrainConfig) -> FinalTrainResult:
+def train_final_meta_model(
+    config: FinalTrainConfig,
+    _allow_backend_fallback: bool = True,
+) -> FinalTrainResult:
     """
     Train final meta-classifier model from scratch on full training data.
 
@@ -716,7 +749,18 @@ def train_final_meta_model(config: FinalTrainConfig) -> FinalTrainResult:
 
     # Load data
     logger.info("\n[1/6] Loading training data...")
-    X_full, y_full = load_data(config.train_manifest, config.label_col)
+    exclude_cols = [
+        config.sample_id_col,
+        config.patient_id_col,
+        config.slide_id_col,
+        config.specimen_id_col,
+    ]
+    X_full, y_full = load_data(
+        config.train_manifest,
+        config.label_col,
+        feature_cols=config.feature_cols,
+        exclude_cols=exclude_cols,
+    )
 
     if config.classes:
         mask = y_full.isin(config.classes)
@@ -753,6 +797,7 @@ def train_final_meta_model(config: FinalTrainConfig) -> FinalTrainResult:
         torch_dtype=config.torch_dtype,
         torch_num_workers=config.torch_num_workers,
         meta_C_grid=None,
+        expanded_mlp_tuning_grid=config.expanded_mlp_tuning_grid,
     )
     estimators = model_spec["base_estimators"]
 
@@ -789,9 +834,17 @@ def train_final_meta_model(config: FinalTrainConfig) -> FinalTrainResult:
             logger.warning(f"  {task_name}: no config, using default {model_name}")
 
         if model_name not in estimators:
-            warnings.append(f"Model {model_name} not available for {task_name}")
-            logger.warning(f"  {task_name}: model {model_name} not available")
-            continue
+            fallback_name = list(estimators.keys())[0]
+            warnings.append(
+                f"Model {model_name} not available for {task_name}; "
+                f"falling back to {fallback_name}"
+            )
+            logger.warning(
+                f"  {task_name}: model {model_name} not available, "
+                f"falling back to {fallback_name}"
+            )
+            model_name = fallback_name
+            params = {}
 
         # Build pipeline
         estimator = estimators[model_name]
@@ -853,6 +906,20 @@ def train_final_meta_model(config: FinalTrainConfig) -> FinalTrainResult:
         sanity_path = config.outdir / "sanity_checks.json"
         with open(sanity_path, "w", encoding="utf-8") as f:
             json.dump([r.to_dict() for r in sanity_results], f, indent=2)
+
+        if _allow_backend_fallback and config.backend in {"torch", "hybrid"}:
+            logger.warning(
+                "Sanity checks failed with backend=%s. Retrying final training with "
+                "sklearn backend fallback.",
+                config.backend,
+            )
+            fallback_config = replace(
+                config,
+                backend="sklearn",
+                model_set=None,
+                device="cpu",
+            )
+            return train_final_meta_model(fallback_config, _allow_backend_fallback=False)
 
         error_msg = (
             f"SANITY CHECK FAILURE: {len(failures)} check(s) failed.\n"

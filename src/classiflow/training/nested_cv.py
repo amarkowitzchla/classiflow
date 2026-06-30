@@ -9,6 +9,11 @@ from typing import Any, Dict, Literal, Optional
 
 import numpy as np
 import pandas as pd
+<<<<<<< HEAD
+=======
+from sklearn.model_selection import StratifiedKFold, RepeatedStratifiedKFold, GridSearchCV, ParameterGrid
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+>>>>>>> origin/main
 from imblearn.pipeline import Pipeline as ImbPipeline
 from sklearn.exceptions import FitFailedWarning
 from sklearn.model_selection import GridSearchCV, RepeatedStratifiedKFold, StratifiedKFold
@@ -35,6 +40,7 @@ from classiflow.training.probability_quality import (
     serialize_probability_quality_metrics,
     write_probability_quality_curve_artifacts,
 )
+from classiflow.backends.torch_progress import torch_fit_progress
 
 logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", category=FitFailedWarning)
@@ -462,7 +468,10 @@ class NestedCVOrchestrator:
             )
 
             try:
-                grid.fit(X_tr, y_tr)
+                total_fits = len(ParameterGrid(self.param_grids[model_name])) * n_inner_total + 1
+                label = f"{task_name} fold={fold_idx} variant={variant} model={model_name}"
+                with torch_fit_progress(label=label, total=total_fits):
+                    grid.fit(X_tr, y_tr)
             except Exception as e:
                 logger.warning(f"Model {model_name} fit failed: {e}")
                 continue

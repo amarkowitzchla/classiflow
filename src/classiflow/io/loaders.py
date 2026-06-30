@@ -16,6 +16,7 @@ def load_data(
     data_path: Union[Path, str],
     label_col: str,
     feature_cols: Optional[List[str]] = None,
+    exclude_cols: Optional[List[str]] = None,
     drop_na_labels: bool = True,
 ) -> Tuple[pd.DataFrame, pd.Series]:
     """
@@ -29,6 +30,8 @@ def load_data(
         Name of the label column
     feature_cols : Optional[List[str]]
         Explicit list of feature columns; if None, auto-select numeric columns
+    exclude_cols : Optional[List[str]]
+        Additional columns to always exclude from selected features
     drop_na_labels : bool
         Whether to drop rows with missing labels
 
@@ -63,10 +66,14 @@ def load_data(
             raise ValueError(f"Feature columns not found: {missing}")
         if label_col in feature_cols:
             raise ValueError(f"feature_cols contains forbidden columns: {[label_col]}")
-        X = df[feature_cols].copy()
+        forbidden = {col for col in (exclude_cols or []) if col}
+        selected = [col for col in feature_cols if col not in forbidden]
+        X = df[selected].copy()
     else:
         # Auto-select numeric columns excluding label
-        X = df.drop(columns=[label_col]).select_dtypes(include=[np.number])
+        drop_cols = [label_col]
+        drop_cols.extend([col for col in (exclude_cols or []) if col in df.columns])
+        X = df.drop(columns=drop_cols, errors="ignore").select_dtypes(include=[np.number])
 
     if X.shape[1] == 0:
         raise ValueError("No numeric feature columns found.")

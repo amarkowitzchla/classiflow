@@ -144,13 +144,31 @@ def add_binary_prediction_columns(
 
     pred_series = predictions[pred_col]
     if pd.api.types.is_numeric_dtype(pred_series) or pd.api.types.is_bool_dtype(pred_series):
-        pred_values = pred_series.astype(int).values
-        predictions["predicted_label"] = np.where(pred_values == 1, pos_label, neg_label)
+        pred_numeric = pd.to_numeric(pred_series, errors="coerce")
+        mapped = np.full(len(pred_series), np.nan, dtype=object)
+        valid = pred_numeric.notna()
+        binary = valid & pred_numeric.isin([0, 1])
+        if (valid & ~binary).any():
+            logger.warning(
+                "Binary predictions contain non-binary numeric values; "
+                "treating them as missing labels."
+            )
+        mapped[(binary & (pred_numeric == 1)).to_numpy()] = pos_label
+        mapped[(binary & (pred_numeric == 0)).to_numpy()] = neg_label
+        predictions["predicted_label"] = mapped
     else:
         pred_numeric = pd.to_numeric(pred_series, errors="coerce")
         if pred_numeric.notna().all():
-            pred_values = pred_numeric.astype(int).values
-            predictions["predicted_label"] = np.where(pred_values == 1, pos_label, neg_label)
+            mapped = np.full(len(pred_series), np.nan, dtype=object)
+            binary = pred_numeric.isin([0, 1])
+            if (~binary).any():
+                logger.warning(
+                    "Binary predictions contain non-binary numeric values; "
+                    "treating them as missing labels."
+                )
+            mapped[(binary & (pred_numeric == 1)).to_numpy()] = pos_label
+            mapped[(binary & (pred_numeric == 0)).to_numpy()] = neg_label
+            predictions["predicted_label"] = mapped
         else:
             if set(pred_series.dropna().unique()).issubset(set(class_names)):
                 predictions["predicted_label"] = pred_series.astype(str).values

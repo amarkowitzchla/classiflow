@@ -274,10 +274,12 @@ def verify_brier_score_correctness(test_path: Path, training_dir: Path, inferenc
 
     # Manual Brier score computation
     y_bin = label_binarize(y_true, classes=class_order)
-    manual_brier = float(np.mean(np.sum((y_proba - y_bin) ** 2, axis=1)))
+    manual_brier_sum = float(np.mean(np.sum((y_proba - y_bin) ** 2, axis=1)))
+    manual_brier = manual_brier_sum / float(len(class_order))
 
-    print(f"Computed Brier: {computed_brier:.6f}")
-    print(f"Manual Brier:   {manual_brier:.6f}")
+    print(f"Computed Brier (recommended): {computed_brier:.6f}")
+    print(f"Manual Brier (recommended):   {manual_brier:.6f}")
+    print(f"Manual Brier (sum form):      {manual_brier_sum:.6f}")
 
     # Check if y_bin is aligned with y_proba
     print("\n=== ALIGNMENT CHECK ===")

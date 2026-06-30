@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+from classiflow.projects.promotion import evaluate_promotion
 from classiflow.ui_api.adapters.manifest import (
     RunManifestNormalized,
     parse_metrics,
@@ -125,6 +126,7 @@ class ScannedRun:
 
     manifest: RunManifestNormalized
     metrics: dict
+    cache_signature: int
     artifact_paths: list[str] = field(default_factory=list)
     artifact_count: int = 0
 
@@ -165,6 +167,42 @@ class LocalFilesystemScanner:
 
         self._project_cache: dict[str, ScannedProject] = {}
         self._run_cache: dict[str, ScannedRun] = {}
+
+    @staticmethod
+    def _run_cache_signature(run_dir: Path) -> int:
+        """
+        Return a lightweight signature used to invalidate stale run-cache entries.
+
+        Hash-like signature is based on mtime of core metadata/metrics files that
+        affect run detail payloads shown in UI.
+        """
+        candidates = [
+            run_dir / "run.json",
+            run_dir / "lineage.json",
+            run_dir / "metrics.json",
+            run_dir / "metrics_summary.json",
+            run_dir / "metrics_outer_binary_eval.csv",
+            run_dir / "metrics_outer_meta_eval.csv",
+            run_dir / "metrics_outer_multiclass_eval.csv",
+            run_dir / "metrics_outer_eval.csv",
+            run_dir / "metrics" / "overall_metrics.csv",
+            run_dir / "metrics" / "per_class_metrics.csv",
+            run_dir / "metrics" / "confusion_matrix.csv",
+        ]
+
+        mtimes: list[int] = []
+        try:
+            mtimes.append(run_dir.stat().st_mtime_ns)
+        except OSError:
+            pass
+        for path in candidates:
+            if not path.exists():
+                continue
+            try:
+                mtimes.append(path.stat().st_mtime_ns)
+            except OSError:
+                continue
+        return max(mtimes) if mtimes else 0
 
     def scan_projects(self, force: bool = False) -> list[ScannedProject]:
         """
@@ -286,16 +324,18 @@ class LocalFilesystemScanner:
     def get_run(self, project_id: str, phase: str, run_id: str) -> Optional[ScannedRun]:
         """Get a specific run."""
         run_key = f"{project_id}:{phase}:{run_id}"
-
-        if run_key in self._run_cache:
-            return self._run_cache[run_key]
-
         run_dir = self.projects_root / project_id / "runs" / phase / run_id
+
         if not run_dir.is_dir():
             return None
 
+        signature = self._run_cache_signature(run_dir)
+        cached = self._run_cache.get(run_key)
+        if cached and cached.cache_signature == signature:
+            return cached
+
         try:
-            scanned = self._scan_single_run(run_dir, project_id, phase)
+            scanned = self._scan_single_run(run_dir, project_id, phase, signature=signature)
             self._run_cache[run_key] = scanned
             return scanned
         except Exception as e:
@@ -332,7 +372,14 @@ class LocalFilesystemScanner:
             return numeric if math.isfinite(numeric) else None
         return value
 
-    def _scan_single_run(self, run_dir: Path, project_id: str, phase: str) -> ScannedRun:
+    def _scan_single_run(
+        self,
+        run_dir: Path,
+        project_id: str,
+        phase: str,
+        *,
+        signature: Optional[int] = None,
+    ) -> ScannedRun:
         """Scan a single run directory."""
         manifest = parse_run_manifest(run_dir, project_id, phase)
         metrics = parse_metrics(run_dir, phase)
@@ -347,6 +394,7 @@ class LocalFilesystemScanner:
         return ScannedRun(
             manifest=manifest,
             metrics=metrics,
+            cache_signature=signature if signature is not None else self._run_cache_signature(run_dir),
             artifact_paths=artifact_paths,
             artifact_count=len(artifact_paths),
         )
@@ -582,22 +630,12 @@ class LocalFilesystemScanner:
         decision = project.decision
         results: dict[str, GateResult] = {}
 
-        # Metric aliases for normalization
-        metric_aliases = {
-            "f1": "f1_macro",
-            "balanced_acc": "balanced_accuracy",
-            "roc_auc": "roc_auc_ovr_macro",
-            "roc_auc_macro": "roc_auc_ovr_macro",
-        }
-
-        def normalize_metric(name: str) -> str:
-            return metric_aliases.get(name, name)
-
         phase_labels = {
             "technical_validation": "Technical Validation",
             "independent_test": "Independent Test",
         }
 
+<<<<<<< HEAD
         def _get_section(obj, key, default):
             if hasattr(obj, key):
                 return getattr(obj, key)
@@ -613,6 +651,9 @@ class LocalFilesystemScanner:
             return {}
 
         def _numeric_metrics(metrics: dict[str, Any]) -> dict[str, float]:
+=======
+        def _numeric_metrics(metrics: dict[str, object]) -> dict[str, float]:
+>>>>>>> origin/main
             filtered: dict[str, float] = {}
             for key, value in metrics.items():
                 if isinstance(value, numbers.Real):
@@ -621,17 +662,17 @@ class LocalFilesystemScanner:
                         filtered[key] = numeric
             return filtered
 
-        # Technical validation gate
-        tech_config = _as_dict(_get_section(thresholds, "technical_validation", {}))
-        promotion_config = _as_dict(_get_section(thresholds, "promotion", {}))
-        cal_config = _as_dict(_get_section(promotion_config, "calibration", {}))
         tech_run_id = decision.technical_run if decision else None
         if not tech_run_id and "technical_validation" in project.phases:
+<<<<<<< HEAD
             # Use latest run
+=======
+>>>>>>> origin/main
             tech_run_id = (
                 project.phases["technical_validation"][0]
                 if project.phases["technical_validation"]
                 else None
+<<<<<<< HEAD
             )
 
         if tech_run_id:
@@ -747,12 +788,10 @@ class LocalFilesystemScanner:
                 run_key=f"{project_id}:technical_validation:{tech_run_id}",
                 checks=checks,
                 metrics_available=_numeric_metrics(tech_metrics),
+=======
+>>>>>>> origin/main
             )
 
-        # Independent test gate
-        test_config = _as_dict(_get_section(thresholds, "independent_test", {}))
-        promotion_config = _as_dict(_get_section(thresholds, "promotion", {}))
-        cal_config = _as_dict(_get_section(promotion_config, "calibration", {}))
         test_run_id = decision.test_run if decision else None
         if not test_run_id and "independent_test" in project.phases:
             test_run_id = (
@@ -761,23 +800,29 @@ class LocalFilesystemScanner:
                 else None
             )
 
-        if test_run_id:
-            test_run = self.get_run(project_id, "independent_test", test_run_id)
-            test_metrics = test_run.metrics.get("summary", {}) if test_run else {}
+        tech_run = (
+            self.get_run(project_id, "technical_validation", tech_run_id)
+            if tech_run_id
+            else None
+        )
+        test_run = (
+            self.get_run(project_id, "independent_test", test_run_id)
+            if test_run_id
+            else None
+        )
 
-            checks = []
-            all_passed = True
+        tech_metrics = tech_run.metrics.get("summary", {}) if tech_run else {}
+        tech_per_fold = tech_run.metrics.get("per_fold", {}) if tech_run else {}
+        test_metrics = test_run.metrics.get("summary", {}) if test_run else {}
 
-            # Required metrics
-            required = test_config.get("required", {})
-            for metric_name, threshold in required.items():
-                normalized = normalize_metric(metric_name)
-                actual = test_metrics.get(normalized)
-                if actual is None:
-                    # Try original name
-                    actual = test_metrics.get(metric_name)
-                passed = actual is not None and actual >= threshold
+        promotion_results = evaluate_promotion(
+            thresholds=thresholds,
+            technical_metrics=tech_metrics,
+            technical_per_fold=tech_per_fold,
+            test_metrics=test_metrics,
+        )
 
+<<<<<<< HEAD
                 checks.append(
                     GateCheck(
                         metric=metric_name,
@@ -827,8 +872,42 @@ class LocalFilesystemScanner:
                 passed=all_passed,
                 run_id=test_run_id,
                 run_key=f"{project_id}:independent_test:{test_run_id}",
+=======
+        def _check_type(metric: str, op: str) -> str:
+            if metric.endswith("_std"):
+                return "stability_std"
+            if metric.endswith("_pass_rate"):
+                return "stability_pass_rate"
+            if op in {"<", "<="}:
+                return "safety"
+            return "required"
+
+        for phase, run_id, run_metrics in [
+            ("technical_validation", tech_run_id, tech_metrics),
+            ("independent_test", test_run_id, test_metrics),
+        ]:
+            if not run_id:
+                continue
+            phase_result = promotion_results[phase]
+            checks = [
+                GateCheck(
+                    metric=gate.metric,
+                    threshold=gate.threshold,
+                    actual=gate.observed_value,
+                    passed=gate.passed,
+                    check_type=_check_type(gate.metric, gate.op),
+                )
+                for gate in phase_result.per_gate_results
+            ]
+            results[phase] = GateResult(
+                phase=phase,
+                phase_label=phase_labels[phase],
+                passed=phase_result.passed,
+                run_id=run_id,
+                run_key=f"{project_id}:{phase}:{run_id}",
+>>>>>>> origin/main
                 checks=checks,
-                metrics_available=_numeric_metrics(test_metrics),
+                metrics_available=_numeric_metrics(run_metrics),
             )
 
         return results

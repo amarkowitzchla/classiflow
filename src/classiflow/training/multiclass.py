@@ -22,13 +22,23 @@ from sklearn.metrics import (
     roc_auc_score,
     roc_curve,
 )
+<<<<<<< HEAD
 from sklearn.model_selection import GridSearchCV, RepeatedStratifiedKFold, StratifiedKFold
+=======
+from sklearn.model_selection import StratifiedKFold, RepeatedStratifiedKFold, GridSearchCV, ParameterGrid
+>>>>>>> origin/main
 from sklearn.preprocessing import StandardScaler, label_binarize
 
 from classiflow.config import MulticlassConfig
 from classiflow.io import load_data, load_data_with_groups, validate_data
 from classiflow.lineage.hashing import get_file_metadata
 from classiflow.lineage.manifest import create_training_manifest
+<<<<<<< HEAD
+=======
+from classiflow.models import AdaptiveSMOTE, get_estimators, get_param_grids, resolve_device
+from classiflow.backends.torch_progress import torch_fit_progress
+from classiflow.metrics.decision import compute_decision_metrics
+>>>>>>> origin/main
 from classiflow.metrics.calibration import compute_probability_quality
 from classiflow.metrics.decision import compute_decision_metrics
 from classiflow.models import AdaptiveSMOTE, get_estimators, get_param_grids, resolve_device
@@ -61,6 +71,16 @@ MC_SCORER_ORDER = [
     "F1 Macro",
     "F1 Weighted",
 ]
+
+
+def _torch_temperature_scaling_enabled(config: MulticlassConfig) -> bool:
+    enabled = str(getattr(config, "calibration_enabled", "auto")).strip().lower()
+    method = str(getattr(config, "calibration_method", "sigmoid")).strip().lower()
+    if method != "temperature":
+        return False
+    if enabled == "false":
+        return False
+    return True
 
 
 def train_multiclass_classifier(config: MulticlassConfig) -> Dict[str, Any]:
@@ -190,6 +210,7 @@ def _run_multiclass_nested_cv(
     groups: Optional[pd.Series] = None,
 ) -> Dict[str, Any]:
     """Run nested CV for direct multiclass training."""
+    torch_temperature_scaling = _torch_temperature_scaling_enabled(config)
     label_ids = list(range(len(classes)))
     logreg_params = {
         "solver": config.logreg_solver,
@@ -208,10 +229,22 @@ def _run_multiclass_nested_cv(
             config.max_iter,
             logreg_params=logreg_params,
             resolved_device=resolved_device,
+            torch_num_workers=config.torch_num_workers,
+            torch_temperature_scaling=torch_temperature_scaling,
+            final_estimator_strategy=config.final_estimator_strategy,
+            bagging_n_estimators=config.bagging_n_estimators,
+            bagging_max_samples=config.bagging_max_samples,
+            bagging_max_features=config.bagging_max_features,
+            bagging_bootstrap=config.bagging_bootstrap,
+            bagging_bootstrap_features=config.bagging_bootstrap_features,
         ),
         resolved_device,
     )
-    param_grids = get_param_grids(resolved_device=resolved_device)
+    param_grids = get_param_grids(
+        resolved_device=resolved_device,
+        expanded_mlp_tuning_grid=config.expanded_mlp_tuning_grid,
+        final_estimator_strategy=config.final_estimator_strategy,
+    )
     estimators, param_grids = _filter_estimators(
         estimators,
         param_grids,
@@ -477,7 +510,10 @@ def _run_multiclass_variant(
         )
 
         try:
-            grid.fit(X_tr, y_tr)
+            total_fits = len(ParameterGrid(param_grids[model_name])) * n_inner_total + 1
+            label = f"multiclass fold={fold} variant={variant} model={model_name}"
+            with torch_fit_progress(label=label, total=total_fits):
+                grid.fit(X_tr, y_tr)
         except Exception as exc:
             logger.warning(f"Grid fit failed for {model_name}: {exc}")
             continue

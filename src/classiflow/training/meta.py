@@ -10,7 +10,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import joblib
 import numpy as np
 import pandas as pd
+<<<<<<< HEAD
 from imblearn.pipeline import Pipeline as ImbPipeline
+=======
+from sklearn.model_selection import StratifiedKFold, RepeatedStratifiedKFold, GridSearchCV, ParameterGrid
+from sklearn.calibration import CalibratedClassifierCV
+>>>>>>> origin/main
 from sklearn.base import clone
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import (
@@ -30,8 +35,16 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler, label_binarize
 from classiflow.backends.registry import get_backend, get_model_set
 from classiflow.config import MetaConfig
 from classiflow.io import load_data, load_data_with_groups, validate_data
+<<<<<<< HEAD
 from classiflow.lineage.hashing import get_file_metadata
 from classiflow.lineage.manifest import create_training_manifest
+=======
+from classiflow.tasks import TaskBuilder, load_composite_tasks
+from classiflow.models import AdaptiveSMOTE
+from classiflow.backends.registry import get_backend, get_model_set
+from classiflow.backends.torch_progress import torch_fit_progress
+from classiflow.metrics.scorers import get_scorers, SCORER_ORDER
+>>>>>>> origin/main
 from classiflow.metrics.binary import compute_binary_metrics
 from classiflow.metrics.binary_learners import (
     evaluate_binary_learner_health,
@@ -64,6 +77,16 @@ from classiflow.training.probability_quality import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _torch_temperature_scaling_enabled(config: MetaConfig) -> bool:
+    enabled = str(getattr(config, "calibration_enabled", "auto")).strip().lower()
+    method = str(getattr(config, "calibration_method", "sigmoid")).strip().lower()
+    if method != "temperature":
+        return False
+    if str(getattr(config, "backend", "sklearn")).lower() != "torch":
+        return False
+    return enabled != "false"
 
 
 def _log_torch_status(requested_device: str) -> None:
@@ -274,7 +297,9 @@ def _run_meta_nested_cv(
         device=config.device,
         torch_dtype=config.torch_dtype,
         torch_num_workers=config.torch_num_workers,
+        torch_temperature_scaling=_torch_temperature_scaling_enabled(config),
         meta_C_grid=config.meta_C_grid,
+        expanded_mlp_tuning_grid=config.expanded_mlp_tuning_grid,
     )
     estimators = model_spec["base_estimators"]
     param_grids = model_spec["base_param_grids"]
@@ -628,7 +653,10 @@ def _train_binary_tasks(
             )
 
             try:
-                grid.fit(X_bin, y_bin)
+                total_fits = len(ParameterGrid(param_grids[model_name])) * n_inner_total_task + 1
+                label = f"{task_name} fold={fold} variant={variant} model={model_name}"
+                with torch_fit_progress(label=label, total=total_fits):
+                    grid.fit(X_bin, y_bin)
             except Exception as e:
                 logger.warning(f"Grid fit failed for {task_name}/{model_name}: {e}")
                 continue
@@ -1312,6 +1340,13 @@ def _fit_meta_calibrator(
 
     effective_method = method
     y_series = pd.Series(y)
+    if method == "temperature":
+        metadata["warnings"].append(
+            "Temperature scaling is not supported by CalibratedClassifierCV; "
+            "using estimator probabilities without additional meta calibration."
+        )
+        metadata["method_used"] = "temperature"
+        return model, metadata
     if method == "isotonic":
         min_samples = config.calibration_isotonic_min_samples
         if len(X_meta) < min_samples or y_series.value_counts().min() < 2:
