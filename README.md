@@ -22,9 +22,9 @@ This README is intentionally short and practical. A junior developer should be a
 
 Example notebook-backed project runs are available in:
 
-* [Embry Methyl Multiclass (sklearn)](notebooks/runs/01_embry_methyl_multiclass_sklearn_conservative_gate.ipynb)
-* [Liquid Biopsy Fragmentomic MB Meta (sklearn technical)](notebooks/runs/03_liquid_biopsy_fragmentomic_mb_meta_sklearn_technical_confirm_rulein.ipynb)
-* [MRS MB Meta (sklearn technical)](notebooks/runs/02_mrs_mb_meta_sklearn_technical_research_exploratory.ipynb)
+* [Embry Methyl Multiclass (sklearn)](notebooks/01_embry_methyl_multiclass_sklearn_conservative_gate.ipynb)
+* [Liquid Biopsy Fragmentomic MB Meta (sklearn technical)](notebooks/03_liquid_biopsy_fragmentomic_mb_meta_sklearn_technical_confirm_rulein.ipynb)
+* [MRS MB Meta (sklearn technical)](notebooks/02_mrs_mb_meta_sklearn_technical_research_exploratory.ipynb)
 
 ---
 
