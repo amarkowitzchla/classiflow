@@ -9,15 +9,15 @@ from typing import Any, Dict, Literal, Optional
 
 import numpy as np
 import pandas as pd
-<<<<<<< HEAD
-=======
-from sklearn.model_selection import StratifiedKFold, RepeatedStratifiedKFold, GridSearchCV, ParameterGrid
-from sklearn.preprocessing import StandardScaler, LabelEncoder
->>>>>>> origin/main
 from imblearn.pipeline import Pipeline as ImbPipeline
 from sklearn.exceptions import FitFailedWarning
-from sklearn.model_selection import GridSearchCV, RepeatedStratifiedKFold, StratifiedKFold
-from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import (
+    GridSearchCV,
+    ParameterGrid,
+    RepeatedStratifiedKFold,
+    StratifiedKFold,
+)
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 
 from classiflow.metrics.binary import compute_binary_metrics
 from classiflow.metrics.calibration import compute_probability_quality
