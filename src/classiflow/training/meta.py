@@ -10,12 +10,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import joblib
 import numpy as np
 import pandas as pd
-<<<<<<< HEAD
 from imblearn.pipeline import Pipeline as ImbPipeline
-=======
-from sklearn.model_selection import StratifiedKFold, RepeatedStratifiedKFold, GridSearchCV, ParameterGrid
-from sklearn.calibration import CalibratedClassifierCV
->>>>>>> origin/main
 from sklearn.base import clone
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import (
@@ -29,22 +24,15 @@ from sklearn.metrics import (
     precision_recall_curve,
     roc_curve,
 )
-from sklearn.model_selection import GridSearchCV, RepeatedStratifiedKFold, StratifiedKFold
+from sklearn.model_selection import GridSearchCV, ParameterGrid, RepeatedStratifiedKFold, StratifiedKFold
 from sklearn.preprocessing import LabelEncoder, StandardScaler, label_binarize
 
 from classiflow.backends.registry import get_backend, get_model_set
 from classiflow.config import MetaConfig
 from classiflow.io import load_data, load_data_with_groups, validate_data
-<<<<<<< HEAD
 from classiflow.lineage.hashing import get_file_metadata
 from classiflow.lineage.manifest import create_training_manifest
-=======
-from classiflow.tasks import TaskBuilder, load_composite_tasks
-from classiflow.models import AdaptiveSMOTE
-from classiflow.backends.registry import get_backend, get_model_set
 from classiflow.backends.torch_progress import torch_fit_progress
-from classiflow.metrics.scorers import get_scorers, SCORER_ORDER
->>>>>>> origin/main
 from classiflow.metrics.binary import compute_binary_metrics
 from classiflow.metrics.binary_learners import (
     evaluate_binary_learner_health,

@@ -12,18 +12,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-<<<<<<< HEAD
-from classiflow.ui_api.app import create_app
-from classiflow.ui_api.config import StorageMode, UIConfig
-=======
 from classiflow.ui_api.app import SPAStaticFiles, create_app, mount_static
-from classiflow.ui_api.config import UIConfig, StorageMode
+from classiflow.ui_api.config import StorageMode, UIConfig
 from classiflow.ui_api.scanner import LocalFilesystemScanner
 from classiflow.ui_api.repositories.sqlite import SQLiteCommentReviewRepository
->>>>>>> origin/main
 from classiflow.ui_api.models import ReviewStatus
-from classiflow.ui_api.repositories.sqlite import SQLiteCommentReviewRepository
-from classiflow.ui_api.scanner import LocalFilesystemScanner
 
 
 @pytest.fixture
@@ -175,21 +168,6 @@ override:
 
     # Create metrics_summary.json
     metrics_json = tech_val_dir / "metrics_summary.json"
-<<<<<<< HEAD
-    metrics_json.write_text(
-        json.dumps(
-            {
-                "summary": {
-                    "balanced_accuracy": 0.85,
-                    "f1_macro": 0.82,
-                },
-                "per_fold": {
-                    "balanced_accuracy": [0.84, 0.85, 0.86],
-                },
-            }
-        )
-    )
-=======
     metrics_json.write_text(json.dumps({
         "summary": {
             "balanced_accuracy": 0.85,
@@ -201,7 +179,6 @@ override:
             "balanced_accuracy": [0.84, 0.85, 0.86],
         },
     }))
->>>>>>> origin/main
 
     # Create a test artifact (image)
     test_image = tech_val_dir / "roc_curve.png"
