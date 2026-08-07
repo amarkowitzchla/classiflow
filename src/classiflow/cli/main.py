@@ -10,22 +10,7 @@ import numpy as np
 import typer
 
 from classiflow import __version__
-<<<<<<< HEAD
 from classiflow.cli.backfill import backfill_app
-=======
-from classiflow.config import (
-    TrainConfig,
-    MetaConfig,
-    MulticlassConfig,
-    HierarchicalConfig,
-    _resolve_data_path,
-    default_torch_num_workers,
-)
-from classiflow.training import train_binary_task, train_meta_classifier, train_multiclass_classifier
-from classiflow.io.compatibility import assess_data_compatibility
-from classiflow.evaluation.smote_comparison import SMOTEComparison
-from classiflow.cli.stats import stats_app
->>>>>>> origin/main
 from classiflow.cli.bundle import bundle_app
 from classiflow.cli.config import config_app
 from classiflow.cli.migrate import migrate_app
@@ -38,6 +23,7 @@ from classiflow.config import (
     MulticlassConfig,
     TrainConfig,
     _resolve_data_path,
+    default_torch_num_workers,
 )
 from classiflow.evaluation.smote_comparison import SMOTEComparison
 from classiflow.io.compatibility import assess_data_compatibility
@@ -601,11 +587,6 @@ def train_multiclass(
     inner_repeats: int = typer.Option(2, "--inner-repeats", help="Number of inner CV repeats"),
     random_state: int = typer.Option(42, "--random-state", help="Random seed"),
     smote: str = typer.Option("both", "--smote", help="SMOTE mode: off, on, both"),
-<<<<<<< HEAD
-    max_iter: int = typer.Option(
-        10000, "--max-iter", help="Max iterations for non-logreg linear models"
-    ),
-=======
     calibration_enabled: str = typer.Option(
         "auto",
         "--calibration-enabled",
@@ -617,7 +598,6 @@ def train_multiclass(
         help="Calibration method: sigmoid, isotonic, or temperature (torch only).",
     ),
     max_iter: int = typer.Option(10000, "--max-iter", help="Max iterations for non-logreg linear models"),
->>>>>>> origin/main
     group_stratify: bool = typer.Option(
         True,
         "--group-stratify/--no-group-stratify",
