@@ -9,7 +9,7 @@ This package provides:
 - CLI tools and Streamlit UI
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.1"
 
 from classiflow.config import MetaConfig, TrainConfig
 from classiflow.tasks.builder import TaskBuilder

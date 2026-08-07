@@ -13,6 +13,30 @@ Guidelines:
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-08-07
+
+### Fixed
+- Resolved committed Python merge-conflict artifacts across training, inference, project, UI,
+  plotting, and Torch backend modules. The repository is again syntax-clean and testable.
+- Added `xlsxwriter` to the `stats` optional extra, matching the publication workbook writer used
+  by `classiflow stats`.
+
+### Added
+- GitHub Actions publication baseline on pull requests and pushes to `main`. The blocking gate
+  rejects merge markers, compiles source, builds source/wheel distributions, verifies test
+  collection, and runs a focused publication baseline on Python 3.11 and 3.12.
+
+### Validation
+- Full pytest: 436 passed; 3 optional integration tests skipped (MLflow, W&B, and OpenPyXL
+  specific paths not installed in the validation environment).
+- Publication baseline CI passed on Python 3.11 and 3.12 for the merged `main` commit.
+- Repository-wide ruff, Black, and mypy results remain visible as non-blocking diagnostics while
+  historical cleanup debt is addressed; this release does not claim a clean lint/type baseline.
+
+### Notes
+- This is the first validated release after the immutable `v1.0.0` source snapshot. `v1.0.0`
+  remains unchanged and should not be interpreted as a validated release.
+
 ### Added
 - **`AGENTS.md`, `docs/adr/`, `docs/change-management/`** are now properly tracked in git. These
   critical operational files were never committed due to an over-broad `docs/*` gitignore rule.
