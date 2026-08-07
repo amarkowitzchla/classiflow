@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "classiflow"
-version = "0.1.0"
+version = "1.0.1"
 description = "Production-grade ML toolkit for molecular subtype classification with nested cross-validation"
 readme = "README.md"
 requires-python = ">=3.9"
