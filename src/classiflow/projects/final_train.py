@@ -17,11 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
-<<<<<<< HEAD
-from dataclasses import asdict, dataclass, field
-=======
-from dataclasses import dataclass, field, asdict, replace
->>>>>>> origin/main
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -35,13 +31,9 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
 from classiflow.backends.registry import get_backend, get_model_set
+from classiflow.config import default_torch_num_workers
 from classiflow.io import load_data
 from classiflow.models import AdaptiveSMOTE
-<<<<<<< HEAD
-=======
-from classiflow.backends.registry import get_backend, get_model_set
-from classiflow.config import default_torch_num_workers
->>>>>>> origin/main
 from classiflow.tasks import TaskBuilder
 
 logger = logging.getLogger(__name__)
