@@ -364,19 +364,12 @@ def generate_all_plots(
 
     # Confusion matrix
     cm_path = output_dir / f"{prefix}_confusion_matrix.png"
-<<<<<<< HEAD
-    plot_confusion_matrix(
-        y_true,
-        y_pred,
-        class_names,
-=======
     if _safe_plot(
         "confusion matrix",
         plot_confusion_matrix,
         y_true_str,
         y_pred_str,
         confusion_classes,
->>>>>>> origin/main
         cm_path,
         title="Confusion Matrix (Normalized by True Class)",
         normalize=True,
@@ -411,17 +404,11 @@ def generate_all_plots(
         y_proba_plot = y_proba[proba_plot_mask]
 
         roc_path = output_dir / f"{prefix}_roc_curves.png"
-<<<<<<< HEAD
-        plot_roc_curves_multiclass(
-            y_true,
-            y_proba,
-=======
         if _safe_plot(
             "ROC curves",
             plot_roc_curves_multiclass,
             y_true_proba,
             y_proba_plot,
->>>>>>> origin/main
             class_names,
             roc_path,
             max_classes=max_roc_classes,
@@ -430,10 +417,6 @@ def generate_all_plots(
 
         # Score distributions
         dist_path = output_dir / f"{prefix}_score_distributions.png"
-<<<<<<< HEAD
-        plot_score_distributions(y_true, y_proba, class_names, dist_path)
-        plot_paths["score_distributions"] = dist_path
-=======
         if _safe_plot(
             "score distributions",
             plot_score_distributions,
@@ -443,6 +426,5 @@ def generate_all_plots(
             dist_path,
         ):
             plot_paths["score_distributions"] = dist_path
->>>>>>> origin/main
 
     return plot_paths

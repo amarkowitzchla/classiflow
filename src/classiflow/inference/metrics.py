@@ -3,13 +3,8 @@
 from __future__ import annotations
 
 import logging
-<<<<<<< HEAD
-from typing import Any, Dict, List, Optional
-
-=======
 import warnings
-from typing import Dict, Any, List, Optional
->>>>>>> origin/main
+from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (
@@ -167,18 +162,6 @@ def compute_classification_metrics(
     )
 
     per_class = []
-<<<<<<< HEAD
-    for i, cls in enumerate(class_names):
-        per_class.append(
-            {
-                "class": str(cls),
-                "precision": float(precision[i]),
-                "recall": float(recall[i]),
-                "f1": float(f1[i]),
-                "support": int(support[i]),
-            }
-        )
-=======
     for i, cls in enumerate(metric_class_names):
         per_class.append({
             "class": str(cls),
@@ -187,7 +170,6 @@ def compute_classification_metrics(
             "f1": float(f1[i]),
             "support": int(support[i]),
         })
->>>>>>> origin/main
 
     metrics["per_class"] = per_class
 
@@ -318,15 +300,6 @@ def compute_roc_auc(
     for i, cls in enumerate(class_names):
         if y_bin[:, i].sum() == 0:
             # No positive samples for this class
-<<<<<<< HEAD
-            per_class.append(
-                {
-                    "class": str(cls),
-                    "auc": np.nan,
-                    "note": "No positive samples in test set",
-                }
-            )
-=======
             per_class.append({
                 "class": str(cls),
                 "auc": np.nan,
@@ -338,7 +311,6 @@ def compute_roc_auc(
                 "auc": np.nan,
                 "note": "Need both positive and negative samples in test set",
             })
->>>>>>> origin/main
         else:
             try:
                 fpr, tpr, _ = roc_curve(y_bin[:, i], y_proba[:, i])
