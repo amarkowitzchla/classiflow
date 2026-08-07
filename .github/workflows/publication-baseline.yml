@@ -1,0 +1,76 @@
+name: Publication baseline
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    name: Python ${{ matrix.python }} baseline
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+
+      - name: Reject committed merge-conflict markers
+        run: |
+          if git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- '*.py'; then
+            echo "Committed merge-conflict markers found."
+            exit 1
+          fi
+
+      - name: Compile source
+        run: uv run --extra ui --extra stats --extra parquet --extra dev python -m compileall -q src
+
+      - name: Build distribution
+        run: uv build
+
+      - name: Verify test collection
+        run: uv run --extra ui --extra stats --extra parquet --extra dev pytest --collect-only -q
+
+      - name: Run publication baseline tests
+        run: >-
+          uv run --extra ui --extra stats --extra parquet --extra dev pytest -q
+          tests/inference
+          tests/plots
+          tests/splitting
+          tests/training/test_nested_cv_module_syntax.py
+          tests/training/test_patient_stratified_wiring.py
+          tests/unit/test_project_module.py
+          tests/unit/test_promotion_gate_templates.py
+          tests/test_ui_api.py
+
+  quality-diagnostics:
+    name: Non-blocking quality diagnostics
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Ruff report
+        run: uv run --extra dev ruff check .
+
+      - name: Black report
+        run: uv run --extra dev black --check .
+
+      - name: Mypy report
+        run: uv run --extra ui --extra stats --extra parquet --extra dev mypy src/classiflow
