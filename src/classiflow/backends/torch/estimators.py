@@ -21,12 +21,8 @@ from classiflow.backends.torch.modules import (
     MulticlassLinear,
     MulticlassMLP,
 )
-<<<<<<< HEAD
-from classiflow.backends.torch.utils import make_dataloader, resolve_device, resolve_dtype, set_seed
-=======
 from classiflow.backends.torch_progress import next_torch_fit_progress
-from classiflow.backends.torch.utils import resolve_device, resolve_dtype, set_seed, make_dataloader
->>>>>>> origin/main
+from classiflow.backends.torch.utils import make_dataloader, resolve_device, resolve_dtype, set_seed
 
 logger = logging.getLogger(__name__)
 
@@ -331,9 +327,6 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
     def _prepare_target(self, yb: torch.Tensor) -> torch.Tensor:
         return yb
 
-<<<<<<< HEAD
-    def fit(self, X: np.ndarray, y: np.ndarray) -> _TorchBaseEstimator:
-=======
     def _apply_temperature(self, logits: torch.Tensor) -> torch.Tensor:
         temperature = float(getattr(self, "temperature_", 1.0))
         if temperature <= 0:
@@ -389,7 +382,6 @@ class _TorchBaseEstimator(BaseEstimator, ClassifierMixin):
             self.temperature_fitted_ = False
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "_TorchBaseEstimator":
->>>>>>> origin/main
         set_seed(self.seed)
         X, y_encoded = self._prepare(X, y)
         self._setup_device()

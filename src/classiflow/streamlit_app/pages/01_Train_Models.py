@@ -2,15 +2,10 @@
 
 from pathlib import Path
 
-<<<<<<< HEAD
 import pandas as pd
 import streamlit as st
 
-from classiflow.config import MetaConfig, TrainConfig
-=======
-from classiflow.config import TrainConfig, MetaConfig, default_torch_num_workers
-from classiflow.training import train_binary_task, train_meta_classifier
->>>>>>> origin/main
+from classiflow.config import MetaConfig, TrainConfig, default_torch_num_workers
 from classiflow.streamlit_app.ui.helpers import list_outputs
 from classiflow.training import train_binary_task, train_meta_classifier
 

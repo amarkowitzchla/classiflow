@@ -76,9 +76,6 @@ class MulticlassMLP(nn.Module):
     """MLP for multiclass classification."""
 
     def __init__(
-<<<<<<< HEAD
-        self, input_dim: int, num_classes: int, hidden_dim: int, n_layers: int, dropout: float
-=======
         self,
         input_dim: int,
         num_classes: int,
@@ -87,7 +84,6 @@ class MulticlassMLP(nn.Module):
         dropout: float,
         activation: str = "relu",
         use_batchnorm: bool = False,
->>>>>>> origin/main
     ):
         super().__init__()
         layers: List[nn.Module] = []

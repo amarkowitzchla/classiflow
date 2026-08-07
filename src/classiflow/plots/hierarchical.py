@@ -369,17 +369,6 @@ def plot_pr_curve(
                 logger.warning("PR curve unavailable for %s class %s: %s", title, cls, exc)
 
         # Micro-average
-<<<<<<< HEAD
-        prec_micro, rec_micro, _ = precision_recall_curve(y_bin.ravel(), y_proba.ravel())
-        ap_micro = average_precision_score(y_bin, y_proba, average="micro")
-        plt.plot(
-            rec_micro,
-            prec_micro,
-            lw=2,
-            linestyle="--",
-            label=f"micro-avg (AP={ap_micro:.3f})",
-        )
-=======
         try:
             prec_micro, rec_micro, _ = safe_precision_recall_curve(
                 y_bin.ravel(), y_proba.ravel(), context=f"{title} PR micro-average"
@@ -397,7 +386,6 @@ def plot_pr_curve(
             has_curve = True
         except CurveDataUnavailableError as exc:
             logger.warning("PR micro-average unavailable for %s: %s", title, exc)
->>>>>>> origin/main
 
     plt.xlabel("Recall", fontsize=12)
     plt.ylabel("Precision", fontsize=12)

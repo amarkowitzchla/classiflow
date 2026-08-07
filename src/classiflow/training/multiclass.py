@@ -22,23 +22,19 @@ from sklearn.metrics import (
     roc_auc_score,
     roc_curve,
 )
-<<<<<<< HEAD
-from sklearn.model_selection import GridSearchCV, RepeatedStratifiedKFold, StratifiedKFold
-=======
-from sklearn.model_selection import StratifiedKFold, RepeatedStratifiedKFold, GridSearchCV, ParameterGrid
->>>>>>> origin/main
+from sklearn.model_selection import (
+    GridSearchCV,
+    ParameterGrid,
+    RepeatedStratifiedKFold,
+    StratifiedKFold,
+)
 from sklearn.preprocessing import StandardScaler, label_binarize
 
 from classiflow.config import MulticlassConfig
 from classiflow.io import load_data, load_data_with_groups, validate_data
 from classiflow.lineage.hashing import get_file_metadata
 from classiflow.lineage.manifest import create_training_manifest
-<<<<<<< HEAD
-=======
-from classiflow.models import AdaptiveSMOTE, get_estimators, get_param_grids, resolve_device
 from classiflow.backends.torch_progress import torch_fit_progress
-from classiflow.metrics.decision import compute_decision_metrics
->>>>>>> origin/main
 from classiflow.metrics.calibration import compute_probability_quality
 from classiflow.metrics.decision import compute_decision_metrics
 from classiflow.models import AdaptiveSMOTE, get_estimators, get_param_grids, resolve_device

@@ -6,11 +6,7 @@ import re
 import warnings
 from datetime import datetime
 from pathlib import Path
-<<<<<<< HEAD
-=======
 import os
-import re
->>>>>>> origin/main
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
@@ -391,17 +387,10 @@ class BundleConfig(BaseModel):
 class ExecutionTorchSettings(BaseModel):
     """Torch execution options used when engine is torch or hybrid."""
 
-<<<<<<< HEAD
-    dtype: Literal["float32", "float16"] = Field(
-        default="float32", description="Torch tensor dtype"
-    )
-    num_workers: int = Field(default=0, description="DataLoader worker count")
-=======
     dtype: Literal["float32", "float16"] = Field(default="float32", description="Torch tensor dtype")
     num_workers: int = Field(
         default_factory=_default_torch_num_workers, description="DataLoader worker count"
     )
->>>>>>> origin/main
     require_device: bool = Field(
         default=False,
         description="Fail instead of falling back if requested torch device is unavailable",

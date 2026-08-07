@@ -635,25 +635,7 @@ class LocalFilesystemScanner:
             "independent_test": "Independent Test",
         }
 
-<<<<<<< HEAD
-        def _get_section(obj, key, default):
-            if hasattr(obj, key):
-                return getattr(obj, key)
-            if isinstance(obj, dict):
-                return obj.get(key, default)
-            return default
-
-        def _as_dict(section):
-            if hasattr(section, "model_dump"):
-                return section.model_dump(mode="python")
-            if isinstance(section, dict):
-                return section
-            return {}
-
-        def _numeric_metrics(metrics: dict[str, Any]) -> dict[str, float]:
-=======
         def _numeric_metrics(metrics: dict[str, object]) -> dict[str, float]:
->>>>>>> origin/main
             filtered: dict[str, float] = {}
             for key, value in metrics.items():
                 if isinstance(value, numbers.Real):
@@ -664,134 +646,11 @@ class LocalFilesystemScanner:
 
         tech_run_id = decision.technical_run if decision else None
         if not tech_run_id and "technical_validation" in project.phases:
-<<<<<<< HEAD
-            # Use latest run
-=======
->>>>>>> origin/main
             tech_run_id = (
                 project.phases["technical_validation"][0]
                 if project.phases["technical_validation"]
                 else None
-<<<<<<< HEAD
             )
-
-        if tech_run_id:
-            tech_run = self.get_run(project_id, "technical_validation", tech_run_id)
-            tech_metrics = tech_run.metrics.get("summary", {}) if tech_run else {}
-            tech_per_fold = tech_run.metrics.get("per_fold", {}) if tech_run else {}
-
-            checks = []
-            all_passed = True
-
-            # Required metrics
-            required = tech_config.get("required", {})
-            for metric_name, threshold in required.items():
-                normalized = normalize_metric(metric_name)
-                actual = tech_metrics.get(normalized)
-                passed = actual is not None and actual >= threshold
-
-                checks.append(
-                    GateCheck(
-                        metric=metric_name,
-                        threshold=threshold,
-                        actual=actual,
-                        passed=passed,
-                        check_type="required",
-                    )
-                )
-                if not passed:
-                    all_passed = False
-
-            # Calibration metrics
-            if cal_config:
-                brier_max = (
-                    cal_config.get("brier_max")
-                    if isinstance(cal_config, dict)
-                    else cal_config.brier_max
-                )
-                ece_max = (
-                    cal_config.get("ece_max")
-                    if isinstance(cal_config, dict)
-                    else cal_config.ece_max
-                )
-                calibration_checks = []
-                if brier_max is not None:
-                    calibration_checks.append(("brier_calibrated", brier_max, "<="))
-                if ece_max is not None:
-                    calibration_checks.append(("ece_calibrated", ece_max, "<="))
-                for metric_name, threshold, direction in calibration_checks:
-                    actual = tech_metrics.get(metric_name)
-                    passed = actual is not None and actual <= threshold
-                    checks.append(
-                        GateCheck(
-                            metric=metric_name,
-                            threshold=threshold,
-                            actual=actual,
-                            passed=passed,
-                            check_type=f"calibration_{direction}",
-                        )
-                    )
-                    if not passed:
-                        all_passed = False
-
-            # Stability checks
-            stability = tech_config.get("stability", {})
-            if stability:
-                std_max = stability.get("std_max", {})
-                pass_rate_min = stability.get("pass_rate_min", 0.8)
-
-                for metric_name, max_std in std_max.items():
-                    normalized = normalize_metric(metric_name)
-                    fold_values = tech_per_fold.get(normalized, [])
-                    if fold_values:
-                        import statistics
-
-                        std = statistics.stdev(fold_values) if len(fold_values) > 1 else 0.0
-                        passed = std <= max_std
-                        checks.append(
-                            GateCheck(
-                                metric=f"{metric_name}_std",
-                                threshold=max_std,
-                                actual=std,
-                                passed=passed,
-                                check_type="stability_std",
-                            )
-                        )
-                        if not passed:
-                            all_passed = False
-
-                # Pass rate check for required metrics
-                for metric_name, threshold in required.items():
-                    normalized = normalize_metric(metric_name)
-                    fold_values = tech_per_fold.get(normalized, [])
-                    if fold_values:
-                        pass_count = sum(1 for v in fold_values if v >= threshold)
-                        actual_rate = pass_count / len(fold_values)
-                        passed = actual_rate >= pass_rate_min
-                        checks.append(
-                            GateCheck(
-                                metric=f"{metric_name}_pass_rate",
-                                threshold=pass_rate_min,
-                                actual=actual_rate,
-                                passed=passed,
-                                check_type="stability_pass_rate",
-                            )
-                        )
-                        if not passed:
-                            all_passed = False
-
-            results["technical_validation"] = GateResult(
-                phase="technical_validation",
-                phase_label=phase_labels["technical_validation"],
-                passed=all_passed,
-                run_id=tech_run_id,
-                run_key=f"{project_id}:technical_validation:{tech_run_id}",
-                checks=checks,
-                metrics_available=_numeric_metrics(tech_metrics),
-=======
->>>>>>> origin/main
-            )
-
         test_run_id = decision.test_run if decision else None
         if not test_run_id and "independent_test" in project.phases:
             test_run_id = (
@@ -822,57 +681,6 @@ class LocalFilesystemScanner:
             test_metrics=test_metrics,
         )
 
-<<<<<<< HEAD
-                checks.append(
-                    GateCheck(
-                        metric=metric_name,
-                        threshold=threshold,
-                        actual=actual,
-                        passed=passed,
-                        check_type="required",
-                    )
-                )
-                if not passed:
-                    all_passed = False
-
-            if cal_config:
-                brier_max = (
-                    cal_config.get("brier_max")
-                    if isinstance(cal_config, dict)
-                    else cal_config.brier_max
-                )
-                ece_max = (
-                    cal_config.get("ece_max")
-                    if isinstance(cal_config, dict)
-                    else cal_config.ece_max
-                )
-                calibration_checks = []
-                if brier_max is not None:
-                    calibration_checks.append(("brier_calibrated", brier_max, "<="))
-                if ece_max is not None:
-                    calibration_checks.append(("ece_calibrated", ece_max, "<="))
-                for metric_name, threshold, direction in calibration_checks:
-                    actual = test_metrics.get(metric_name)
-                    passed = actual is not None and actual <= threshold
-                    checks.append(
-                        GateCheck(
-                            metric=metric_name,
-                            threshold=threshold,
-                            actual=actual,
-                            passed=passed,
-                            check_type=f"calibration_{direction}",
-                        )
-                    )
-                    if not passed:
-                        all_passed = False
-
-            results["independent_test"] = GateResult(
-                phase="independent_test",
-                phase_label=phase_labels["independent_test"],
-                passed=all_passed,
-                run_id=test_run_id,
-                run_key=f"{project_id}:independent_test:{test_run_id}",
-=======
         def _check_type(metric: str, op: str) -> str:
             if metric.endswith("_std"):
                 return "stability_std"
@@ -905,7 +713,6 @@ class LocalFilesystemScanner:
                 passed=phase_result.passed,
                 run_id=run_id,
                 run_key=f"{project_id}:{phase}:{run_id}",
->>>>>>> origin/main
                 checks=checks,
                 metrics_available=_numeric_metrics(run_metrics),
             )
